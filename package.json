@@ -31,7 +31,9 @@
         },
         "ghostAlign.operators": {
           "type": "array",
-          "default": ["="],
+          "default": [
+            "="
+          ],
           "description": "Operators to align"
         }
       }
@@ -40,11 +42,15 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.85.0",
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "typescript": "^5.3.0"
   }
 }

@@ -48,7 +48,7 @@ function clearDecorations() {
 // ── Core logic ──────────────────────────────────────────────────────────
 
 /** Find the column of the first alignment-target operator on a line. */
-function findOperatorColumn(
+export function findOperatorColumn(
   lineText: string,
   operators: string[]
 ): number | null {
@@ -75,7 +75,7 @@ function findOperatorColumn(
  * Group consecutive lines that contain an operator.
  * Returns arrays of { lineIndex, operatorColumn }.
  */
-function findAlignmentGroups(
+export function findAlignmentGroups(
   document: vscode.TextDocument,
   operators: string[]
 ): { lineIndex: number; operatorColumn: number }[][] {
