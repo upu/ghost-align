@@ -13,6 +13,17 @@
         "kind": "build",
         "isDefault": true
       }
+    },
+    {
+      "label": "Package & Install VSIX",
+      "type": "npm",
+      "script": "package:install",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
     }
   ]
 }
