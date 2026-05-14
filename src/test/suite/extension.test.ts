@@ -54,6 +54,43 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("", ["="]), null);
   });
 
+  test("for 文の初期化句の `=` は無視する", () => {
+    assert.strictEqual(
+      findOperatorColumn("for (let i = 0; i < n; i++) {", ["="]),
+      null
+    );
+  });
+
+  test("関数のデフォルト引数の `=` は無視する", () => {
+    assert.strictEqual(
+      findOperatorColumn("function f(a = 1, b = 2) {}", ["="]),
+      null
+    );
+  });
+
+  test("カッコ内の `=` を無視しつつ外側の代入を検出する", () => {
+    // `const ok = a == b;` の最初の `=` を返す。比較演算子の `==` は無視。
+    assert.strictEqual(
+      findOperatorColumn("const ok = a == b;", ["="]),
+      9
+    );
+  });
+
+  test("文字列内の `=` は無視する", () => {
+    // `"a=b"` の中の `=` ではなく、その後ろの代入の `=` を返す
+    assert.strictEqual(
+      findOperatorColumn('const s = "a=b";', ["="]),
+      8
+    );
+  });
+
+  test("シングルクォート文字列内の `=` も無視する", () => {
+    assert.strictEqual(
+      findOperatorColumn("const s = 'a=b';", ["="]),
+      8
+    );
+  });
+
   test("`:` を JSON の行で検出する", () => {
     assert.strictEqual(
       findOperatorColumn('  "name": "foo",', [":"]),
@@ -162,6 +199,19 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[1].length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 0);
     assert.strictEqual(groups[1][0].lineIndex, 2);
+  });
+
+  test("for 文の行は通常の代入とアライメントグループを共有しない", () => {
+    const doc = mockDocument([
+      "  let inString = false;",
+      "  let escaped = false;",
+      "  for (let i = 0; i < lineText.length; i++) {",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 0);
+    assert.strictEqual(groups[0][1].lineIndex, 1);
   });
 
   test("インデント減少でも別グループになる", () => {

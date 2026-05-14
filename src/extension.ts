@@ -124,19 +124,71 @@ function findColonOutsideString(lineText: string): number {
   return -1;
 }
 
+/**
+ * Index of the first assignment `=` on a line, excluding:
+ *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
+ *     default arguments `function f(a = 1)`)
+ *   - any `=` inside `"..."` or `'...'` strings
+ *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
+ */
+function findAssignmentEquals(lineText: string): number {
+  let inString: false | '"' | "'" = false;
+  let escaped = false;
+  let depth = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch;
+      continue;
+    }
+    if (ch === "(" || ch === "[") {
+      depth++;
+      continue;
+    }
+    if (ch === ")" || ch === "]") {
+      if (depth > 0) {
+        depth--;
+      }
+      continue;
+    }
+    if (depth !== 0) {
+      continue;
+    }
+    if (ch === "=") {
+      const prev = lineText[i - 1];
+      const next = lineText[i + 1];
+      if (prev === "=" || prev === "!" || prev === "<" || prev === ">") {
+        continue;
+      }
+      if (next === "=" || next === ">") {
+        continue;
+      }
+      return i;
+    }
+  }
+  return -1;
+}
+
 /** Find the column of the first alignment-target operator on a line. */
 export function findOperatorColumn(
   lineText: string,
   operators: string[]
 ): number | null {
   for (const op of operators) {
-    // For "=" we need to avoid matching ==, !=, <=, >=, =>
     if (op === "=") {
-      const match = lineText.match(
-        /(?<![=!<>])=(?!=)/
-      );
-      if (match && match.index !== undefined) {
-        return match.index;
+      const idx = findAssignmentEquals(lineText);
+      if (idx !== -1) {
+        return idx;
       }
     } else if (op === ":") {
       const idx = findColonOutsideString(lineText);
