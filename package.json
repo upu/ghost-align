@@ -3,6 +3,12 @@
   "displayName": "Ghost Align",
   "description": "Visually align operators like = without modifying your source code",
   "version": "0.0.1",
+  "publisher": "upu",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/upu/ghost-align.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },

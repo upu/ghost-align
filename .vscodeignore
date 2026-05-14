@@ -1,4 +1,12 @@
-src/**
-node_modules/**
 .vscode/**
+.vscode-test/**
+.vscode-test.mjs
+.claude/**
+src/**
+out/test/**
+node_modules/**
+.gitignore
 tsconfig.json
+CLAUDE.md
+**/*.map
+**/*.ts
