@@ -1,6 +1,10 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { findOperatorColumn, findAlignmentGroups } from "../../extension";
+import {
+  findOperatorColumn,
+  findAlignmentGroups,
+  resolveGhostSettings,
+} from "../../extension";
 
 // vscode.TextDocument の最小限モック
 function mockDocument(lines: string[]) {
@@ -104,5 +108,54 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, ["="]);
     assert.strictEqual(groups[0][0].operatorColumn, 8);
     assert.strictEqual(groups[0][1].operatorColumn, 15);
+  });
+});
+
+// vscode.WorkspaceConfiguration の最小限モック
+function mockConfig(values: Record<string, unknown>) {
+  return {
+    get<T>(key: string, defaultValue: T): T {
+      return (key in values ? values[key] : defaultValue) as T;
+    },
+  };
+}
+
+suite("resolveGhostSettings", () => {
+  const DEFAULT_CHAR = " "; // NBSP
+  const DEFAULT_COLOR = "rgba(128, 128, 128, 0.25)";
+
+  test("設定が何もなければデフォルト値が使われる", () => {
+    const s = resolveGhostSettings(mockConfig({}));
+    assert.deepStrictEqual(s.operators, ["="]);
+    assert.strictEqual(s.ghostChar, DEFAULT_CHAR);
+    assert.strictEqual(s.ghostColor, DEFAULT_COLOR);
+  });
+
+  test("ghostCharacter が空文字列ならデフォルトにフォールバックする", () => {
+    const s = resolveGhostSettings(mockConfig({ ghostCharacter: "" }));
+    assert.strictEqual(s.ghostChar, DEFAULT_CHAR);
+  });
+
+  test("ghostColor が空文字列ならデフォルトにフォールバックする", () => {
+    const s = resolveGhostSettings(mockConfig({ ghostColor: "" }));
+    assert.strictEqual(s.ghostColor, DEFAULT_COLOR);
+  });
+
+  test("ユーザー設定値があればそれが使われる", () => {
+    const s = resolveGhostSettings(
+      mockConfig({
+        ghostCharacter: "·", // middle dot
+        ghostColor: "red",
+        operators: ["=", ":"],
+      })
+    );
+    assert.strictEqual(s.ghostChar, "·");
+    assert.strictEqual(s.ghostColor, "red");
+    assert.deepStrictEqual(s.operators, ["=", ":"]);
+  });
+
+  test('"transparent" は色を消す値として保持される（フォールバックしない）', () => {
+    const s = resolveGhostSettings(mockConfig({ ghostColor: "transparent" }));
+    assert.strictEqual(s.ghostColor, "transparent");
   });
 });

@@ -35,6 +35,16 @@
             "="
           ],
           "description": "Operators to align"
+        },
+        "ghostAlign.ghostCharacter": {
+          "type": "string",
+          "default": " ",
+          "description": "Character used for ghost padding. Defaults to a non-breaking space (U+00A0), which renders like a half-width space but is not collapsed by the editor's rendering. Plain ASCII spaces will be collapsed to one cell and break alignment — use NBSP or en-space (U+2002) if you customize this. Leaving this empty in the settings UI falls back to the default."
+        },
+        "ghostAlign.ghostColor": {
+          "type": "string",
+          "default": "rgba(128, 128, 128, 0.25)",
+          "description": "Tint color of the ghost padding (any CSS color string, e.g. \"rgba(128,128,128,0.25)\", \"#88888840\", \"transparent\"). Applied as both foreground and background so whitespace padding is distinguishable from real spaces. Leaving this empty in the settings UI falls back to the default; set \"transparent\" to disable tinting entirely."
         }
       }
     }
