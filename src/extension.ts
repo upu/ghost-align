@@ -56,20 +56,72 @@ function clearDecorations() {
 
 // ── Core logic ──────────────────────────────────────────────────────────
 
+// Default per-language operator overrides. Keep in sync with package.json.
+const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
+  json: [":"],
+  jsonc: [":"],
+};
+
 /**
- * Resolve the ghost-align settings from a VS Code-like configuration object.
+ * Resolve the ghost-align rendering settings (character + color).
  * An empty string from the settings UI is treated as "use default" so a
  * cleared field cannot silently break the feature (empty char → no padding,
  * empty color → invisible ghost).
  */
 export function resolveGhostSettings(
   config: { get<T>(key: string, defaultValue: T): T }
-): { operators: string[]; ghostChar: string; ghostColor: string } {
+): { ghostChar: string; ghostColor: string } {
   return {
-    operators: config.get<string[]>("operators", ["="]),
     ghostChar: config.get<string>("ghostCharacter", DEFAULT_GHOST_CHAR) || DEFAULT_GHOST_CHAR,
     ghostColor: config.get<string>("ghostColor", DEFAULT_GHOST_COLOR) || DEFAULT_GHOST_COLOR,
   };
+}
+
+/**
+ * Resolve the operator list for a given language. The per-language map takes
+ * precedence; if the language is not listed, fall back to the global
+ * `operators` setting (default `["="]`).
+ */
+export function resolveOperatorsForLanguage(
+  config: { get<T>(key: string, defaultValue: T): T },
+  languageId: string
+): string[] {
+  const byLang = config.get<Record<string, string[]>>(
+    "operatorsByLanguage",
+    DEFAULT_OPERATORS_BY_LANGUAGE
+  );
+  if (byLang && Object.prototype.hasOwnProperty.call(byLang, languageId)) {
+    return byLang[languageId];
+  }
+  return config.get<string[]>("operators", ["="]);
+}
+
+/**
+ * Index of the first `:` outside any double-quoted string. Walks the line
+ * character by character, tracking string state and `\` escapes (JSON rules).
+ */
+function findColonOutsideString(lineText: string): number {
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+    } else if (ch === ":") {
+      return i;
+    }
+  }
+  return -1;
 }
 
 /** Find the column of the first alignment-target operator on a line. */
@@ -86,6 +138,11 @@ export function findOperatorColumn(
       if (match && match.index !== undefined) {
         return match.index;
       }
+    } else if (op === ":") {
+      const idx = findColonOutsideString(lineText);
+      if (idx !== -1) {
+        return idx;
+      }
     } else {
       const idx = lineText.indexOf(op);
       if (idx !== -1) {
@@ -96,9 +153,19 @@ export function findOperatorColumn(
   return null;
 }
 
+/** Count leading whitespace characters (spaces or tabs). */
+function leadingIndent(lineText: string): number {
+  let i = 0;
+  while (i < lineText.length && (lineText[i] === " " || lineText[i] === "\t")) {
+    i++;
+  }
+  return i;
+}
+
 /**
  * Group consecutive lines that contain an operator.
- * Returns arrays of { lineIndex, operatorColumn }.
+ * A group is also split when the leading indent width changes — this keeps
+ * nested blocks (e.g. JSON objects) from being aligned across indent levels.
  */
 export function findAlignmentGroups(
   document: vscode.TextDocument,
@@ -106,23 +173,33 @@ export function findAlignmentGroups(
 ): { lineIndex: number; operatorColumn: number }[][] {
   const groups: { lineIndex: number; operatorColumn: number }[][] = [];
   let currentGroup: { lineIndex: number; operatorColumn: number }[] = [];
+  let currentIndent: number | null = null;
+
+  const flush = () => {
+    if (currentGroup.length >= 2) {
+      groups.push(currentGroup);
+    }
+    currentGroup = [];
+    currentIndent = null;
+  };
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
     const col = findOperatorColumn(lineText, operators);
 
-    if (col !== null) {
-      currentGroup.push({ lineIndex: i, operatorColumn: col });
-    } else {
-      if (currentGroup.length >= 2) {
-        groups.push(currentGroup);
-      }
-      currentGroup = [];
+    if (col === null) {
+      flush();
+      continue;
     }
+
+    const indent = leadingIndent(lineText);
+    if (currentIndent !== null && indent !== currentIndent) {
+      flush();
+    }
+    currentGroup.push({ lineIndex: i, operatorColumn: col });
+    currentIndent = indent;
   }
-  if (currentGroup.length >= 2) {
-    groups.push(currentGroup);
-  }
+  flush();
 
   return groups;
 }
@@ -139,7 +216,11 @@ function updateDecorations() {
     return;
   }
 
-  const { operators, ghostChar, ghostColor } = resolveGhostSettings(config);
+  const { ghostChar, ghostColor } = resolveGhostSettings(config);
+  const operators = resolveOperatorsForLanguage(
+    config,
+    editor.document.languageId
+  );
   const groups = findAlignmentGroups(editor.document, operators);
   const decorations: vscode.DecorationOptions[] = [];
 

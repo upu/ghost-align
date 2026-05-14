@@ -4,6 +4,7 @@ import {
   findOperatorColumn,
   findAlignmentGroups,
   resolveGhostSettings,
+  resolveOperatorsForLanguage,
 } from "../../extension";
 
 // vscode.TextDocument の最小限モック
@@ -51,6 +52,40 @@ suite("findOperatorColumn", () => {
 
   test("空行は null を返す", () => {
     assert.strictEqual(findOperatorColumn("", ["="]), null);
+  });
+
+  test("`:` を JSON の行で検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn('  "name": "foo",', [":"]),
+      8
+    );
+  });
+
+  test("文字列内の `:` は無視する", () => {
+    // `"foo: bar"` の中の `:` ではなく、その後ろのキーバリュー区切りの `:` を返す
+    assert.strictEqual(
+      findOperatorColumn('  "foo: bar": 1', [":"]),
+      12
+    );
+  });
+
+  test("文字列内にしか `:` がない行は null を返す", () => {
+    assert.strictEqual(
+      findOperatorColumn('  "only : here"', [":"]),
+      null
+    );
+  });
+
+  test("エスケープされたダブルクォートを終端と誤認しない", () => {
+    // "esc \": x" : 1 — \" は文字列の終端ではない。最初の生 `:` はインデックス 13
+    assert.strictEqual(
+      findOperatorColumn('"esc \\": x": 1', [":"]),
+      11
+    );
+  });
+
+  test("`:` のない JSON 行は null を返す", () => {
+    assert.strictEqual(findOperatorColumn("{", [":"]), null);
   });
 });
 
@@ -109,6 +144,38 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][0].operatorColumn, 8);
     assert.strictEqual(groups[0][1].operatorColumn, 15);
   });
+
+  test("インデント幅が変わったら別グループになる", () => {
+    const doc = mockDocument([
+      '  "name": "foo",',     // indent 2
+      '  "engines": {',       // indent 2
+      '    "vscode": "^1",',  // indent 4 — 別グループ
+      '    "node": "^20"',    // indent 4
+      "  },",
+      '  "version": "0.0.1"', // indent 2 — また別グループ
+    ]);
+    const groups = findAlignmentGroups(doc, [":"]);
+    // インデント2の最初の2行で1グループ、インデント4の2行で1グループ。
+    // 最後のindent2行は単独なのでグループにならない（≥2要件）。
+    assert.strictEqual(groups.length, 2);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[1].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 0);
+    assert.strictEqual(groups[1][0].lineIndex, 2);
+  });
+
+  test("インデント減少でも別グループになる", () => {
+    const doc = mockDocument([
+      '    "a": 1,',  // indent 4
+      '    "b": 2,',  // indent 4
+      '  "c": 3,',    // indent 2 — 別グループ
+      '  "d": 4',     // indent 2
+    ]);
+    const groups = findAlignmentGroups(doc, [":"]);
+    assert.strictEqual(groups.length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 0);
+    assert.strictEqual(groups[1][0].lineIndex, 2);
+  });
 });
 
 // vscode.WorkspaceConfiguration の最小限モック
@@ -126,7 +193,6 @@ suite("resolveGhostSettings", () => {
 
   test("設定が何もなければデフォルト値が使われる", () => {
     const s = resolveGhostSettings(mockConfig({}));
-    assert.deepStrictEqual(s.operators, ["="]);
     assert.strictEqual(s.ghostChar, DEFAULT_CHAR);
     assert.strictEqual(s.ghostColor, DEFAULT_COLOR);
   });
@@ -146,16 +212,66 @@ suite("resolveGhostSettings", () => {
       mockConfig({
         ghostCharacter: "·", // middle dot
         ghostColor: "red",
-        operators: ["=", ":"],
       })
     );
     assert.strictEqual(s.ghostChar, "·");
     assert.strictEqual(s.ghostColor, "red");
-    assert.deepStrictEqual(s.operators, ["=", ":"]);
   });
 
   test('"transparent" は色を消す値として保持される（フォールバックしない）', () => {
     const s = resolveGhostSettings(mockConfig({ ghostColor: "transparent" }));
     assert.strictEqual(s.ghostColor, "transparent");
+  });
+});
+
+suite("resolveOperatorsForLanguage", () => {
+  test("JSON は既定で `:` を揃える", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(mockConfig({}), "json"),
+      [":"]
+    );
+  });
+
+  test("JSONC も既定で `:` を揃える", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(mockConfig({}), "jsonc"),
+      [":"]
+    );
+  });
+
+  test("マップにない言語はグローバル `operators` にフォールバックする", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(mockConfig({}), "typescript"),
+      ["="]
+    );
+  });
+
+  test("ユーザーが operatorsByLanguage を設定すれば反映される", () => {
+    const ops = resolveOperatorsForLanguage(
+      mockConfig({
+        operatorsByLanguage: { yaml: [":"], typescript: ["=", ":"] },
+      }),
+      "typescript"
+    );
+    assert.deepStrictEqual(ops, ["=", ":"]);
+  });
+
+  test("operatorsByLanguage を空オブジェクトで上書きするとどの言語もフォールバックする", () => {
+    const ops = resolveOperatorsForLanguage(
+      mockConfig({
+        operatorsByLanguage: {},
+        operators: ["="],
+      }),
+      "json"
+    );
+    assert.deepStrictEqual(ops, ["="]);
+  });
+
+  test("operators がユーザー設定で上書きされていればフォールバック先がそれになる", () => {
+    const ops = resolveOperatorsForLanguage(
+      mockConfig({ operators: ["=", "=>"] }),
+      "typescript"
+    );
+    assert.deepStrictEqual(ops, ["=", "=>"]);
   });
 });

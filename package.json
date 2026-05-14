@@ -40,7 +40,25 @@
           "default": [
             "="
           ],
-          "description": "Operators to align"
+          "description": "Operators to align (used when the current language is not listed in ghostAlign.operatorsByLanguage)"
+        },
+        "ghostAlign.operatorsByLanguage": {
+          "type": "object",
+          "default": {
+            "json": [
+              ":"
+            ],
+            "jsonc": [
+              ":"
+            ]
+          },
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": "Per-language operator overrides keyed by languageId (e.g. \"json\", \"jsonc\", \"typescript\"). If the current document's language is listed here, this list is used in place of ghostAlign.operators."
         },
         "ghostAlign.ghostCharacter": {
           "type": "string",
