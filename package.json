@@ -1,0 +1,50 @@
+{
+  "name": "ghost-align",
+  "displayName": "Ghost Align",
+  "description": "Visually align operators like = without modifying your source code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Formatters",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ghostAlign.toggle",
+        "title": "Ghost Align: Toggle"
+      }
+    ],
+    "configuration": {
+      "title": "Ghost Align",
+      "properties": {
+        "ghostAlign.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable visual alignment"
+        },
+        "ghostAlign.operators": {
+          "type": "array",
+          "default": ["="],
+          "description": "Operators to align"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0"
+  }
+}
