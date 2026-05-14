@@ -3,6 +3,15 @@ import * as vscode from "vscode";
 // Decoration type: the base style is empty; per-instance renderOptions inject the padding
 const alignDecorationType = vscode.window.createTextEditorDecorationType({});
 
+// Fallbacks used when the user clears a setting to an empty string in the UI.
+// Keep these in sync with the defaults in package.json.
+// NBSP (U+00A0) instead of ASCII space: VS Code collapses consecutive ASCII
+// spaces in decoration `contentText`, so plain " ".repeat(N) renders as a
+// single space and breaks alignment. NBSP renders identically in monospace
+// fonts but is not collapsed.
+const DEFAULT_GHOST_CHAR = " ";
+const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
+
 let enabled = true;
 
 export function activate(context: vscode.ExtensionContext) {
@@ -46,6 +55,22 @@ function clearDecorations() {
 }
 
 // ── Core logic ──────────────────────────────────────────────────────────
+
+/**
+ * Resolve the ghost-align settings from a VS Code-like configuration object.
+ * An empty string from the settings UI is treated as "use default" so a
+ * cleared field cannot silently break the feature (empty char → no padding,
+ * empty color → invisible ghost).
+ */
+export function resolveGhostSettings(
+  config: { get<T>(key: string, defaultValue: T): T }
+): { operators: string[]; ghostChar: string; ghostColor: string } {
+  return {
+    operators: config.get<string[]>("operators", ["="]),
+    ghostChar: config.get<string>("ghostCharacter", DEFAULT_GHOST_CHAR) || DEFAULT_GHOST_CHAR,
+    ghostColor: config.get<string>("ghostColor", DEFAULT_GHOST_COLOR) || DEFAULT_GHOST_COLOR,
+  };
+}
 
 /** Find the column of the first alignment-target operator on a line. */
 export function findOperatorColumn(
@@ -114,7 +139,7 @@ function updateDecorations() {
     return;
   }
 
-  const operators = config.get<string[]>("operators", ["="]);
+  const { operators, ghostChar, ghostColor } = resolveGhostSettings(config);
   const groups = findAlignmentGroups(editor.document, operators);
   const decorations: vscode.DecorationOptions[] = [];
 
@@ -127,7 +152,6 @@ function updateDecorations() {
         continue; // already at the max position
       }
 
-      // Insert invisible padding just before the operator
       const pos = new vscode.Position(entry.lineIndex, entry.operatorColumn);
       const range = new vscode.Range(pos, pos);
 
@@ -135,8 +159,9 @@ function updateDecorations() {
         range,
         renderOptions: {
           before: {
-            contentText: "\u2002".repeat(padding), // en-space for consistent width
-            color: "transparent",
+            contentText: ghostChar.repeat(padding),
+            color: ghostColor,
+            backgroundColor: ghostColor,
           },
         },
       });
