@@ -30,12 +30,17 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Update on editor / document changes
+  // Update on editor / document / configuration changes
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
     vscode.workspace.onDidChangeTextDocument((e) => {
       const editor = vscode.window.activeTextEditor;
       if (editor && e.document === editor.document) {
+        updateDecorations();
+      }
+    }),
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration("ghostAlign")) {
         updateDecorations();
       }
     })
