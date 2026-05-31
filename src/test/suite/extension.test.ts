@@ -91,6 +91,42 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("行末コメント内の `=` は無視する", () => {
+    assert.strictEqual(
+      findOperatorColumn("const x = 1; // y = 2", ["="]),
+      8
+    );
+  });
+
+  test("丸ごとコメント行は null を返す", () => {
+    assert.strictEqual(findOperatorColumn("// const x = 1;", ["="]), null);
+  });
+
+  test("単一行ブロックコメント内の `=` は無視する", () => {
+    assert.strictEqual(
+      findOperatorColumn("const x = 1; /* y = 2 */", ["="]),
+      8
+    );
+  });
+
+  test("ブロックコメント内にしか `=` がない行は null を返す", () => {
+    assert.strictEqual(findOperatorColumn("/* x = 1 */", ["="]), null);
+  });
+
+  test("ブロックコメントの後ろにある代入を検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* note */ const x = 1;", ["="]),
+      19
+    );
+  });
+
+  test("文字列内の `//` をコメント開始と誤認しない", () => {
+    assert.strictEqual(
+      findOperatorColumn('const url = "http://x";', ["="]),
+      10
+    );
+  });
+
   test("`:` を JSON の行で検出する", () => {
     assert.strictEqual(
       findOperatorColumn('  "name": "foo",', [":"]),
@@ -212,6 +248,19 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0].length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 0);
     assert.strictEqual(groups[0][1].lineIndex, 1);
+  });
+
+  test("コメント行はグループの最大列を押し上げない", () => {
+    // 修正前は `// const yyyyyy = 2;` の `=`(列17)を拾い、3行が1グループに
+    // まとまって x/z のパディングが列17まで伸びていた。修正後はコメント行が
+    // 演算子なし扱いとなり、両側が単独行になるためグループ化されない。
+    const doc = mockDocument([
+      "const x = 1;",         // = at 8
+      "// const yyyyyy = 2;", // コメント行 — 演算子なし扱い
+      "const z = 3;",         // = at 8
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 0);
   });
 
   test("インデント減少でも別グループになる", () => {

@@ -134,7 +134,12 @@ function findColonOutsideString(lineText: string): number {
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
  *   - any `=` inside `"..."` or `'...'` strings
+ *   - any `=` inside `//` line comments or single-line `/* ... *​/` blocks
  *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
+ *
+ * Block comments spanning multiple lines are not tracked: this function sees
+ * one line at a time, so a `/*` without a matching `*​/` is treated as a
+ * comment running to the end of the line.
  */
 function findAssignmentEquals(lineText: string): number {
   let inString: false | '"' | "'" = false;
@@ -154,6 +159,19 @@ function findAssignmentEquals(lineText: string): number {
     }
     if (ch === '"' || ch === "'") {
       inString = ch;
+      continue;
+    }
+    if (ch === "/" && lineText[i + 1] === "/") {
+      // Line comment: nothing after this can be an assignment.
+      return -1;
+    }
+    if (ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        // Unterminated block comment: treat the rest of the line as comment.
+        return -1;
+      }
+      i = close + 1; // loop's i++ advances past the closing `/`
       continue;
     }
     if (ch === "(" || ch === "[") {
