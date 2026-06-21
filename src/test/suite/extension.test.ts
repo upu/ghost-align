@@ -5,7 +5,10 @@ import {
   findAlignmentGroups,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
+  debounce,
 } from "../../extension";
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // vscode.TextDocument の最小限モック
 function mockDocument(lines: string[]) {
@@ -274,6 +277,37 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 0);
     assert.strictEqual(groups[1][0].lineIndex, 2);
+  });
+});
+
+suite("debounce", () => {
+  test("短時間の連続呼び出しは1回にまとめられる", async () => {
+    let calls = 0;
+    const d = debounce(() => calls++, 20);
+    d();
+    d();
+    d();
+    await wait(50);
+    assert.strictEqual(calls, 1);
+  });
+
+  test("最後に渡した引数で呼ばれる", async () => {
+    const received: number[] = [];
+    const d = debounce((n: number) => received.push(n), 20);
+    d(1);
+    d(2);
+    d(3);
+    await wait(50);
+    assert.deepStrictEqual(received, [3]);
+  });
+
+  test("cancel() で保留中の呼び出しが破棄される", async () => {
+    let calls = 0;
+    const d = debounce(() => calls++, 20);
+    d();
+    d.cancel();
+    await wait(50);
+    assert.strictEqual(calls, 0);
   });
 });
 
