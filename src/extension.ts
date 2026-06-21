@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
 
-// Decoration type: the base style is empty; per-instance renderOptions inject the padding
-const alignDecorationType = vscode.window.createTextEditorDecorationType({});
+// Decoration type: the base style is empty; per-instance renderOptions inject
+// the padding. Created in `activate` and registered for disposal there.
+let alignDecorationType: vscode.TextEditorDecorationType;
 
 // Fallbacks used when the user clears a setting to an empty string in the UI.
 // Keep these in sync with the defaults in package.json.
@@ -15,6 +16,14 @@ const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 let enabled = true;
 
 export function activate(context: vscode.ExtensionContext) {
+  alignDecorationType = vscode.window.createTextEditorDecorationType({});
+  context.subscriptions.push(alignDecorationType);
+
+  // Debounce document-edit updates so rapid typing in large files does not
+  // trigger a full re-scan on every keystroke.
+  const debouncedUpdate = debounce(updateDecorations, 80);
+  context.subscriptions.push({ dispose: () => debouncedUpdate.cancel() });
+
   // Toggle command
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.toggle", () => {
@@ -36,7 +45,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       const editor = vscode.window.activeTextEditor;
       if (editor && e.document === editor.document) {
-        updateDecorations();
+        debouncedUpdate();
       }
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -57,6 +66,35 @@ function clearDecorations() {
   for (const editor of vscode.window.visibleTextEditors) {
     editor.setDecorations(alignDecorationType, []);
   }
+}
+
+/**
+ * Wrap `fn` so that rapid successive calls collapse into a single deferred
+ * call, fired `delayMs` after the last invocation. The returned function
+ * exposes `cancel()` to drop any pending call (used on deactivate so a timer
+ * cannot fire against a disposed decoration type).
+ */
+export function debounce<A extends unknown[]>(
+  fn: (...args: A) => void,
+  delayMs: number
+): { (...args: A): void; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const wrapped = (...args: A) => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+    timer = setTimeout(() => {
+      timer = undefined;
+      fn(...args);
+    }, delayMs);
+  };
+  wrapped.cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+  };
+  return wrapped;
 }
 
 // ── Core logic ──────────────────────────────────────────────────────────
