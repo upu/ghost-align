@@ -9,6 +9,24 @@
     "type": "git",
     "url": "https://github.com/upu/ghost-align.git"
   },
+  "homepage": "https://github.com/upu/ghost-align#readme",
+  "bugs": {
+    "url": "https://github.com/upu/ghost-align/issues"
+  },
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e2330",
+    "theme": "dark"
+  },
+  "keywords": [
+    "align",
+    "alignment",
+    "formatter",
+    "visual",
+    "decoration",
+    "operator",
+    "ghost"
+  ],
   "engines": {
     "vscode": "^1.85.0"
   },
