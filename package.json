@@ -68,6 +68,27 @@
             ],
             "jsonc": [
               ":"
+            ],
+            "yaml": [
+              ":"
+            ],
+            "dotenv": [
+              "="
+            ],
+            "properties": [
+              "="
+            ],
+            "toml": [
+              "="
+            ],
+            "css": [
+              ":"
+            ],
+            "scss": [
+              ":"
+            ],
+            "less": [
+              ":"
             ]
           },
           "additionalProperties": {
