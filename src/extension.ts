@@ -103,6 +103,13 @@ export function debounce<A extends unknown[]>(
 const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   json: [":"],
   jsonc: [":"],
+  yaml: [":"],
+  dotenv: ["="],
+  properties: ["="],
+  toml: ["="],
+  css: [":"],
+  scss: [":"],
+  less: [":"],
 };
 
 /**

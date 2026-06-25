@@ -372,6 +372,26 @@ suite("resolveOperatorsForLanguage", () => {
     );
   });
 
+  test("yaml / css / scss / less は既定で `:` を揃える", () => {
+    for (const lang of ["yaml", "css", "scss", "less"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(mockConfig({}), lang),
+        [":"],
+        lang
+      );
+    }
+  });
+
+  test("dotenv / properties / toml は既定で `=` を揃える", () => {
+    for (const lang of ["dotenv", "properties", "toml"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(mockConfig({}), lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
   test("マップにない言語はグローバル `operators` にフォールバックする", () => {
     assert.deepStrictEqual(
       resolveOperatorsForLanguage(mockConfig({}), "typescript"),
