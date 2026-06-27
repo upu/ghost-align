@@ -18,7 +18,7 @@ Take an existing GitHub issue from `gh issue view` through to a merged PR, follo
 4. **Test (gate)** — run `npm run compile`, then `npm test`. All tests must pass. When the acceptance criteria call for it, add or extend tests to prove the behavior. If anything is red, fix it; do not open a PR on a failing build.
 5. **Commit** — run `git status` / `git diff` to confirm only intended changes are staged, then commit with a concise message in the repo's style (a Japanese summary line) ending with `Closes #$ARGUMENTS`.
 6. **Push & PR** — `git push -u origin <branch>`, then `gh pr create --base main` with a body that summarizes the change and ends with `Closes #$ARGUMENTS`.
-7. **Wait for CI** — poll `gh pr checks <pr>` until the `test` check is `SUCCESS`. If it fails, inspect the run logs, fix, and push again.
+7. **Wait for CI** — run `gh pr checks <pr> --watch --fail-fast`. This blocks in a single command until all checks finish (no hand-rolled sleep loop); it exits non-zero if a check fails. For runs that take a few minutes, launch it with `run_in_background` so it does not block — you are re-invoked when it exits. If a check fails, inspect the run logs, fix, and push again.
 8. **Merge** — `gh pr merge <pr> --squash --delete-branch` (allowed merge methods are squash/rebase only). Then `git checkout main && git pull` to sync local main.
 9. **Report** — state the merged PR number, that the issue auto-closed via `Closes #N`, and the new `main` commit.
 
