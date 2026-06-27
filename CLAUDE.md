@@ -32,8 +32,15 @@ npm run watch      # ファイル変更時に自動ビルド
 
 ## ワークフロー
 
+GitHub Flow を採用。main は常にリリース可能な状態を保つ。
+
 - issue 駆動で進める。改善点を優先度付きの GitHub issue にし、1 つずつ実装・merge する
-- 作業が完了したら commit & push する
+- main へ直接 push しない。変更は必ず作業ブランチ → PR 経由で入れる
+  - ブランチは最新の `origin/main` から切る
+  - PR は CI（`test`）が green になってから squash merge する
+  - merge 後は不要になった作業ブランチを削除する
+- main にはブランチ保護（ruleset）がかかっており、直接 push・force push・削除は禁止
+  - 設定の確認場所: GitHub の Settings → Rules → Rulesets
 
 ## 行動原則
 
