@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-06-28
+
 ### Added
 
 - 初回リリース。
@@ -26,4 +28,5 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/commits/main
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.0.1...HEAD
+[0.0.1]: https://github.com/upu/ghost-align/releases/tag/v0.0.1
