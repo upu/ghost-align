@@ -6,6 +6,7 @@ import {
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   resolveInitialEnabled,
+  statusBarText,
   debounce,
 } from "../../extension";
 
@@ -450,5 +451,15 @@ suite("resolveInitialEnabled", () => {
 
   test("ON を保存していれば有効で復元する", () => {
     assert.strictEqual(resolveInitialEnabled(mockState({ enabled: true })), true);
+  });
+});
+
+suite("statusBarText", () => {
+  test("有効なら ON を表示する", () => {
+    assert.strictEqual(statusBarText(true), "Ghost Align: ON");
+  });
+
+  test("無効なら OFF を表示する", () => {
+    assert.strictEqual(statusBarText(false), "Ghost Align: OFF");
   });
 });

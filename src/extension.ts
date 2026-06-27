@@ -18,6 +18,9 @@ const ENABLED_STATE_KEY = "enabled";
 
 let enabled = true;
 
+// Status bar item reflecting the current ON/OFF state; clicking it toggles.
+let statusBarItem: vscode.StatusBarItem;
+
 /**
  * Resolve the toggle state from persisted storage. Defaults to enabled so
  * existing users (no stored value) keep the feature on.
@@ -28,11 +31,24 @@ export function resolveInitialEnabled(
   return state.get<boolean>(ENABLED_STATE_KEY, true);
 }
 
+/** Label shown in the status bar for the given toggle state. */
+export function statusBarText(isEnabled: boolean): string {
+  return `Ghost Align: ${isEnabled ? "ON" : "OFF"}`;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   alignDecorationType = vscode.window.createTextEditorDecorationType({});
   context.subscriptions.push(alignDecorationType);
 
   enabled = resolveInitialEnabled(context.globalState);
+
+  statusBarItem = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    100
+  );
+  statusBarItem.command = "ghostAlign.toggle";
+  statusBarItem.tooltip = "Toggle Ghost Align";
+  context.subscriptions.push(statusBarItem);
 
   // Debounce document-edit updates so rapid typing in large files does not
   // trigger a full re-scan on every keystroke.
@@ -52,6 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
       } else {
         clearDecorations();
       }
+      updateStatusBar();
     })
   );
 
@@ -67,11 +84,13 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration("ghostAlign")) {
         updateDecorations();
+        updateStatusBar();
       }
     })
   );
 
   updateDecorations();
+  updateStatusBar();
 }
 
 export function deactivate() {
@@ -82,6 +101,19 @@ function clearDecorations() {
   for (const editor of vscode.window.visibleTextEditors) {
     editor.setDecorations(alignDecorationType, []);
   }
+}
+
+function updateStatusBar() {
+  if (!statusBarItem) {
+    return;
+  }
+  const config = vscode.workspace.getConfiguration("ghostAlign");
+  if (!config.get<boolean>("showStatusBar", true)) {
+    statusBarItem.hide();
+    return;
+  }
+  statusBarItem.text = statusBarText(enabled);
+  statusBarItem.show();
 }
 
 /**
