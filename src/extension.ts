@@ -60,9 +60,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand("ghostAlign.toggle", () => {
       enabled = !enabled;
       void context.globalState.update(ENABLED_STATE_KEY, enabled);
-      vscode.window.showInformationMessage(
-        `Align Without Edit: ${enabled ? "ON" : "OFF"}`
-      );
+      vscode.window.showInformationMessage(statusBarText(enabled));
       if (enabled) {
         updateDecorations();
       } else {
