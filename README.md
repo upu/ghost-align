@@ -1,3 +1,9 @@
+<!--
+  このファイルは VS Code Marketplace の拡張機能ページとして公開されます（利用者向け）。
+  開発・ビルド・デバッグ・コントリビュートの手順は docs/CONTRIBUTING.md に書き、
+  ここには利用者向けの内容だけを置いてください（開発者向けの記述を追加しないこと）。
+-->
+
 # Ghost Align
 
 > Visually align operators like `=` without modifying your source code.
@@ -37,8 +43,6 @@ const longName = 3;
 
 ## インストール
 
-### Marketplace からインストール
-
 VS Code の拡張機能ビュー（`Ctrl+Shift+X`）で **Ghost Align** を検索し、Install を押します。
 
 コマンドラインからは次のとおりです。
@@ -48,25 +52,6 @@ code --install-extension upu.ghost-align
 ```
 
 Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=upu.ghost-align>
-
-### VSIX からインストール（開発）
-
-```bash
-npm install
-npm run package          # ghost-align.vsix を生成
-npm run install:vsix     # 生成した VSIX をインストール
-```
-
-`npm run package:install` で生成とインストールをまとめて実行できます。
-
-### ソースから実行（開発）
-
-```bash
-npm install
-npm run compile          # TypeScript をビルド
-```
-
-VS Code でリポジトリを開き、`F5`（Run Extension）でデバッグ用のウィンドウを起動します。
 
 ## 使い方
 
