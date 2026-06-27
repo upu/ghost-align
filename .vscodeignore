@@ -4,7 +4,7 @@
 .vscode-test.mjs
 .claude/**
 src/**
-out/test/**
+out-tsc/**
 node_modules/**
 .gitignore
 tsconfig.json

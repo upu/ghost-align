@@ -1,5 +1,6 @@
 node_modules/
 out/
+out-tsc/
 .vscode-test/
 *.vsix
 .claude/settings.local.json
