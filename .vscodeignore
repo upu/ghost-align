@@ -5,6 +5,8 @@
 .claude/**
 docs/**
 src/**
+out/**
+!out/extension.js
 out-tsc/**
 node_modules/**
 .gitignore
