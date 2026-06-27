@@ -3,6 +3,7 @@
 .vscode-test/**
 .vscode-test.mjs
 .claude/**
+docs/**
 src/**
 out-tsc/**
 node_modules/**
