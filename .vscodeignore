@@ -1,3 +1,4 @@
+.github/**
 .vscode/**
 .vscode-test/**
 .vscode-test.mjs
@@ -7,6 +8,7 @@ out/test/**
 node_modules/**
 .gitignore
 tsconfig.json
+esbuild.js
 CLAUDE.md
 **/*.map
 **/*.ts
