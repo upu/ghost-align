@@ -13,11 +13,26 @@ let alignDecorationType: vscode.TextEditorDecorationType;
 const DEFAULT_GHOST_CHAR = " ";
 const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 
+// globalState key under which the toggle state is persisted across reloads.
+const ENABLED_STATE_KEY = "enabled";
+
 let enabled = true;
+
+/**
+ * Resolve the toggle state from persisted storage. Defaults to enabled so
+ * existing users (no stored value) keep the feature on.
+ */
+export function resolveInitialEnabled(
+  state: { get<T>(key: string, defaultValue: T): T }
+): boolean {
+  return state.get<boolean>(ENABLED_STATE_KEY, true);
+}
 
 export function activate(context: vscode.ExtensionContext) {
   alignDecorationType = vscode.window.createTextEditorDecorationType({});
   context.subscriptions.push(alignDecorationType);
+
+  enabled = resolveInitialEnabled(context.globalState);
 
   // Debounce document-edit updates so rapid typing in large files does not
   // trigger a full re-scan on every keystroke.
@@ -28,6 +43,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.toggle", () => {
       enabled = !enabled;
+      void context.globalState.update(ENABLED_STATE_KEY, enabled);
       vscode.window.showInformationMessage(
         `Align Without Edit: ${enabled ? "ON" : "OFF"}`
       );
