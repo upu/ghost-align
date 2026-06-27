@@ -108,7 +108,7 @@ function updateStatusBar() {
     return;
   }
   const config = vscode.workspace.getConfiguration("ghostAlign");
-  if (!config.get<boolean>("showStatusBar", true)) {
+  if (!config.get<boolean>("showStatusBar", false)) {
     statusBarItem.hide();
     return;
   }
