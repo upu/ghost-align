@@ -5,6 +5,7 @@ import {
   findAlignmentGroups,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
+  resolveInitialEnabled,
   debounce,
 } from "../../extension";
 
@@ -426,5 +427,28 @@ suite("resolveOperatorsForLanguage", () => {
       "typescript"
     );
     assert.deepStrictEqual(ops, ["=", "=>"]);
+  });
+});
+
+// vscode.Memento (globalState) の最小限モック
+function mockState(values: Record<string, unknown>) {
+  return {
+    get<T>(key: string, defaultValue: T): T {
+      return (key in values ? values[key] : defaultValue) as T;
+    },
+  };
+}
+
+suite("resolveInitialEnabled", () => {
+  test("globalState 未設定ならデフォルトで有効（既存ユーザーは ON のまま）", () => {
+    assert.strictEqual(resolveInitialEnabled(mockState({})), true);
+  });
+
+  test("OFF を保存していればリロード後も無効のまま復元する", () => {
+    assert.strictEqual(resolveInitialEnabled(mockState({ enabled: false })), false);
+  });
+
+  test("ON を保存していれば有効で復元する", () => {
+    assert.strictEqual(resolveInitialEnabled(mockState({ enabled: true })), true);
   });
 });
