@@ -55,7 +55,7 @@
         },
         "ghostAlign.showStatusBar": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Show a status bar item indicating Ghost Align ON/OFF (click to toggle)"
         },
         "ghostAlign.operators": {
