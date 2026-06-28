@@ -4,6 +4,7 @@ import {
   findOperatorColumn,
   findAlignmentGroups,
   visualColumn,
+  computePaddings,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   resolveInitialEnabled,
@@ -429,6 +430,61 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, ["="], undefined, 4);
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].length, 2);
+  });
+});
+
+suite("computePaddings", () => {
+  test("グループ内の各行を最大視覚カラムまでパディングする", () => {
+    const placements = computePaddings([
+      [
+        { lineIndex: 0, operatorColumn: 8, visualColumn: 8 },
+        { lineIndex: 1, operatorColumn: 15, visualColumn: 15 },
+      ],
+    ]);
+    // 行0 は 15-8=7 パディング、行1 は最大なのでスキップ。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 8, padding: 7 },
+    ]);
+  });
+
+  test("character は operatorColumn（文字インデックス）を使う", () => {
+    // タブで visualColumn と operatorColumn が異なるケース。
+    const placements = computePaddings([
+      [
+        { lineIndex: 0, operatorColumn: 3, visualColumn: 6 },
+        { lineIndex: 1, operatorColumn: 10, visualColumn: 13 },
+      ],
+    ]);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 3, padding: 7 },
+    ]);
+  });
+
+  test("既に揃っているグループは空を返す", () => {
+    const placements = computePaddings([
+      [
+        { lineIndex: 0, operatorColumn: 5, visualColumn: 5 },
+        { lineIndex: 1, operatorColumn: 5, visualColumn: 5 },
+      ],
+    ]);
+    assert.deepStrictEqual(placements, []);
+  });
+
+  test("複数グループをまとめて処理する", () => {
+    const placements = computePaddings([
+      [
+        { lineIndex: 0, operatorColumn: 2, visualColumn: 2 },
+        { lineIndex: 1, operatorColumn: 4, visualColumn: 4 },
+      ],
+      [
+        { lineIndex: 3, operatorColumn: 1, visualColumn: 1 },
+        { lineIndex: 4, operatorColumn: 3, visualColumn: 3 },
+      ],
+    ]);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 2 },
+      { lineIndex: 3, character: 1, padding: 2 },
+    ]);
   });
 });
 

@@ -73,9 +73,12 @@ export function activate(context: vscode.ExtensionContext) {
   // Update on editor / document / configuration changes
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
+    vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
     vscode.workspace.onDidChangeTextDocument((e) => {
-      const editor = vscode.window.activeTextEditor;
-      if (editor && e.document === editor.document) {
+      const shown = vscode.window.visibleTextEditors.some(
+        (editor) => editor.document === e.document
+      );
+      if (shown) {
         debouncedUpdate();
       }
     }),
@@ -582,19 +585,40 @@ function resolveTabSize(editor: vscode.TextEditor): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAB_SIZE;
 }
 
-function updateDecorations() {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    return;
+/**
+ * Compute the ghost-padding placements for alignment groups. Pure: for each
+ * line that is not already at its group's max visual column, returns the line
+ * and character to decorate (the operator's character index) and how many ghost
+ * characters to insert before it.
+ */
+export function computePaddings(
+  groups: { lineIndex: number; operatorColumn: number; visualColumn: number }[][]
+): { lineIndex: number; character: number; padding: number }[] {
+  const placements: { lineIndex: number; character: number; padding: number }[] = [];
+  for (const group of groups) {
+    const maxCol = Math.max(...group.map((g) => g.visualColumn));
+    for (const entry of group) {
+      const padding = maxCol - entry.visualColumn;
+      if (padding <= 0) {
+        continue; // already at the max position
+      }
+      placements.push({
+        lineIndex: entry.lineIndex,
+        character: entry.operatorColumn,
+        padding,
+      });
+    }
   }
+  return placements;
+}
 
-  const config = vscode.workspace.getConfiguration("ghostAlign");
-  if (!config.get<boolean>("enabled", true) || !enabled) {
-    clearDecorations();
-    return;
-  }
-
-  const { ghostChar, ghostColor } = resolveGhostSettings(config);
+/** Apply ghost-align decorations to a single editor. */
+function decorateEditor(
+  editor: vscode.TextEditor,
+  config: vscode.WorkspaceConfiguration,
+  ghostChar: string,
+  ghostColor: string
+) {
   const operators = resolveOperatorsForLanguage(
     config,
     editor.document.languageId
@@ -605,32 +629,35 @@ function updateDecorations() {
     editor.document.languageId,
     resolveTabSize(editor)
   );
-  const decorations: vscode.DecorationOptions[] = [];
 
-  for (const group of groups) {
-    const maxCol = Math.max(...group.map((g) => g.visualColumn));
-
-    for (const entry of group) {
-      const padding = maxCol - entry.visualColumn;
-      if (padding <= 0) {
-        continue; // already at the max position
-      }
-
-      const pos = new vscode.Position(entry.lineIndex, entry.operatorColumn);
-      const range = new vscode.Range(pos, pos);
-
-      decorations.push({
-        range,
+  const decorations: vscode.DecorationOptions[] = computePaddings(groups).map(
+    (p) => {
+      const pos = new vscode.Position(p.lineIndex, p.character);
+      return {
+        range: new vscode.Range(pos, pos),
         renderOptions: {
           before: {
-            contentText: ghostChar.repeat(padding),
+            contentText: ghostChar.repeat(p.padding),
             color: ghostColor,
             backgroundColor: ghostColor,
           },
         },
-      });
+      };
     }
-  }
+  );
 
   editor.setDecorations(alignDecorationType, decorations);
+}
+
+function updateDecorations() {
+  const config = vscode.workspace.getConfiguration("ghostAlign");
+  if (!config.get<boolean>("enabled", true) || !enabled) {
+    clearDecorations();
+    return;
+  }
+
+  const { ghostChar, ghostColor } = resolveGhostSettings(config);
+  for (const editor of vscode.window.visibleTextEditors) {
+    decorateEditor(editor, config, ghostChar, ghostColor);
+  }
 }
