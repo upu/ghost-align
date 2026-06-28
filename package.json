@@ -63,7 +63,7 @@
           "default": [
             "="
           ],
-          "description": "Operators to align (used when the current language is not listed in ghostAlign.operatorsByLanguage)"
+          "description": "Operators to align (used when the current language is not listed in ghostAlign.operatorsByLanguage). Supported special tokens: \"=\" (assignment), \":\" (JSON/YAML key or CSS declaration), \"//\" and \"#\" (trailing line comments). Any other string is matched literally. The list order is the priority: the first operator found on a line is the one aligned, so only one column is aligned per line."
         },
         "ghostAlign.operatorsByLanguage": {
           "type": "object",
@@ -102,7 +102,7 @@
               "type": "string"
             }
           },
-          "description": "Per-language operator overrides keyed by languageId (e.g. \"json\", \"jsonc\", \"typescript\"). If the current document's language is listed here, this list is used in place of ghostAlign.operators."
+          "description": "Per-language operator overrides keyed by languageId (e.g. \"json\", \"jsonc\", \"typescript\"). If the current document's language is listed here, this list is used in place of ghostAlign.operators. Each value is a list of operators (see ghostAlign.operators for supported tokens such as \"=\", \":\", \"//\", \"#\"); e.g. set \"typescript\": [\"//\"] to align trailing comments."
         },
         "ghostAlign.ghostCharacter": {
           "type": "string",

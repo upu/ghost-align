@@ -203,6 +203,52 @@ suite("findOperatorColumn", () => {
       1
     );
   });
+
+  test("行末コメント `//` の位置を返す", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
+  });
+
+  test("丸ごとコメント行の `//` は対象外", () => {
+    assert.strictEqual(findOperatorColumn("// just a comment", ["//"]), null);
+  });
+
+  test("インデント付きの丸ごとコメント行も対象外", () => {
+    assert.strictEqual(findOperatorColumn("   // comment", ["//"]), null);
+  });
+
+  test("文字列内の `//` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn('const u = "a//b";', ["//"]), null);
+  });
+
+  test("URL（http://）の `//` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn("const u = http://x", ["//"]), null);
+  });
+
+  test("ブロックコメント内の `//` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn("x = 1; /* a // b */", ["//"]), null);
+  });
+
+  test("行末コメント `#` の位置を返す", () => {
+    assert.strictEqual(findOperatorColumn("x = 1 # note", ["#"]), 6);
+  });
+
+  test("丸ごとコメント行の `#` は対象外", () => {
+    assert.strictEqual(findOperatorColumn("# comment", ["#"]), null);
+  });
+
+  test("空白前置のない `#` は行末コメント扱いしない", () => {
+    assert.strictEqual(findOperatorColumn("value#x", ["#"]), null);
+  });
+
+  test("文字列内の `#` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn('name = "a#b"', ["#"]), null);
+  });
+
+  test("operators の並び順が優先度になる（先頭が優先）", () => {
+    // `=` を先に置けば代入の `=`、`//` を先に置けば行末コメントを返す
+    assert.strictEqual(findOperatorColumn("x = 1; // c", ["=", "//"]), 2);
+    assert.strictEqual(findOperatorColumn("x = 1; // c", ["//", "="]), 7);
+  });
 });
 
 suite("findAlignmentGroups", () => {
@@ -353,6 +399,27 @@ suite("findAlignmentGroups", () => {
     // tabSize 8: \t→8。= の視覚カラムは 10 と 17。
     assert.strictEqual(groups[0][0].visualColumn, 10);
     assert.strictEqual(groups[0][1].visualColumn, 17);
+  });
+
+  test("連続行の行末コメント `//` をグループ化する", () => {
+    const doc = mockDocument([
+      "x = 1; // a",      // // at 7
+      "total = 42; // b", // // at 12
+    ]);
+    const groups = findAlignmentGroups(doc, ["//"]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].operatorColumn, 7);
+    assert.strictEqual(groups[0][1].operatorColumn, 12);
+  });
+
+  test("丸ごとコメント行はグループを分断する", () => {
+    const doc = mockDocument([
+      "x = 1; // a",
+      "// 丸ごとコメント",
+      "y = 2; // b",
+    ]);
+    const groups = findAlignmentGroups(doc, ["//"]);
+    assert.strictEqual(groups.length, 0);
   });
 
   test("スペース/タブ混在でも視覚インデントが同じなら同じグループになる", () => {
