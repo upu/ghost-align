@@ -165,6 +165,43 @@ suite("findOperatorColumn", () => {
   test("`:` のない JSON 行は null を返す", () => {
     assert.strictEqual(findOperatorColumn("{", [":"]), null);
   });
+
+  test("CSS: 擬似クラスの `:` ではなく宣言の `:` を返す", () => {
+    // `a:hover { color: red; }` の宣言 `:`（列15）を返す。`a:hover` の `:`（列1）は対象外。
+    assert.strictEqual(
+      findOperatorColumn("a:hover { color: red; }", [":"], "css"),
+      15
+    );
+  });
+
+  test("CSS: 擬似要素 `::before` の `:` を対象にしない", () => {
+    assert.strictEqual(
+      findOperatorColumn('.foo::before { content: ""; }', [":"], "css"),
+      22
+    );
+  });
+
+  test("CSS: url() 内の `:` ではなくプロパティの `:` を返す", () => {
+    assert.strictEqual(
+      findOperatorColumn("  background: url(http://a.b/c)", [":"], "css"),
+      12
+    );
+  });
+
+  test("CSS: ブロックのない宣言行は最初の `:` を返す", () => {
+    assert.strictEqual(findOperatorColumn("  color: red;", [":"], "css"), 7);
+  });
+
+  test("CSS: 値が空でない `:` のない行は null を返す", () => {
+    assert.strictEqual(findOperatorColumn("a:hover {", [":"], "css"), null);
+  });
+
+  test("languageId 未指定なら CSS 用検出は使わない（従来どおり最初の `:`）", () => {
+    assert.strictEqual(
+      findOperatorColumn("a:hover { color: red; }", [":"]),
+      1
+    );
+  });
 });
 
 suite("findAlignmentGroups", () => {
@@ -266,6 +303,21 @@ suite("findAlignmentGroups", () => {
     ]);
     const groups = findAlignmentGroups(doc, ["="]);
     assert.strictEqual(groups.length, 0);
+  });
+
+  test("CSS: セレクタ行はグループに含めず宣言行だけを揃える", () => {
+    const doc = mockDocument([
+      "a:hover {",          // セレクタ行 — 擬似クラスの `:` は対象外 → 演算子なし
+      "  color: red;",      // : at 7
+      "  background: blue;", // : at 12
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "css");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 1);
+    assert.strictEqual(groups[0][0].operatorColumn, 7);
+    assert.strictEqual(groups[0][1].operatorColumn, 12);
   });
 
   test("インデント減少でも別グループになる", () => {

@@ -220,6 +220,95 @@ function findColonOutsideString(lineText: string): number {
   return -1;
 }
 
+/** Language IDs whose `:` is a CSS declaration separator, not a JSON/YAML key. */
+const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
+
+/** Index of the first `{` outside any string, or -1. */
+function indexOfTopLevelBrace(lineText: string): number {
+  let inString: false | '"' | "'" = false;
+  let escaped = false;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch;
+    } else if (ch === "{") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Index of the CSS declaration-separator `:` (the `:` in `color: red`),
+ * excluding:
+ *   - `:` inside `"..."` / `'...'` strings
+ *   - `:` inside `(...)`, e.g. `url(http://...)`
+ *   - pseudo-element `::` and pseudo-class `:` in the selector part
+ *     (`a:hover`, `.x::before`)
+ *
+ * The rule block `{` separates selector from declarations: colons before the
+ * first `{` on the line are treated as selectors and skipped. A line with no
+ * `{` — the common multi-line declaration such as `  color: red;` — is treated
+ * as a declaration, so its first qualifying `:` is returned.
+ */
+function findCssColon(lineText: string): number {
+  const braceIndex = indexOfTopLevelBrace(lineText);
+  let inString: false | '"' | "'" = false;
+  let escaped = false;
+  let parenDepth = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch;
+      continue;
+    }
+    if (ch === "(") {
+      parenDepth++;
+      continue;
+    }
+    if (ch === ")") {
+      if (parenDepth > 0) {
+        parenDepth--;
+      }
+      continue;
+    }
+    if (parenDepth !== 0) {
+      continue;
+    }
+    if (ch === ":") {
+      if (lineText[i + 1] === ":") {
+        i++; // pseudo-element `::`
+        continue;
+      }
+      if (braceIndex !== -1 && i < braceIndex) {
+        continue; // selector pseudo-class, before the rule block
+      }
+      return i;
+    }
+  }
+  return -1;
+}
+
 /**
  * Index of the first assignment `=` on a line, excluding:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
@@ -296,7 +385,8 @@ function findAssignmentEquals(lineText: string): number {
 /** Find the column of the first alignment-target operator on a line. */
 export function findOperatorColumn(
   lineText: string,
-  operators: string[]
+  operators: string[],
+  languageId?: string
 ): number | null {
   for (const op of operators) {
     if (op === "=") {
@@ -305,7 +395,10 @@ export function findOperatorColumn(
         return idx;
       }
     } else if (op === ":") {
-      const idx = findColonOutsideString(lineText);
+      const idx =
+        languageId && CSS_LANGUAGES.has(languageId)
+          ? findCssColon(lineText)
+          : findColonOutsideString(lineText);
       if (idx !== -1) {
         return idx;
       }
@@ -335,7 +428,8 @@ function leadingIndent(lineText: string): number {
  */
 export function findAlignmentGroups(
   document: vscode.TextDocument,
-  operators: string[]
+  operators: string[],
+  languageId?: string
 ): { lineIndex: number; operatorColumn: number }[][] {
   const groups: { lineIndex: number; operatorColumn: number }[][] = [];
   let currentGroup: { lineIndex: number; operatorColumn: number }[] = [];
@@ -351,7 +445,7 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-    const col = findOperatorColumn(lineText, operators);
+    const col = findOperatorColumn(lineText, operators, languageId);
 
     if (col === null) {
       flush();
@@ -387,7 +481,11 @@ function updateDecorations() {
     config,
     editor.document.languageId
   );
-  const groups = findAlignmentGroups(editor.document, operators);
+  const groups = findAlignmentGroups(
+    editor.document,
+    operators,
+    editor.document.languageId
+  );
   const decorations: vscode.DecorationOptions[] = [];
 
   for (const group of groups) {
