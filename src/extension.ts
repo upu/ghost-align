@@ -382,6 +382,72 @@ function findAssignmentEquals(lineText: string): number {
   return -1;
 }
 
+/**
+ * Index of a *trailing* line-comment marker (`//` or `#`) on a line, or -1.
+ * Excludes:
+ *   - markers inside `"..."` / `'...'` strings
+ *   - whole-line comments (the marker is the first non-whitespace token)
+ *   - `//` that is part of a URL scheme such as `http://` (preceded by `:`)
+ *   - for `#`, a marker not preceded by whitespace (so `value#x` is not a comment)
+ *   - `//` inside a single-line `/* ... *​/` block (only for the `//` marker)
+ */
+function findTrailingComment(lineText: string, marker: "//" | "#"): number {
+  let inString: false | '"' | "'" = false;
+  let escaped = false;
+  let seenCode = false;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === inString) {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = ch;
+      seenCode = true;
+      continue;
+    }
+    if (marker === "//" && ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        return -1;
+      }
+      i = close + 1;
+      seenCode = true;
+      continue;
+    }
+    if (marker === "//" && ch === "/" && lineText[i + 1] === "/") {
+      if (!seenCode) {
+        return -1;
+      }
+      if (lineText[i - 1] === ":") {
+        i++; // URL scheme like http:// — skip both slashes and keep scanning
+        continue;
+      }
+      return i;
+    }
+    if (marker === "#" && ch === "#") {
+      if (!seenCode) {
+        return -1;
+      }
+      const prev = lineText[i - 1];
+      if (prev === " " || prev === "\t") {
+        return i;
+      }
+      continue;
+    }
+    if (ch !== " " && ch !== "\t") {
+      seenCode = true;
+    }
+  }
+  return -1;
+}
+
 /** Find the column of the first alignment-target operator on a line. */
 export function findOperatorColumn(
   lineText: string,
@@ -399,6 +465,11 @@ export function findOperatorColumn(
         languageId && CSS_LANGUAGES.has(languageId)
           ? findCssColon(lineText)
           : findColonOutsideString(lineText);
+      if (idx !== -1) {
+        return idx;
+      }
+    } else if (op === "//" || op === "#") {
+      const idx = findTrailingComment(lineText, op);
       if (idx !== -1) {
         return idx;
       }
