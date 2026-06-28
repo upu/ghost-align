@@ -123,6 +123,7 @@
     "watch": "node esbuild.js --watch",
     "compile": "tsc -p ./",
     "check-types": "tsc --noEmit",
+    "check:package": "npm run build && node scripts/check-package-contents.js",
     "test": "vscode-test",
     "package": "vsce package --out ghost-align.vsix",
     "install:vsix": "code --install-extension ghost-align.vsix --force",
