@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import {
   findOperatorColumn,
   findAlignmentGroups,
+  visualColumn,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   resolveInitialEnabled,
@@ -331,6 +332,57 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 0);
     assert.strictEqual(groups[1][0].lineIndex, 2);
+  });
+
+  test("タブインデントの代入行は視覚カラムで揃える", () => {
+    // tabSize 4: "\tx = 1;" の = は文字インデックス3・視覚カラム6、
+    // "\tlongName = 2;" の = は文字インデックス10・視覚カラム13。
+    const doc = mockDocument(["\tx = 1;", "\tlongName = 2;"]);
+    const groups = findAlignmentGroups(doc, ["="], undefined, 4);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].operatorColumn, 3);
+    assert.strictEqual(groups[0][0].visualColumn, 6);
+    assert.strictEqual(groups[0][1].operatorColumn, 10);
+    assert.strictEqual(groups[0][1].visualColumn, 13);
+  });
+
+  test("tabSize を変えても同じグループにまとまる", () => {
+    const doc = mockDocument(["\tx = 1;", "\tlongName = 2;"]);
+    const groups = findAlignmentGroups(doc, ["="], undefined, 8);
+    assert.strictEqual(groups.length, 1);
+    // tabSize 8: \t→8。= の視覚カラムは 10 と 17。
+    assert.strictEqual(groups[0][0].visualColumn, 10);
+    assert.strictEqual(groups[0][1].visualColumn, 17);
+  });
+
+  test("スペース/タブ混在でも視覚インデントが同じなら同じグループになる", () => {
+    // tabSize 4: タブ1個もスペース4個も視覚インデントは 4。
+    // 文字数基準だと 1 と 4 で別グループに割れていた。
+    const doc = mockDocument(["\tx = 1;", "    y = 2;"]);
+    const groups = findAlignmentGroups(doc, ["="], undefined, 4);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+  });
+});
+
+suite("visualColumn", () => {
+  test("タブは次のタブストップまで展開する（tabSize 4）", () => {
+    assert.strictEqual(visualColumn("\tx", 0, 4), 0); // 何もない手前
+    assert.strictEqual(visualColumn("\tx", 1, 4), 4); // タブの直後
+    assert.strictEqual(visualColumn("\tx", 2, 4), 5); // タブ+1文字の直後
+  });
+
+  test("タブ以外は1カラムずつ進む", () => {
+    assert.strictEqual(visualColumn("abc", 3, 4), 3);
+  });
+
+  test("タブの後の文字位置はタブ展開を反映する", () => {
+    // "\tab" の 'b'（文字インデックス2）は \t=4, a=5 の次なので視覚カラム5。
+    assert.strictEqual(visualColumn("\tab", 2, 4), 5);
+  });
+
+  test("charIndex が行長を超えても破綻しない", () => {
+    assert.strictEqual(visualColumn("ab", 10, 4), 2);
   });
 });
 

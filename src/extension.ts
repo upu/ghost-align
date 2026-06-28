@@ -412,6 +412,9 @@ export function findOperatorColumn(
   return null;
 }
 
+/** Default tab width used when an editor's tabSize cannot be resolved. */
+const DEFAULT_TAB_SIZE = 4;
+
 /** Count leading whitespace characters (spaces or tabs). */
 function leadingIndent(lineText: string): number {
   let i = 0;
@@ -422,17 +425,47 @@ function leadingIndent(lineText: string): number {
 }
 
 /**
+ * Visual column of the character at `charIndex` (the rendered width of the
+ * prefix before it), expanding tabs to the next multiple of `tabSize`. Used so
+ * alignment and group splitting compare on-screen positions rather than raw
+ * character counts, which differ once tabs are involved.
+ */
+export function visualColumn(
+  lineText: string,
+  charIndex: number,
+  tabSize: number
+): number {
+  let col = 0;
+  const end = Math.min(charIndex, lineText.length);
+  for (let i = 0; i < end; i++) {
+    if (lineText[i] === "\t") {
+      col += tabSize - (col % tabSize);
+    } else {
+      col += 1;
+    }
+  }
+  return col;
+}
+
+/**
  * Group consecutive lines that contain an operator.
  * A group is also split when the leading indent width changes — this keeps
  * nested blocks (e.g. JSON objects) from being aligned across indent levels.
+ *
+ * `operatorColumn` is the character index (used to position the decoration),
+ * while `visualColumn` is the rendered column (used to compute padding and the
+ * group's alignment target). Indent comparison and alignment use visual columns
+ * so tabs and tab/space mixes line up on screen, not by raw character count.
  */
 export function findAlignmentGroups(
   document: vscode.TextDocument,
   operators: string[],
-  languageId?: string
-): { lineIndex: number; operatorColumn: number }[][] {
-  const groups: { lineIndex: number; operatorColumn: number }[][] = [];
-  let currentGroup: { lineIndex: number; operatorColumn: number }[] = [];
+  languageId?: string,
+  tabSize: number = DEFAULT_TAB_SIZE
+): { lineIndex: number; operatorColumn: number; visualColumn: number }[][] {
+  type Entry = { lineIndex: number; operatorColumn: number; visualColumn: number };
+  const groups: Entry[][] = [];
+  let currentGroup: Entry[] = [];
   let currentIndent: number | null = null;
 
   const flush = () => {
@@ -452,16 +485,30 @@ export function findAlignmentGroups(
       continue;
     }
 
-    const indent = leadingIndent(lineText);
+    const indent = visualColumn(lineText, leadingIndent(lineText), tabSize);
     if (currentIndent !== null && indent !== currentIndent) {
       flush();
     }
-    currentGroup.push({ lineIndex: i, operatorColumn: col });
+    currentGroup.push({
+      lineIndex: i,
+      operatorColumn: col,
+      visualColumn: visualColumn(lineText, col, tabSize),
+    });
     currentIndent = indent;
   }
   flush();
 
   return groups;
+}
+
+/** Resolve the effective tab width of an editor, falling back to the default. */
+function resolveTabSize(editor: vscode.TextEditor): number {
+  const t = editor.options.tabSize;
+  if (typeof t === "number" && t > 0) {
+    return t;
+  }
+  const parsed = typeof t === "string" ? parseInt(t, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAB_SIZE;
 }
 
 function updateDecorations() {
@@ -484,15 +531,16 @@ function updateDecorations() {
   const groups = findAlignmentGroups(
     editor.document,
     operators,
-    editor.document.languageId
+    editor.document.languageId,
+    resolveTabSize(editor)
   );
   const decorations: vscode.DecorationOptions[] = [];
 
   for (const group of groups) {
-    const maxCol = Math.max(...group.map((g) => g.operatorColumn));
+    const maxCol = Math.max(...group.map((g) => g.visualColumn));
 
     for (const entry of group) {
-      const padding = maxCol - entry.operatorColumn;
+      const padding = maxCol - entry.visualColumn;
       if (padding <= 0) {
         continue; // already at the max position
       }
