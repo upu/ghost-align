@@ -20,7 +20,7 @@ Run the planning phase for the next version: read the code, propose improvements
 
 4. **Present and prioritize with the user** — show the findings and feature ideas with a recommended priority (high / med / low) and a recommended cut for the target version. Use `AskUserQuestion` to converge on: which items go into this version, and the priority of each. Do not file issues until the user has chosen.
 
-5. **Set up the milestone and labels** — ensure a milestone for the target version exists (`gh api repos/:owner/:repo/milestones -f title="vX.Y.Z" -f state="open" -f description="..."`). Ensure `priority:high` / `priority:med` / `priority:low` labels exist (create with `gh label create` if missing). Use `bug` / `enhancement` for type.
+5. **Set up the milestone and labels** — ensure a milestone for the target version exists (`gh api repos/:owner/:repo/milestones -f title="vX.Y.Z" -f state="open" -f description="..."`). Ensure `priority:high` / `priority:med` / `priority:low` labels exist (create with `gh label create` if missing). For type, label every issue with one of: `bug`, `enhancement`, `documentation`, `ci`, `chore` (match the issue's title prefix — `fix:`→bug, `feat:`→enhancement, `docs:`→documentation, `ci:`→ci, and `build:`/`workflow:`/`chore:`→chore). Create any missing type label with `gh label create`.
 
 6. **File the chosen issues** — for each selected item, write a body with sections: 背景 / 期待する挙動 / 設計メモ / 受け入れ基準. Create with `gh issue create --milestone "vX.Y.Z" --label <type> --label <priority>`. For a child of a tracking issue, reference the parent (`関連: #N`) and add a comment to the parent linking the new child.
 
@@ -30,5 +30,5 @@ Run the planning phase for the next version: read the code, propose improvements
 
 - This is a planning skill: its output is issues + a milestone, not code. Do not start implementing here — that is `/ship`.
 - One concern per issue so each can be shipped independently.
-- Milestone = "which release"; labels = type + priority. Keep that split.
+- Three label axes: type (`bug`/`enhancement`/`documentation`/`ci`/`chore`) + priority (`priority:high`/`med`/`low`) + milestone (which release). Keep that split; every issue gets one type label and one priority label.
 - If a finding is out of scope for the target version, still file it as an issue (no milestone) so it is not lost, per this repo's issue-driven workflow.
