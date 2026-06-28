@@ -12,6 +12,10 @@
 - Markdown テーブルの列の表示整列に対応。ソースを変えずに、各列の `|` 区切りが縦に揃って見えるようゴーストパディングを挿入する（ヘッダ行・区切り行・データ行を含むテーブルを検出。セル内のエスケープ `\|` も考慮）。
 - 行末コメント（`//` / `#`）の整列に対応。`ghostAlign.operators` / `ghostAlign.operatorsByLanguage` に `"//"` または `"#"` を指定すると、連続する行のコメント開始位置を揃える（例: TypeScript で `"typescript": ["//"]`）。文字列内・`http://` などの URL・行全体がコメントの行は対象外。整列は 1 行 1 カラムで、`operators` の並び順が優先度になる。
 
+### Changed
+
+- Marketplace のカテゴリを `Formatters` から `Visualization` に変更。Ghost Align はソースをフォーマットせず表示のみ整える拡張のため、フォーマッタを期待した誤認を避ける。
+
 ### Fixed
 
 - CSS / SCSS / LESS で、擬似クラス（`a:hover`）・擬似要素（`::before`）・`url(http://...)` 内の `:` をアライメント対象から誤検出しないよう修正。プロパティ宣言の `:`（例: `color: red`）のみを揃える。
