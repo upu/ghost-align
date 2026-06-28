@@ -612,6 +612,114 @@ export function computePaddings(
   return placements;
 }
 
+/** Language IDs that use the Markdown table alignment path instead of operators. */
+const MARKDOWN_LANGUAGES = new Set(["markdown"]);
+
+/**
+ * Char indices of the unescaped `|` table delimiters in a line. A `|` preceded
+ * by an odd number of backslashes is escaped (`\|`) and not a delimiter.
+ */
+export function findPipePositions(lineText: string): number[] {
+  const positions: number[] = [];
+  for (let i = 0; i < lineText.length; i++) {
+    if (lineText[i] !== "|") {
+      continue;
+    }
+    let backslashes = 0;
+    for (let j = i - 1; j >= 0 && lineText[j] === "\\"; j--) {
+      backslashes++;
+    }
+    if (backslashes % 2 === 0) {
+      positions.push(i);
+    }
+  }
+  return positions;
+}
+
+/** Whether a line is a GFM table delimiter row, e.g. `|---|:--:|`. */
+export function isDelimiterRow(lineText: string): boolean {
+  const t = lineText.trim();
+  if (!t.includes("|") || !t.includes("-")) {
+    return false;
+  }
+  return /^[|\-:\s]+$/.test(t);
+}
+
+/**
+ * Detect GFM table blocks: a header row (containing `|`), a delimiter row, then
+ * data rows (non-blank, containing `|`). Returns each block as its line indices.
+ */
+export function findMarkdownTables(lines: string[]): number[][] {
+  const tables: number[][] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const isHeader = findPipePositions(lines[i]).length > 0;
+    if (isHeader && i + 1 < lines.length && isDelimiterRow(lines[i + 1])) {
+      const block = [i, i + 1];
+      let j = i + 2;
+      while (
+        j < lines.length &&
+        lines[j].trim().length > 0 &&
+        findPipePositions(lines[j]).length > 0
+      ) {
+        block.push(j);
+        j++;
+      }
+      tables.push(block);
+      i = j;
+    } else {
+      i++;
+    }
+  }
+  return tables;
+}
+
+/**
+ * Ghost-padding placements that align the `|` delimiters of every Markdown table
+ * in `lines`. Each cell is padded to its column's widest cell by inserting ghost
+ * characters before the trailing `|`, so all delimiters line up. Returns the same
+ * placement shape as computePaddings.
+ */
+export function computeMarkdownTablePaddings(
+  lines: string[],
+  tabSize: number
+): { lineIndex: number; character: number; padding: number }[] {
+  const placements: { lineIndex: number; character: number; padding: number }[] = [];
+
+  for (const block of findMarkdownTables(lines)) {
+    const rows = block.map((lineIndex) => {
+      const text = lines[lineIndex];
+      const pipes = findPipePositions(text);
+      const segWidths: number[] = [];
+      let prevVisual = 0;
+      for (const pipe of pipes) {
+        const pipeVisual = visualColumn(text, pipe, tabSize);
+        segWidths.push(pipeVisual - prevVisual);
+        prevVisual = pipeVisual + 1; // skip the pipe character (width 1)
+      }
+      return { lineIndex, pipes, segWidths };
+    });
+
+    const maxSeg: number[] = [];
+    for (const row of rows) {
+      row.segWidths.forEach((w, k) => {
+        maxSeg[k] = Math.max(maxSeg[k] ?? 0, w);
+      });
+    }
+
+    for (const row of rows) {
+      row.pipes.forEach((pipe, k) => {
+        const padding = maxSeg[k] - row.segWidths[k];
+        if (padding > 0) {
+          placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
+        }
+      });
+    }
+  }
+
+  return placements;
+}
+
 /** Apply ghost-align decorations to a single editor. */
 function decorateEditor(
   editor: vscode.TextEditor,
@@ -619,18 +727,28 @@ function decorateEditor(
   ghostChar: string,
   ghostColor: string
 ) {
-  const operators = resolveOperatorsForLanguage(
-    config,
-    editor.document.languageId
-  );
-  const groups = findAlignmentGroups(
-    editor.document,
-    operators,
-    editor.document.languageId,
-    resolveTabSize(editor)
-  );
+  const languageId = editor.document.languageId;
+  const tabSize = resolveTabSize(editor);
 
-  const decorations: vscode.DecorationOptions[] = computePaddings(groups).map(
+  let placements: { lineIndex: number; character: number; padding: number }[];
+  if (MARKDOWN_LANGUAGES.has(languageId)) {
+    const lines: string[] = [];
+    for (let i = 0; i < editor.document.lineCount; i++) {
+      lines.push(editor.document.lineAt(i).text);
+    }
+    placements = computeMarkdownTablePaddings(lines, tabSize);
+  } else {
+    const operators = resolveOperatorsForLanguage(config, languageId);
+    const groups = findAlignmentGroups(
+      editor.document,
+      operators,
+      languageId,
+      tabSize
+    );
+    placements = computePaddings(groups);
+  }
+
+  const decorations: vscode.DecorationOptions[] = placements.map(
     (p) => {
       const pos = new vscode.Position(p.lineIndex, p.character);
       return {

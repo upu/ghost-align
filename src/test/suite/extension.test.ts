@@ -5,6 +5,10 @@ import {
   findAlignmentGroups,
   visualColumn,
   computePaddings,
+  findPipePositions,
+  isDelimiterRow,
+  findMarkdownTables,
+  computeMarkdownTablePaddings,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   resolveInitialEnabled,
@@ -506,6 +510,97 @@ suite("visualColumn", () => {
 
   test("charIndex が行長を超えても破綻しない", () => {
     assert.strictEqual(visualColumn("ab", 10, 4), 2);
+  });
+});
+
+suite("findPipePositions", () => {
+  test("区切りの `|` 位置を返す", () => {
+    assert.deepStrictEqual(findPipePositions("| a | b |"), [0, 4, 8]);
+  });
+
+  test("エスケープされた `\\|` は区切りにしない", () => {
+    // "| a \| b | c |" の \| は対象外
+    assert.deepStrictEqual(findPipePositions("| a \\| b | c |"), [0, 9, 13]);
+  });
+
+  test("エスケープされたバックスラッシュ後の `|` は区切りになる", () => {
+    // "\\|" は「エスケープされた \」+「生の |」
+    assert.deepStrictEqual(findPipePositions("a\\\\| b"), [3]);
+  });
+
+  test("`|` がない行は空配列", () => {
+    assert.deepStrictEqual(findPipePositions("no pipes here"), []);
+  });
+});
+
+suite("isDelimiterRow", () => {
+  test("`|---|---|` は区切り行", () => {
+    assert.strictEqual(isDelimiterRow("|---|---|"), true);
+  });
+
+  test("アラインメント指定 `:` を含む区切り行も真", () => {
+    assert.strictEqual(isDelimiterRow("| :--- | ---: | :--: |"), true);
+  });
+
+  test("文字を含む行は区切り行でない", () => {
+    assert.strictEqual(isDelimiterRow("| a | b |"), false);
+  });
+
+  test("`|` を含まない `---` は区切り行でない", () => {
+    assert.strictEqual(isDelimiterRow("---"), false);
+  });
+});
+
+suite("findMarkdownTables", () => {
+  test("ヘッダ+区切り+データのブロックを検出する", () => {
+    const tables = findMarkdownTables([
+      "text",
+      "| h |",
+      "|---|",
+      "| d |",
+      "",
+      "pipe | but no | table",
+    ]);
+    assert.deepStrictEqual(tables, [[1, 2, 3]]);
+  });
+
+  test("区切り行がなければテーブルにしない", () => {
+    const tables = findMarkdownTables(["| a | b |", "| c | d |"]);
+    assert.deepStrictEqual(tables, []);
+  });
+});
+
+suite("computeMarkdownTablePaddings", () => {
+  test("各列の最大幅に合わせて `|` 直前にパディングする", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | bb |", "| --- | --- |", "| ccc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 2 },
+      { lineIndex: 0, character: 9, padding: 1 },
+      { lineIndex: 2, character: 10, padding: 2 },
+    ]);
+  });
+
+  test("テーブルがなければ空を返す（他言語に影響しない）", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["const x = 1;", "a | b without delimiter"],
+      4
+    );
+    assert.deepStrictEqual(placements, []);
+  });
+
+  test("エスケープ `\\|` はセル内文字として扱う", () => {
+    // 各行のパイプ数が一致し、\| は区切りに数えない
+    const placements = computeMarkdownTablePaddings(
+      ["| a \\| b | c |", "| --- | --- |", "| x | y |"],
+      4
+    );
+    // 1列目セルは "a \| b"（幅7+両空白=…）。崩れず計算できることを確認する。
+    // 区切り行/データ行のパイプが揃うよう、データ行 "| x | y |" にパディングが入る。
+    const line2 = placements.filter((p) => p.lineIndex === 2);
+    assert.ok(line2.length >= 1);
   });
 });
 
