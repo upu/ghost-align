@@ -4,6 +4,7 @@
 .vscode-test.mjs
 .claude/**
 docs/**
+scripts/**
 src/**
 out/**
 !out/extension.js
