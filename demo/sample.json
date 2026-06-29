@@ -1,0 +1,7 @@
+{
+  "id": 1,
+  "user": "neo",
+  "email": "neo@example.com",
+  "isActive": true,
+  "tags": ["ghost", "align"]
+}

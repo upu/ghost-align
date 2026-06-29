@@ -3,6 +3,7 @@
 .vscode-test/**
 .vscode-test.mjs
 .claude/**
+demo/**
 docs/**
 scripts/**
 src/**
