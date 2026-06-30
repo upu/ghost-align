@@ -9,6 +9,7 @@ scripts/**
 src/**
 out/**
 !out/extension.js
+media/*.gif
 out-tsc/**
 node_modules/**
 .gitignore
