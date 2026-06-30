@@ -1,6 +1,6 @@
 ---
 name: release
-description: Cut a release of this extension — finalize the CHANGELOG's [Unreleased] section into a dated version, bump package.json, land it via PR, then create and push the vX.Y.Z tag. Use when the user wants to release a version (e.g. "/release 0.1.0", "0.1.0 をリリース", "リリースして").
+description: Cut a release of this extension — finalize the CHANGELOG's [Unreleased] section into a dated version, bump package.json, land it via PR, push the vX.Y.Z tag, then verify the tag-triggered Release workflow (GitHub Release + Marketplace publish) succeeded. Use when the user wants to release a version (e.g. "/release 0.1.0", "0.1.0 をリリース", "リリースして").
 argument-hint: <x.y.z>
 ---
 
@@ -12,7 +12,7 @@ Take the accumulated `[Unreleased]` CHANGELOG entries through to a tagged releas
 
 ## Responsibility boundary
 
-This skill goes **up to creating and pushing the `vx.y.z` tag**. Publishing to the Marketplace is delegated to the release workflow (`.github/workflows/release.yml`, issue #12) which triggers on the tag push. If that workflow does not exist yet, fall back to a manual publish (`npm run package` then `vsce publish`, which needs `VSCE_PAT` / `vsce login`) and say so in the report.
+This skill goes **up to pushing the `vx.y.z` tag and confirming the release it triggers succeeded**. Publishing is delegated to the Release workflow (`.github/workflows/release.yml`, issue #12 — shipped) which fires on the tag push: it verifies the tag matches `package.json`, packages the VSIX, **always creates a GitHub Release with the `.vsix` attached**, and **publishes to the VS Code Marketplace when the `VSCE_PAT` secret is present** (otherwise that one step is skipped, not failed). In the unlikely case the workflow is absent, fall back to a manual publish (`npm run package` then `npx @vscode/vsce publish`, which needs `VSCE_PAT` / `vsce login`) and say so in the report.
 
 ## Steps
 
@@ -31,8 +31,9 @@ This skill goes **up to creating and pushing the `vx.y.z` tag**. Publishing to t
 8. **Push & PR** — `git push -u origin release/v<x.y.z>`, then `gh pr create --base main`. Pass the body via `--body-file` (avoid backticks/`$()` in the inline command so the call matches the `gh pr *` allowlist) summarizing the release.
 9. **Wait for CI** — `gh pr checks <pr> --watch --fail-fast` (launch with `run_in_background` for multi-minute runs; you are re-invoked when it exits). Fix and re-push if anything is red.
 10. **Merge** — `gh pr merge <pr> --squash --delete-branch`, then `git checkout main && git pull` to sync local main.
-11. **Tag & push** — on the synced `main`, create the annotated tag and push it: `git tag -a vx.y.z -m "vx.y.z"` then `git push origin vx.y.z`. This is what triggers the release workflow (#12).
-12. **Report** — state the merged PR number, the new `main` commit, the pushed tag, and whether publishing happened automatically (release.yml) or needs the manual fallback.
+11. **Tag & push** — on the synced `main` (which now carries the bumped `package.json`, so the workflow's tag-vs-version check passes), create the annotated tag and push it: `git tag -a vx.y.z -m "vx.y.z"` then `git push origin vx.y.z`. This triggers the Release workflow (#12).
+12. **Verify the release** — the tag push starts `.github/workflows/release.yml`; confirm it actually succeeded rather than assuming. Get the run with `gh run list --workflow=release.yml -L 1`, then `gh run watch <run-id>` (launch with `run_in_background` for multi-minute runs; you are re-invoked when it exits). A green run means the GitHub Release with the `.vsix` was created and, with `VSCE_PAT` set, the Marketplace publish ran. If it is red, inspect with `gh run view <run-id> --log-failed` — the most likely cause is a tag-vs-`package.json` version mismatch.
+13. **Report** — state the merged PR number, the new `main` commit, the pushed tag, the Release workflow result (link the run), and whether the Marketplace publish ran or was skipped.
 
 ## Notes
 
