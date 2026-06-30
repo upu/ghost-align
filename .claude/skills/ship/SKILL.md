@@ -29,3 +29,4 @@ Take an existing GitHub issue from `gh issue view` through to a merged PR, follo
 - The `test` check runs on `windows-latest` and launches VS Code via `@vscode/test-cli`, so it takes a minute or two — that is expected, not a hang.
 - One issue per PR. If the scope grows mid-implementation, split it into separate issues/PRs.
 - This skill is for an issue that already exists. If the user describes new work without an issue, offer to `gh issue create` first, then ship it.
+- Verify each tool call actually dispatched, especially in the CI-wait / merge steps. A dispatched call always returns one of: a tool result, a "running in background" ack, or a "malformed … please retry" error. If your turn instead ends with none of these and the user speaks next, the call did not dispatch (a syntax slip) — re-issue it with correct syntax rather than asking the user. Do not fire `gh pr checks --watch` in the background and move on without seeing its background ack.
