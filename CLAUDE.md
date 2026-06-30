@@ -47,6 +47,7 @@ GitHub Flow を採用。main は常にリリース可能な状態を保つ。
   - merge 後は不要になった作業ブランチを削除する
 - main にはブランチ保護（ruleset）がかかっており、直接 push・force push・削除は禁止
   - 設定の確認場所: GitHub の Settings → Rules → Rulesets
+- コミットメッセージは Windows / PowerShell の here-string だと `@` や複数行で壊れやすい。一時ファイル＋ `git commit -F <file>`、または Bash ツールの heredoc（`git commit -m "$(cat <<'EOF' … EOF)"`）で渡す
 
 ## 行動原則
 
