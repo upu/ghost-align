@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-30
+
 ### Added
 
 - Markdown テーブルの列の表示整列に対応。ソースを変えずに、各列の `|` 区切りが縦に揃って見えるようゴーストパディングを挿入する（ヘッダ行・区切り行・データ行を含むテーブルを検出。セル内のエスケープ `\|` も考慮）。
@@ -43,5 +45,6 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.0.1...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/upu/ghost-align/releases/tag/v0.1.0
 [0.0.1]: https://github.com/upu/ghost-align/releases/tag/v0.0.1
