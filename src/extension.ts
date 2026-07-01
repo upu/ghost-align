@@ -612,10 +612,41 @@ function leadingIndent(lineText: string): number {
 }
 
 /**
+ * East Asian Width Wide/Fullwidth code point ranges (BMP). VS Code renders
+ * these at double width, so alignment must count them as 2 columns. JS regex
+ * has no `\p{East_Asian_Width=...}`, so we test against an explicit table.
+ * Astral (surrogate-pair) code points are out of scope.
+ */
+const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x1100, 0x115f], // Hangul Jamo
+  [0x2e80, 0x303e], // CJK Radicals .. Kangxi .. CJK Symbols (partial)
+  [0x3041, 0x33ff], // Hiragana, Katakana, CJK symbols/punctuation, etc.
+  [0x3400, 0x4dbf], // CJK Unified Ideographs Extension A
+  [0x4e00, 0x9fff], // CJK Unified Ideographs
+  [0xa000, 0xa4cf], // Yi Syllables
+  [0xac00, 0xd7a3], // Hangul Syllables
+  [0xf900, 0xfaff], // CJK Compatibility Ideographs
+  [0xfe10, 0xfe19], // Vertical Forms
+  [0xfe30, 0xfe6f], // CJK Compatibility Forms, Small Form Variants
+  [0xff00, 0xff60], // Fullwidth Forms
+  [0xffe0, 0xffe6], // Fullwidth signs
+];
+
+/** Rendered column width of a single BMP code unit: 2 for wide/fullwidth, else 1. */
+function charWidth(code: number): number {
+  for (const [lo, hi] of WIDE_CHAR_RANGES) {
+    if (code < lo) break;
+    if (code <= hi) return 2;
+  }
+  return 1;
+}
+
+/**
  * Visual column of the character at `charIndex` (the rendered width of the
- * prefix before it), expanding tabs to the next multiple of `tabSize`. Used so
- * alignment and group splitting compare on-screen positions rather than raw
- * character counts, which differ once tabs are involved.
+ * prefix before it), expanding tabs to the next multiple of `tabSize` and
+ * counting East Asian Wide/Fullwidth characters as 2. Used so alignment and
+ * group splitting compare on-screen positions rather than raw character counts,
+ * which differ once tabs or full-width characters are involved.
  */
 export function visualColumn(
   lineText: string,
@@ -628,7 +659,7 @@ export function visualColumn(
     if (lineText[i] === "\t") {
       col += tabSize - (col % tabSize);
     } else {
-      col += 1;
+      col += charWidth(lineText.charCodeAt(i));
     }
   }
   return col;
