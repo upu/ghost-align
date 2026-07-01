@@ -2,6 +2,7 @@ import * as assert from "assert";
 import * as vscode from "vscode";
 import {
   findOperatorColumn,
+  findOperatorTarget,
   findAlignmentGroups,
   visualColumn,
   computePaddings,
@@ -525,6 +526,88 @@ suite("findOperatorColumn", () => {
   test("`=>` はブロックコメント内を対象外にする", () => {
     assert.strictEqual(findOperatorColumn("/* a => b */", ["=>"]), null);
   });
+
+  test("複合代入 `+=` は = の位置（揃え列）を返す", () => {
+    assert.strictEqual(findOperatorColumn("x += 1", ["="]), 3);
+  });
+});
+
+suite("findOperatorTarget", () => {
+  test("単純代入は insert と align が一致する", () => {
+    assert.deepStrictEqual(findOperatorTarget("const x = 1;", ["="]), {
+      insert: 8,
+      align: 8,
+    });
+  });
+
+  test("`+=` は演算子先頭が insert、`=` が align になる", () => {
+    assert.deepStrictEqual(findOperatorTarget("x += 1", ["="]), {
+      insert: 2,
+      align: 3,
+    });
+  });
+
+  test("`-=` `*=` `/=` `%=` `&=` `|=` `^=` も演算子先頭が insert になる", () => {
+    for (const op of ["-", "*", "/", "%", "&", "|", "^"]) {
+      assert.deepStrictEqual(
+        findOperatorTarget(`x ${op}= 1`, ["="]),
+        { insert: 2, align: 3 },
+        op
+      );
+    }
+  });
+
+  test("Makefile の `:=` を分断しない", () => {
+    assert.deepStrictEqual(findOperatorTarget("VAR := 1", ["="]), {
+      insert: 4,
+      align: 5,
+    });
+  });
+
+  test("Makefile の `?=` を分断しない", () => {
+    assert.deepStrictEqual(findOperatorTarget("LONGVAR ?= 2", ["="]), {
+      insert: 8,
+      align: 9,
+    });
+  });
+
+  test("`**=` `||=` `&&=` `??=` は2文字前が insert になる", () => {
+    for (const op of ["**", "||", "&&", "??"]) {
+      assert.deepStrictEqual(
+        findOperatorTarget(`x ${op}= 1`, ["="]),
+        { insert: 2, align: 4 },
+        op
+      );
+    }
+  });
+
+  test("`<<=` `>>=` は複合代入として検出する（比較 `<=` `>=` と区別）", () => {
+    assert.deepStrictEqual(findOperatorTarget("x <<= 1", ["="]), {
+      insert: 2,
+      align: 4,
+    });
+    assert.deepStrictEqual(findOperatorTarget("x >>= 1", ["="]), {
+      insert: 2,
+      align: 4,
+    });
+  });
+
+  test("比較演算子 `==` `!=` `<=` `>=` は引き続き対象外", () => {
+    for (const line of ["a == b", "a != b", "a <= b", "a >= b"]) {
+      assert.strictEqual(findOperatorTarget(line, ["="]), null, line);
+    }
+  });
+
+  test("`=>` は引き続き対象外", () => {
+    assert.strictEqual(findOperatorTarget("() => 1", ["="]), null);
+  });
+
+  test("`=` 以外の演算子は insert と align が常に一致する", () => {
+    assert.deepStrictEqual(findOperatorTarget('  "a": 1', [":"]), {
+      insert: 5,
+      align: 5,
+    });
+  });
 });
 
 suite("findAlignmentGroups", () => {
@@ -721,6 +804,38 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, ["="], undefined, 4);
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].length, 2);
+  });
+
+  test("複合代入はパディングが演算子の手前に入り = が揃う", () => {
+    const doc = mockDocument(["x += 1", "long -= 2"]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].operatorColumn, 2);
+    assert.strictEqual(groups[0][0].visualColumn, 3);
+    assert.strictEqual(groups[0][1].operatorColumn, 5);
+    assert.strictEqual(groups[0][1].visualColumn, 6);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 3 },
+    ]);
+  });
+
+  test("Makefile の := と ?= が演算子を分断せずに揃う", () => {
+    const doc = mockDocument(["VAR := 1", "LONGVAR ?= 2"]);
+    const groups = findAlignmentGroups(doc, ["="], "makefile");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 4 },
+    ]);
+  });
+
+  test("単純代入と複合代入が混在しても = の列で揃う", () => {
+    // "x += 1" の = は視覚列3、"yy = 2" の = も視覚列3 — 既に揃っている
+    const doc = mockDocument(["x += 1", "yy = 2"]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(computePaddings(groups), []);
   });
 
   test("全角文字を含む代入行は視覚カラムで揃える", () => {
