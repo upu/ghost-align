@@ -507,6 +507,42 @@ function findAssignmentEquals(lineText: string): number {
 }
 
 /**
+ * Index of the first arrow `=>` on a line, excluding:
+ *   - `=>` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
+ *   - `=>` inside `//` line comments or single-line `/* ... *​/` blocks
+ *
+ * Unlike findAssignmentEquals, bracket depth is not tracked: an arrow inside
+ * `(...)` (e.g. `arr.map((x) => x)`) is still a real arrow function and a valid
+ * alignment target. Block comments and template literals spanning multiple
+ * lines are not tracked — this function sees one line at a time, matching the
+ * other single-line finders.
+ */
+function findArrow(lineText: string): number {
+  const state = initialQuoteState();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+      continue;
+    }
+    if (ch === "/" && lineText[i + 1] === "/") {
+      return -1; // line comment: nothing after this is code
+    }
+    if (ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        return -1; // unterminated block comment: rest of the line is a comment
+      }
+      i = close + 1; // loop's i++ advances past the closing `/`
+      continue;
+    }
+    if (ch === "=" && lineText[i + 1] === ">") {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
  * Index of a *trailing* line-comment marker (`//` or `#`) on a line, or -1.
  * Excludes:
  *   - markers inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
@@ -586,6 +622,11 @@ export function findOperatorColumn(
       }
     } else if (op === "//" || op === "#") {
       const idx = findTrailingComment(lineText, op);
+      if (idx !== -1) {
+        return idx;
+      }
+    } else if (op === "=>") {
+      const idx = findArrow(lineText);
       if (idx !== -1) {
         return idx;
       }

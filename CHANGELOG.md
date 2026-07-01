@@ -9,6 +9,7 @@
 
 ### Added
 
+- アロー関数（`=>`）の整列に対応。`ghostAlign.operators` / `ghostAlign.operatorsByLanguage` に `"=>"` を指定すると、連続する行のアロー関数の `=>` の位置を揃える（例: `const onClick = (e) => ...` のような行が並ぶとき）。文字列・コメント内の `=>` は対象外。
 - TypeScript / JavaScript の型注釈コロン（`:`）の整列に対応。`ghostAlign.operatorsByLanguage` に `"typescript": [":"]` のように指定すると、変数宣言・関数引数・interface/type のプロパティなどの型注釈やオブジェクトリテラルの `key: value` の `:` を連続行で揃える。三項演算子（`cond ? a : b`）の `:` や、文字列・コメント内の `:` は対象外。
 
 ### Fixed

@@ -490,16 +490,40 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("x = 1; // c", ["//", "="]), 7);
   });
 
-  test("汎用フォールバック: `=`/`:`/`//`/`#` 以外の演算子はリテラル一致で検出する", () => {
-    assert.strictEqual(findOperatorColumn("const f = (x) => x;", ["=>"]), 14);
+  test("汎用フォールバック: `=`/`:`/`//`/`#`/`=>` 以外の演算子はリテラル一致で検出する", () => {
+    assert.strictEqual(findOperatorColumn("a -> b -> c", ["->"]), 2);
   });
 
   test("汎用フォールバック: 一致しなければ null を返す", () => {
-    assert.strictEqual(findOperatorColumn("const x = 1;", ["=>"]), null);
+    assert.strictEqual(findOperatorColumn("const x = 1;", ["->"]), null);
   });
 
   test("汎用フォールバックは文字列内のリテラルも区別なく検出する（文字列/コメント考慮なし）", () => {
-    assert.strictEqual(findOperatorColumn('const s = "a=>b";', ["=>"]), 12);
+    assert.strictEqual(findOperatorColumn('const s = "a->b";', ["->"]), 12);
+  });
+
+  test("`=>` はアロー関数の位置を返す", () => {
+    assert.strictEqual(findOperatorColumn("const f = (x) => x;", ["=>"]), 14);
+  });
+
+  test("`=>` は代入の `=` を誤検出しない", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1;", ["=>"]), null);
+  });
+
+  test("`=>` は括弧内のアロー関数も検出する", () => {
+    assert.strictEqual(findOperatorColumn("arr.map((x) => x);", ["=>"]), 12);
+  });
+
+  test("`=>` は文字列内を対象外にする", () => {
+    assert.strictEqual(findOperatorColumn('const s = "a => b";', ["=>"]), null);
+  });
+
+  test("`=>` は行コメント内を対象外にする", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1; // a => b", ["=>"]), null);
+  });
+
+  test("`=>` はブロックコメント内を対象外にする", () => {
+    assert.strictEqual(findOperatorColumn("/* a => b */", ["=>"]), null);
   });
 });
 
@@ -521,6 +545,22 @@ suite("findAlignmentGroups", () => {
     ]);
     const groups = findAlignmentGroups(doc, ["="]);
     assert.strictEqual(groups.length, 0);
+  });
+
+  test("`=>` を指定すると連続するアロー関数行が揃う", () => {
+    const doc = mockDocument([
+      "const f = (e) => handleClick(e);",
+      "const onChange = (e) => handleChange(e);",
+    ]);
+    const groups = findAlignmentGroups(doc, ["=>"]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    const paddings = computePaddings(groups);
+    const aligned = groups[0].map((g) => {
+      const p = paddings.find((q) => q.lineIndex === g.lineIndex);
+      return g.visualColumn + (p ? p.padding : 0);
+    });
+    assert.strictEqual(aligned[0], aligned[1]);
   });
 
   test("空行で区切られると別グループになる", () => {
