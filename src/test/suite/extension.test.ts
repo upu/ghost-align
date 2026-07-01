@@ -363,6 +363,87 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: 型注釈の `:` を検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("const x: number = 1;", [":"], "typescript"),
+      7
+    );
+  });
+
+  test("TS: interface プロパティの `:` を検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  name: string;", [":"], "typescript"),
+      6
+    );
+  });
+
+  test("TS: 関数引数の型注釈の `:` を検出する", () => {
+    // `function f(a: number) {}` の `a:` の `:`（列12）を返す
+    assert.strictEqual(
+      findOperatorColumn("function f(a: number) {}", [":"], "typescript"),
+      12
+    );
+  });
+
+  test("JS: オブジェクトリテラルの `key:` の `:` を検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  id: 1,", [":"], "javascript"),
+      4
+    );
+  });
+
+  test("TS: オプショナルプロパティ `?:` の `:` を型コロンとして検出する", () => {
+    // `name?: string` の `?` は三項演算子ではなくオプショナルマーカー。`:`（列7）を返す
+    assert.strictEqual(
+      findOperatorColumn("  name?: string;", [":"], "typescript"),
+      7
+    );
+  });
+
+  test("TS: 三項演算子の `:` は対象外（型コロンがなければ null）", () => {
+    assert.strictEqual(
+      findOperatorColumn("const x = cond ? a : b;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: 型コロンの後に三項演算子があっても型コロンを返す", () => {
+    // `const x: number = cond ? a : b;` の型注釈 `:`（列7）を返す
+    assert.strictEqual(
+      findOperatorColumn("const x: number = cond ? a : b;", [":"], "typescript"),
+      7
+    );
+  });
+
+  test("TS: 文字列内の `:` は対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn('const s = "a: b";', [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: 行コメント内の `:` は対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("// id: number", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: ブロックコメント内の `:` は対象外、後続の型コロンを返す", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* a: b */ id: number", [":"], "typescript"),
+      13
+    );
+  });
+
+  test("TS: オプショナルチェイニング `?.` は三項演算子扱いしない", () => {
+    // `?.` は三項の `?` ではないので、後続の型コロン `x:`（列22）を返す
+    assert.strictEqual(
+      findOperatorColumn("const v = a?.b as { x: number };", [":"], "typescript"),
+      21
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });

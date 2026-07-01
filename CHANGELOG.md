@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- TypeScript / JavaScript の型注釈コロン（`:`）の整列に対応。`ghostAlign.operatorsByLanguage` に `"typescript": [":"]` のように指定すると、変数宣言・関数引数・interface/type のプロパティなどの型注釈やオブジェクトリテラルの `key: value` の `:` を連続行で揃える。三項演算子（`cond ? a : b`）の `:` や、文字列・コメント内の `:` は対象外。
+
 ### Fixed
 
 - Markdown テーブルのセル内インラインコード（`` `a|b` ``）に含まれる `|` を列区切りと誤認して該当行の列がずれる問題を修正。バックティックで囲まれたコードスパン内の `|` は区切りとして扱わないようにした。

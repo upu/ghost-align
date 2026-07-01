@@ -63,7 +63,7 @@
           "default": [
             "="
           ],
-          "description": "Operators to align (used when the current language is not listed in ghostAlign.operatorsByLanguage). Supported special tokens: \"=\" (assignment), \":\" (JSON/YAML key or CSS declaration), \"//\" and \"#\" (trailing line comments). Any other string is matched literally. The list order is the priority: the first operator found on a line is the one aligned, so only one column is aligned per line."
+          "description": "Operators to align (used when the current language is not listed in ghostAlign.operatorsByLanguage). Supported special tokens: \"=\" (assignment), \":\" (JSON/YAML key or CSS declaration), \"//\" and \"#\" (trailing line comments). For TypeScript/JavaScript, \":\" aligns type-annotation / object-literal colons (ternary and string/comment colons are excluded). Any other string is matched literally. The list order is the priority: the first operator found on a line is the one aligned, so only one column is aligned per line."
         },
         "ghostAlign.operatorsByLanguage": {
           "type": "object",
