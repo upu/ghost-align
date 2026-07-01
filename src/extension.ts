@@ -287,6 +287,10 @@ function indexOfTopLevelBrace(lineText: string): number {
  *     (`a:hover`, `.x::before`)
  *   - anything from a `//` line comment onward, for SCSS/LESS only — CSS has
  *     no `//` comment syntax, so `//` in a CSS value must not be treated as one
+ *   - `:` inside a single-line-closed `/* ... *​/` block comment (CSS/SCSS/LESS
+ *     all support these). A block comment spanning multiple lines is not
+ *     tracked: this function sees one line at a time, so a `/*` without a
+ *     matching `*​/` on the same line is treated as running to the end of it.
  *
  * The rule block `{` separates selector from declarations: colons before the
  * first `{` on the line are treated as selectors and skipped. A line with no
@@ -313,6 +317,14 @@ function findCssColon(lineText: string, languageId: string): number {
       continue;
     }
     if (parenDepth !== 0) {
+      continue;
+    }
+    if (ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        return -1; // unterminated block comment: rest of the line is a comment
+      }
+      i = close + 1; // loop's i++ advances past the closing `/`
       continue;
     }
     if (

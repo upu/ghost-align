@@ -309,6 +309,17 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("CSS: ブロックコメント `/* */` 内の `:` は対象外", () => {
+    assert.strictEqual(findOperatorColumn("/* a: b */", [":"], "css"), null);
+  });
+
+  test("CSS: ブロックコメントの後ろにある宣言の `:` を返す", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* note */ color: red;", [":"], "css"),
+      16
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });
