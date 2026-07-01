@@ -233,21 +233,25 @@ export function advanceQuoteState(
   return false;
 }
 
-/** Quote characters recognized by findColonOutsideString (JSON: double-quote only). */
-const DOUBLE_QUOTE_ONLY = new Set<string>(['"']);
-
-/** Quote characters recognized by findCssColon / findAssignmentEquals / findTrailingComment. */
+/**
+ * Quote characters recognized by findColonOutsideString / findCssColon /
+ * findAssignmentEquals / findTrailingComment. Both `"` and `'` are tracked:
+ * JSON only uses `"`, but this set is shared with YAML (single-quoted keys
+ * like `'a:b': 1`) and CSS/JS-like assignments.
+ */
 const QUOTE_CHARS = new Set<string>(['"', "'"]);
 
 /**
- * Index of the first `:` outside any double-quoted string. Walks the line
- * character by character, tracking string state and `\` escapes (JSON rules).
+ * Index of the first `:` outside any `"..."` / `'...'` string. Walks the line
+ * character by character, tracking string state and `\` escapes. Used for
+ * JSON/JSONC (double-quote strings only, so `'` never opens a string there)
+ * and YAML (which also allows single-quoted keys/values).
  */
 function findColonOutsideString(lineText: string): number {
   const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, DOUBLE_QUOTE_ONLY)) {
+    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
     if (ch === ":") {
