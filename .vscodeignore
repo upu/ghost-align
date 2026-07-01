@@ -4,6 +4,7 @@
 .vscode-test.mjs
 .claude/**
 demo/**
+README.ja.md
 docs/**
 scripts/**
 src/**
