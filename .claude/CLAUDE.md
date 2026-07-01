@@ -12,7 +12,7 @@ npm run compile      # tsc。テスト出力（out-tsc/test/**）と型チェッ
 npm run check-types  # 型チェックのみ（tsc --noEmit）
 ```
 
-配布物は esbuild でバンドルする（`esbuild.js`、`vscode:prepublish` → `npm run build`）。
+配布物は esbuild でバンドルする（`scripts/esbuild.js`、`vscode:prepublish` → `npm run build`）。
 テストは tsc 出力に依存するため `compile` を維持しており、CI も `npm run compile` → `npm test` を実行する。
 
 デバッグ: VS Codeで `F5` → 「Run Extension」を選択
@@ -21,7 +21,7 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 
 - `src/extension.ts` — メインロジック（唯一のソースファイル）
 - `package.json` — 拡張機能の定義、コマンド、設定項目
-- `esbuild.js` — 本番バンドルのビルドスクリプト
+- `scripts/esbuild.js` — 本番バンドルのビルドスクリプト
 - `.vscode/launch.json` — デバッグ設定
 
 ## アーキテクチャ

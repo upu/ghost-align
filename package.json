@@ -119,8 +119,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run build",
-    "build": "node esbuild.js --production",
-    "watch": "node esbuild.js --watch",
+    "build": "node scripts/esbuild.js --production",
+    "watch": "node scripts/esbuild.js --watch",
     "compile": "tsc -p ./",
     "check-types": "tsc --noEmit",
     "check:package": "npm run build && node scripts/check-package-contents.js",
