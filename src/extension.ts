@@ -159,11 +159,19 @@ const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   ini: ["="],
   python: ["="],
   shellscript: ["="],
-  ruby: ["="],
+  ruby: ["=", "=>"],
   makefile: ["="],
   css: [":"],
   scss: [":"],
   less: [":"],
+  php: ["=", "=>"],
+  rust: ["=", "=>"],
+  go: ["="],
+  lua: ["="],
+  c: ["="],
+  cpp: ["="],
+  csharp: ["="],
+  java: ["="],
 };
 
 /**
@@ -286,11 +294,8 @@ function findColonOutsideString(
     if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
-    if (markers && markers.includes(ch)) {
-      const prev = lineText[i - 1];
-      if (prev === undefined || prev === " " || prev === "\t") {
-        break; // comment to the end of the line
-      }
+    if (markers && startsLineComment(lineText, i, markers)) {
+      break; // comment to the end of the line
     }
     if (cStyleComments) {
       if (ch === "/" && lineText[i + 1] === "/") {
@@ -532,7 +537,30 @@ const LINE_COMMENT_MARKERS_BY_LANGUAGE: Record<string, readonly string[]> = {
   properties: ["#"],
   ini: ["#", ";"],
   yaml: ["#"],
+  lua: ["--"],
+  php: ["#"],
 };
+
+/**
+ * Marker languages that additionally keep the C-style `//` / `/* ... *​/`
+ * comment handling (PHP supports both `#` and `//`). For other marker
+ * languages C-style is disabled — `//` is floor division in Python and
+ * has no comment meaning in the rest.
+ */
+const C_STYLE_COMMENT_ALSO = new Set(["php"]);
+
+/** Whether a line comment starts at `index` with one of `markers` (line start or after whitespace). */
+function startsLineComment(
+  lineText: string,
+  index: number,
+  markers: readonly string[]
+): boolean {
+  const prev = lineText[index - 1];
+  if (prev !== undefined && prev !== " " && prev !== "\t") {
+    return false;
+  }
+  return markers.some((m) => lineText.startsWith(m, index));
+}
 
 /** Resolve the line-comment markers for a language, or undefined for C-style. */
 function lineCommentMarkers(
@@ -576,6 +604,9 @@ function findAssignmentEquals(
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
   const markers = lineCommentMarkers(languageId);
+  const cStyle =
+    markers === undefined ||
+    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
   const state = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -583,15 +614,11 @@ function findAssignmentEquals(
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
-    if (markers) {
-      if (markers.includes(ch)) {
-        const prev = lineText[i - 1];
-        if (prev === undefined || prev === " " || prev === "\t") {
-          // Comment to the end of the line: no assignment can follow.
-          break;
-        }
-      }
-    } else {
+    if (markers && startsLineComment(lineText, i, markers)) {
+      // Comment to the end of the line: no assignment can follow.
+      break;
+    }
+    if (cStyle) {
       if (ch === "/" && lineText[i + 1] === "/") {
         // Line comment: nothing after this can be an assignment.
         break;
@@ -625,8 +652,8 @@ function findAssignmentEquals(
       if (next === "=" || next === ">") {
         continue;
       }
-      if (prev === "=" || prev === "!") {
-        continue;
+      if (prev === "=" || prev === "!" || prev === "~") {
+        continue; // ==, !=, and Lua's not-equal ~=
       }
       if (prev === "<" || prev === ">") {
         if (lineText[i - 2] !== prev) {

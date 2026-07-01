@@ -597,6 +597,40 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("# x = 1", ["="]), 4);
   });
 
+  test("Lua: `--` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(findOperatorColumn("-- x = 1", ["="], "lua"), null);
+  });
+
+  test("Lua: トレーリング `--` コメントより前の `=` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("x = 1 -- old = 2", ["="], "lua"),
+      2
+    );
+  });
+
+  test("Lua: 減算の `-` はコメント扱いしない", () => {
+    assert.strictEqual(findOperatorColumn("x = a - b", ["="], "lua"), 2);
+  });
+
+  test("Lua: 比較演算子 `~=` を代入として検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("if a ~= b then", ["="], "lua"),
+      null
+    );
+  });
+
+  test("PHP: `#` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(findOperatorColumn("# x = 1", ["="], "php"), null);
+  });
+
+  test("PHP: `//` コメント行の `=` も検出しない（C スタイル併用）", () => {
+    assert.strictEqual(findOperatorColumn("// x = 1", ["="], "php"), null);
+  });
+
+  test("PHP: 単一行ブロックコメント内の `=` も検出しない", () => {
+    assert.strictEqual(findOperatorColumn("/* x = 1 */", ["="], "php"), null);
+  });
+
   test("YAML: 丸ごとコメント行の `:` を検出しない", () => {
     assert.strictEqual(
       findOperatorColumn("# key: value", [":"], "yaml"),
@@ -1522,11 +1556,11 @@ suite("resolveOperatorsForLanguage", () => {
     }
   });
 
-  test("python / shellscript / ruby / ini / makefile は既定で `=` を揃える", () => {
+  test("python / shellscript / ini / makefile は既定で `=` を揃える", () => {
     // グローバル operators を上書きしても、これらの言語はマップ側の `=` を返す
     // （フォールバックではなく DEFAULT_OPERATORS_BY_LANGUAGE に含まれていること）
     const config = mockConfig({ operators: [":"] });
-    for (const lang of ["python", "shellscript", "ruby", "ini", "makefile"]) {
+    for (const lang of ["python", "shellscript", "ini", "makefile"]) {
       assert.deepStrictEqual(
         resolveOperatorsForLanguage(config, lang),
         ["="],
@@ -1561,6 +1595,57 @@ suite("resolveOperatorsForLanguage", () => {
       resolveOperatorsForLanguage(mockConfig({}), "typescript"),
       ["="]
     );
+  });
+
+  test("ruby / php / rust は既定で `=` と `=>` を揃える", () => {
+    for (const lang of ["ruby", "php", "rust"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(mockConfig({}), lang),
+        ["=", "=>"],
+        lang
+      );
+    }
+  });
+
+  test("go / lua / c / cpp / csharp / java は既定で `=` を揃える", () => {
+    const config = mockConfig({ operators: [":"] });
+    for (const lang of ["go", "lua", "c", "cpp", "csharp", "java"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(config, lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
+  test("Ruby: ハッシュロケット `=>` が連続行で揃う", () => {
+    const doc = mockDocument(['"a" => 1,', '"long" => 2,']);
+    const groups = findAlignmentGroups(doc, ["=", "=>"], "ruby");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 3 },
+    ]);
+  });
+
+  test("Rust: match アームの `=>` が連続行で揃う", () => {
+    const doc = mockDocument(["Some(x) => x + 1,", "None => 0,"]);
+    const groups = findAlignmentGroups(doc, ["=", "=>"], "rust");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 5, padding: 3 },
+    ]);
+  });
+
+  test("PHP: 連想配列の `=>` が連続行で揃う", () => {
+    const doc = mockDocument(["'a' => 1,", "'long' => 2,"]);
+    const groups = findAlignmentGroups(doc, ["=", "=>"], "php");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 3 },
+    ]);
   });
 
   test("ユーザーが operatorsByLanguage を設定すれば反映される", () => {
