@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-01
+
 ### Added
 
 - Python / シェルスクリプト / Ruby / INI / Makefile を既定で代入 `=` の整列対象に追加。`dotenv` / `properties` / `toml` と同様に、`ghostAlign.operatorsByLanguage` の既定値へ `python` / `shellscript` / `ruby` / `ini` / `makefile` を `["="]` として追加した（設定なしでこれらの言語の連続する代入行が揃う）。
@@ -61,6 +63,7 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/upu/ghost-align/releases/tag/v0.2.0
 [0.1.0]: https://github.com/upu/ghost-align/releases/tag/v0.1.0
 [0.0.1]: https://github.com/upu/ghost-align/releases/tag/v0.0.1
