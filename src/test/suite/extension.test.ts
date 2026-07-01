@@ -255,6 +255,38 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("テンプレートリテラル内の `=` は代入として検出しない", () => {
+    assert.strictEqual(findOperatorColumn("`a=b`;", ["="]), null);
+  });
+
+  test("テンプレートリテラル内の `:` は CSS 宣言として検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("`color: red`;", [":"], "css"),
+      null
+    );
+  });
+
+  test("テンプレートリテラル内の `//` は行末コメントとして検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("x = 1; `a // b`;", ["//"]),
+      null
+    );
+  });
+
+  test("テンプレートリテラル内の `#` は行末コメントとして検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("x = 1 `a # b`", ["#"]),
+      null
+    );
+  });
+
+  test("YAML/JSON: バッククォートは文字列扱いしない（意図的な設計判断の固定）", () => {
+    // JSON/YAML にバッククォートの構文はない。この関数はバッククォートを
+    // 引用符として追跡しないため、行中に対になっていないバッククォートが
+    // あっても本来の区切り `:` を正しく返す。
+    assert.strictEqual(findOperatorColumn("`weird: 1", [":"]), 6);
+  });
+
   test("CSS: 擬似クラスの `:` ではなく宣言の `:` を返す", () => {
     // `a:hover { color: red; }` の宣言 `:`（列15）を返す。`a:hover` の `:`（列1）は対象外。
     assert.strictEqual(

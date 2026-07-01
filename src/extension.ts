@@ -234,12 +234,24 @@ export function advanceQuoteState(
 }
 
 /**
- * Quote characters recognized by findColonOutsideString / findCssColon /
- * findAssignmentEquals / findTrailingComment. Both `"` and `'` are tracked:
- * JSON only uses `"`, but this set is shared with YAML (single-quoted keys
- * like `'a:b': 1`) and CSS/JS-like assignments.
+ * Quote characters recognized by findColonOutsideString. JSON only uses `"`;
+ * YAML also allows single-quoted keys/values like `'a:b': 1`. Deliberately
+ * does not include the backtick: JSON/YAML have no template-literal syntax,
+ * and treating a stray, unpaired backtick in a plain scalar as a string
+ * delimiter would risk swallowing the real delimiter `:` that follows it.
  */
 const QUOTE_CHARS = new Set<string>(['"', "'"]);
+
+/**
+ * Quote characters recognized by findCssColon / findAssignmentEquals /
+ * findTrailingComment. Adds the backtick to {@link QUOTE_CHARS} so a
+ * single-line-closed JS/TS template literal (`` `...` ``) is treated as a
+ * string, excluding its contents from operator detection. A template literal
+ * spanning multiple lines is not tracked — same known limitation as
+ * multi-line `/* ... *​/` block comments, since these functions scan one
+ * line at a time.
+ */
+const TEMPLATE_QUOTE_CHARS = new Set<string>(['"', "'", "`"]);
 
 /**
  * Index of the first `:` outside any `"..."` / `'...'` string. Walks the line
@@ -272,7 +284,7 @@ function indexOfTopLevelBrace(lineText: string): number {
   const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
     if (ch === "{") {
@@ -285,7 +297,7 @@ function indexOfTopLevelBrace(lineText: string): number {
 /**
  * Index of the CSS declaration-separator `:` (the `:` in `color: red`),
  * excluding:
- *   - `:` inside `"..."` / `'...'` strings
+ *   - `:` inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - `:` inside `(...)`, e.g. `url(http://...)`
  *   - pseudo-element `::` and pseudo-class `:` in the selector part
  *     (`a:hover`, `.x::before`)
@@ -307,7 +319,7 @@ function findCssColon(lineText: string, languageId: string): number {
   let parenDepth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
     if (ch === "(") {
@@ -356,12 +368,12 @@ function findCssColon(lineText: string, languageId: string): number {
  * Index of the first assignment `=` on a line, excluding:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
- *   - any `=` inside `"..."` or `'...'` strings
+ *   - any `=` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
  *   - any `=` inside `//` line comments or single-line `/* ... *​/` blocks
  *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
  *
- * Block comments spanning multiple lines are not tracked: this function sees
- * one line at a time, so a `/*` without a matching `*​/` is treated as a
+ * Block comments and template literals spanning multiple lines are not
+ * tracked: this function sees one line at a time, so a `/*` without a
  * comment running to the end of the line.
  */
 function findAssignmentEquals(lineText: string): number {
@@ -369,7 +381,7 @@ function findAssignmentEquals(lineText: string): number {
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
     if (ch === "/" && lineText[i + 1] === "/") {
@@ -416,7 +428,7 @@ function findAssignmentEquals(lineText: string): number {
 /**
  * Index of a *trailing* line-comment marker (`//` or `#`) on a line, or -1.
  * Excludes:
- *   - markers inside `"..."` / `'...'` strings
+ *   - markers inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - whole-line comments (the marker is the first non-whitespace token)
  *   - `//` that is part of a URL scheme such as `http://` (preceded by `:`)
  *   - for `#`, a marker not preceded by whitespace (so `value#x` is not a comment)
@@ -427,7 +439,7 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
   let seenCode = false;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       seenCode = true;
       continue;
     }
