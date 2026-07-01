@@ -451,18 +451,44 @@ function findCssColon(lineText: string, languageId: string): number {
 }
 
 /**
- * Index of the first assignment `=` on a line, excluding:
+ * A found alignment target on a line: `insert` is the character index where
+ * ghost padding is inserted (the operator's first character, so a compound
+ * assignment like `+=` is never split), and `align` is the character index of
+ * the column to line up across the group (the `=` itself). For single-character
+ * operators the two are identical.
+ */
+export type OperatorTarget = { insert: number; align: number };
+
+/**
+ * Single-character prefixes that combine with `=` into a compound assignment
+ * (`+=`, `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, Makefile/Go `:=`,
+ * Makefile `?=`). `<` and `>` are handled separately because `<=`/`>=` are
+ * comparisons while `<<=`/`>>=` are assignments.
+ */
+const COMPOUND_PREFIX_CHARS = new Set([
+  "+", "-", "*", "/", "%", "&", "|", "^", "?", ":",
+]);
+
+/** Prefixes that may double up before `=`: `**=`, `||=`, `&&=`, `??=`. */
+const DOUBLED_PREFIX_CHARS = new Set(["*", "|", "&", "?"]);
+
+/**
+ * First assignment `=` on a line, or null. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
  *   - any `=` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
  *   - any `=` inside `//` line comments or single-line `/* ... *​/` blocks
  *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
  *
+ * Compound assignments (`+=`, `:=`, `**=`, `<<=`, ...) are targets: `align`
+ * is the `=` and `insert` is the operator's first character, so padding never
+ * splits the operator.
+ *
  * Block comments and template literals spanning multiple lines are not
  * tracked: this function sees one line at a time, so a `/*` without a
  * comment running to the end of the line.
  */
-function findAssignmentEquals(lineText: string): number {
+function findAssignmentEquals(lineText: string): OperatorTarget | null {
   const state = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -472,13 +498,13 @@ function findAssignmentEquals(lineText: string): number {
     }
     if (ch === "/" && lineText[i + 1] === "/") {
       // Line comment: nothing after this can be an assignment.
-      return -1;
+      return null;
     }
     if (ch === "/" && lineText[i + 1] === "*") {
       const close = lineText.indexOf("*/", i + 2);
       if (close === -1) {
         // Unterminated block comment: treat the rest of the line as comment.
-        return -1;
+        return null;
       }
       i = close + 1; // loop's i++ advances past the closing `/`
       continue;
@@ -499,16 +525,31 @@ function findAssignmentEquals(lineText: string): number {
     if (ch === "=") {
       const prev = lineText[i - 1];
       const next = lineText[i + 1];
-      if (prev === "=" || prev === "!" || prev === "<" || prev === ">") {
-        continue;
-      }
       if (next === "=" || next === ">") {
         continue;
       }
-      return i;
+      if (prev === "=" || prev === "!") {
+        continue;
+      }
+      if (prev === "<" || prev === ">") {
+        if (lineText[i - 2] !== prev) {
+          continue; // comparison <= / >=
+        }
+        // shift assignment <<= / >>= (and >>>=)
+        const insert = prev === ">" && lineText[i - 3] === ">" ? i - 3 : i - 2;
+        return { insert, align: i };
+      }
+      if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
+        const insert =
+          DOUBLED_PREFIX_CHARS.has(prev) && lineText[i - 2] === prev
+            ? i - 2
+            : i - 1;
+        return { insert, align: i };
+      }
+      return { insert: i, align: i };
     }
   }
-  return -1;
+  return null;
 }
 
 /**
@@ -601,17 +642,22 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
   return -1;
 }
 
-/** Find the column of the first alignment-target operator on a line. */
-export function findOperatorColumn(
+/**
+ * Find the first alignment-target operator on a line, as the pair of
+ * insertion index (where padding goes) and alignment index (the column that
+ * lines up across the group). The two differ only for compound assignments
+ * such as `+=` — see {@link OperatorTarget}.
+ */
+export function findOperatorTarget(
   lineText: string,
   operators: string[],
   languageId?: string
-): number | null {
+): OperatorTarget | null {
   for (const op of operators) {
     if (op === "=") {
-      const idx = findAssignmentEquals(lineText);
-      if (idx !== -1) {
-        return idx;
+      const target = findAssignmentEquals(lineText);
+      if (target) {
+        return target;
       }
     } else if (op === ":") {
       let idx: number;
@@ -623,26 +669,36 @@ export function findOperatorColumn(
         idx = findColonOutsideString(lineText);
       }
       if (idx !== -1) {
-        return idx;
+        return { insert: idx, align: idx };
       }
     } else if (op === "//" || op === "#") {
       const idx = findTrailingComment(lineText, op);
       if (idx !== -1) {
-        return idx;
+        return { insert: idx, align: idx };
       }
     } else if (op === "=>") {
       const idx = findArrow(lineText);
       if (idx !== -1) {
-        return idx;
+        return { insert: idx, align: idx };
       }
     } else {
       const idx = lineText.indexOf(op);
       if (idx !== -1) {
-        return idx;
+        return { insert: idx, align: idx };
       }
     }
   }
   return null;
+}
+
+/** Column of the first alignment-target operator on a line (its `align` index). */
+export function findOperatorColumn(
+  lineText: string,
+  operators: string[],
+  languageId?: string
+): number | null {
+  const target = findOperatorTarget(lineText, operators, languageId);
+  return target ? target.align : null;
 }
 
 /** Default tab width used when an editor's tabSize cannot be resolved. */
@@ -716,10 +772,12 @@ export function visualColumn(
  * A group is also split when the leading indent width changes — this keeps
  * nested blocks (e.g. JSON objects) from being aligned across indent levels.
  *
- * `operatorColumn` is the character index (used to position the decoration),
- * while `visualColumn` is the rendered column (used to compute padding and the
- * group's alignment target). Indent comparison and alignment use visual columns
- * so tabs and tab/space mixes line up on screen, not by raw character count.
+ * `operatorColumn` is the character index where padding is inserted (the
+ * operator's first character, so compound assignments like `+=` are never
+ * split), while `visualColumn` is the rendered column of the alignment point
+ * (the `=` itself) used to compute padding and the group's alignment target.
+ * Indent comparison and alignment use visual columns so tabs and tab/space
+ * mixes line up on screen, not by raw character count.
  */
 export function findAlignmentGroups(
   document: vscode.TextDocument,
@@ -742,9 +800,9 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-    const col = findOperatorColumn(lineText, operators, languageId);
+    const target = findOperatorTarget(lineText, operators, languageId);
 
-    if (col === null) {
+    if (target === null) {
       flush();
       continue;
     }
@@ -755,8 +813,8 @@ export function findAlignmentGroups(
     }
     currentGroup.push({
       lineIndex: i,
-      operatorColumn: col,
-      visualColumn: visualColumn(lineText, col, tabSize),
+      operatorColumn: target.insert,
+      visualColumn: visualColumn(lineText, target.align, tabSize),
     });
     currentIndent = indent;
   }
