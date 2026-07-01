@@ -43,7 +43,7 @@ jobs:
       - name: Create GitHub Release with VSIX
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" ghost-align.vsix --title "$GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
+        run: gh release create "$GITHUB_REF_NAME" dist/ghost-align.vsix --title "$GITHUB_REF_NAME" --notes-file RELEASE_NOTES.md
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
-        run: npx @vscode/vsce publish --packagePath ghost-align.vsix -p "$VSCE_PAT"
+        run: npx @vscode/vsce publish --packagePath dist/ghost-align.vsix -p "$VSCE_PAT"
