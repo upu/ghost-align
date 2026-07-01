@@ -14,6 +14,8 @@ import {
   resolveInitialEnabled,
   statusBarText,
   debounce,
+  DEFAULT_GHOST_CHAR,
+  DEFAULT_GHOST_COLOR,
 } from "../../extension";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -26,6 +28,24 @@ function mockDocument(lines: string[]) {
       return { text: lines[i] };
     },
   } as any;
+}
+
+// vscode.WorkspaceConfiguration の最小限モック
+function mockConfig(values: Record<string, unknown>) {
+  return {
+    get<T>(key: string, defaultValue: T): T {
+      return (key in values ? values[key] : defaultValue) as T;
+    },
+  };
+}
+
+// vscode.Memento (globalState) の最小限モック
+function mockState(values: Record<string, unknown>) {
+  return {
+    get<T>(key: string, defaultValue: T): T {
+      return (key in values ? values[key] : defaultValue) as T;
+    },
+  };
 }
 
 suite("findOperatorColumn", () => {
@@ -253,6 +273,18 @@ suite("findOperatorColumn", () => {
     // `=` を先に置けば代入の `=`、`//` を先に置けば行末コメントを返す
     assert.strictEqual(findOperatorColumn("x = 1; // c", ["=", "//"]), 2);
     assert.strictEqual(findOperatorColumn("x = 1; // c", ["//", "="]), 7);
+  });
+
+  test("汎用フォールバック: `=`/`:`/`//`/`#` 以外の演算子はリテラル一致で検出する", () => {
+    assert.strictEqual(findOperatorColumn("const f = (x) => x;", ["=>"]), 14);
+  });
+
+  test("汎用フォールバック: 一致しなければ null を返す", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1;", ["=>"]), null);
+  });
+
+  test("汎用フォールバックは文字列内のリテラルも区別なく検出する（文字列/コメント考慮なし）", () => {
+    assert.strictEqual(findOperatorColumn('const s = "a=>b";', ["=>"]), 12);
   });
 });
 
@@ -597,10 +629,25 @@ suite("computeMarkdownTablePaddings", () => {
       ["| a \\| b | c |", "| --- | --- |", "| x | y |"],
       4
     );
-    // 1列目セルは "a \| b"（幅7+両空白=…）。崩れず計算できることを確認する。
-    // 区切り行/データ行のパイプが揃うよう、データ行 "| x | y |" にパディングが入る。
-    const line2 = placements.filter((p) => p.lineIndex === 2);
-    assert.ok(line2.length >= 1);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 13, padding: 2 },
+      { lineIndex: 1, character: 6, padding: 3 },
+      { lineIndex: 2, character: 4, padding: 5 },
+      { lineIndex: 2, character: 8, padding: 2 },
+    ]);
+  });
+
+  test("セル数が揃わない(ragged)行でも例外にならずインデックス基準でパディングする", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | bb | ccc |", "| --- | --- | --- |", "| x | y |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 2 },
+      { lineIndex: 0, character: 9, padding: 1 },
+      { lineIndex: 2, character: 4, padding: 2 },
+      { lineIndex: 2, character: 8, padding: 2 },
+    ]);
   });
 });
 
@@ -633,35 +680,44 @@ suite("debounce", () => {
     await wait(50);
     assert.strictEqual(calls, 0);
   });
+
+  test("発火後に cancel() を呼んでも何も起きない", async () => {
+    let calls = 0;
+    const d = debounce(() => calls++, 20);
+    d();
+    await wait(50);
+    assert.strictEqual(calls, 1);
+    d.cancel();
+    await wait(50);
+    assert.strictEqual(calls, 1);
+  });
+
+  test("cancel() を二重に呼んでもエラーにならない", async () => {
+    let calls = 0;
+    const d = debounce(() => calls++, 20);
+    d();
+    d.cancel();
+    d.cancel();
+    await wait(50);
+    assert.strictEqual(calls, 0);
+  });
 });
 
-// vscode.WorkspaceConfiguration の最小限モック
-function mockConfig(values: Record<string, unknown>) {
-  return {
-    get<T>(key: string, defaultValue: T): T {
-      return (key in values ? values[key] : defaultValue) as T;
-    },
-  };
-}
-
 suite("resolveGhostSettings", () => {
-  const DEFAULT_CHAR = " "; // NBSP
-  const DEFAULT_COLOR = "rgba(128, 128, 128, 0.25)";
-
   test("設定が何もなければデフォルト値が使われる", () => {
     const s = resolveGhostSettings(mockConfig({}));
-    assert.strictEqual(s.ghostChar, DEFAULT_CHAR);
-    assert.strictEqual(s.ghostColor, DEFAULT_COLOR);
+    assert.strictEqual(s.ghostChar, DEFAULT_GHOST_CHAR);
+    assert.strictEqual(s.ghostColor, DEFAULT_GHOST_COLOR);
   });
 
   test("ghostCharacter が空文字列ならデフォルトにフォールバックする", () => {
     const s = resolveGhostSettings(mockConfig({ ghostCharacter: "" }));
-    assert.strictEqual(s.ghostChar, DEFAULT_CHAR);
+    assert.strictEqual(s.ghostChar, DEFAULT_GHOST_CHAR);
   });
 
   test("ghostColor が空文字列ならデフォルトにフォールバックする", () => {
     const s = resolveGhostSettings(mockConfig({ ghostColor: "" }));
-    assert.strictEqual(s.ghostColor, DEFAULT_COLOR);
+    assert.strictEqual(s.ghostColor, DEFAULT_GHOST_COLOR);
   });
 
   test("ユーザー設定値があればそれが使われる", () => {
@@ -751,16 +807,15 @@ suite("resolveOperatorsForLanguage", () => {
     );
     assert.deepStrictEqual(ops, ["=", "=>"]);
   });
-});
 
-// vscode.Memento (globalState) の最小限モック
-function mockState(values: Record<string, unknown>) {
-  return {
-    get<T>(key: string, defaultValue: T): T {
-      return (key in values ? values[key] : defaultValue) as T;
-    },
-  };
-}
+  test("operatorsByLanguage で言語を空配列に上書きすると整列が無効化される（フォールバックしない）", () => {
+    const ops = resolveOperatorsForLanguage(
+      mockConfig({ operatorsByLanguage: { json: [] }, operators: ["="] }),
+      "json"
+    );
+    assert.deepStrictEqual(ops, []);
+  });
+});
 
 suite("resolveInitialEnabled", () => {
   test("globalState 未設定ならデフォルトで有効（既存ユーザーは ON のまま）", () => {
