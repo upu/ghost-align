@@ -10,8 +10,8 @@ let alignDecorationType: vscode.TextEditorDecorationType;
 // spaces in decoration `contentText`, so plain " ".repeat(N) renders as a
 // single space and breaks alignment. NBSP renders identically in monospace
 // fonts but is not collapsed.
-const DEFAULT_GHOST_CHAR = " ";
-const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
+export const DEFAULT_GHOST_CHAR = " ";
+export const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 
 // globalState key under which the toggle state is persisted across reloads.
 const ENABLED_STATE_KEY = "enabled";
