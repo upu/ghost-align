@@ -1,36 +1,38 @@
 <!--
-  このファイルは VS Code Marketplace の拡張機能ページとして公開されます（利用者向け）。
-  開発・ビルド・デバッグ・コントリビュートの手順は docs/CONTRIBUTING.md に書き、
-  ここには利用者向けの内容だけを置いてください（開発者向けの記述を追加しないこと）。
+  This file is published as the extension's page on the VS Code Marketplace (user-facing).
+  Build/debug/contribution instructions belong in docs/CONTRIBUTING.md —
+  keep this file limited to user-facing content only.
 -->
+
+🇯🇵 [日本語](README.ja.md)
 
 # Ghost Align
 
 > Visually align operators like `=` without modifying your source code.
 
-Ghost Align は VS Code 拡張機能です。`=` などのオペレーターの位置を、**ソースコードを一切変更せずに**、表示上だけで揃えます。
+Ghost Align is a VS Code extension. It aligns the position of operators like `=` **without ever touching your source code** — the alignment is purely visual.
 
-エディタの Decoration API を使って視覚的なパディングを差し込むだけなので、ファイルに余計な空白が保存されることはありません。Git の差分も汚れません。「コードは変えない、見た目だけ揃える」がコンセプトです。
+It works by inserting visual padding using the editor's Decoration API, so no extra whitespace is ever saved to the file, and your Git diffs stay clean. The concept: "never change the code, only align how it looks."
 
-## デモ
+## Demo
 
-`=` の整列（ソースは変更されません。トグルで ON/OFF）:
+Aligning `=` (the source is never modified; toggle it on/off):
 
-![= の整列のデモ](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_js.gif)
+![Demo of = alignment](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_js.gif)
 
-JSON の `:` の整列:
+Aligning `:` in JSON:
 
-![JSON の : 整列のデモ](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_json.gif)
+![Demo of JSON : alignment](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_json.gif)
 
-Markdown テーブルの列整列:
+Aligning Markdown table columns:
 
-![Markdown テーブルの整列のデモ](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_md.gif)
+![Demo of Markdown table alignment](https://raw.githubusercontent.com/upu/ghost-align/main/media/demo_md.gif)
 
 ## Before / After
 
-実際のファイルの中身は変わりません。下は **見た目** のイメージです。
+The actual file contents never change. What follows is an image of **how it looks**.
 
-Before（揃っていない）:
+Before (not aligned):
 
 ```js
 const x = 1;
@@ -38,7 +40,7 @@ const foo = 2;
 const longName = 3;
 ```
 
-After（Ghost Align 有効時の見た目）:
+After (with Ghost Align enabled):
 
 ```js
 const x        = 1;
@@ -46,53 +48,53 @@ const foo      = 2;
 const longName = 3;
 ```
 
-差し込まれた空白は装飾（ゴースト）であり、ファイルには保存されません。
+The inserted whitespace is a decoration (a "ghost") and is never saved to the file.
 
-## 動作の概要
+## How it works
 
-- 連続する行をグループ化し、グループ内でオペレーターの位置を最も右の行に合わせます。
-- インデント幅が変わると別グループとして扱うため、ネストしたブロック（JSON のオブジェクトなど）が異なる階層をまたいで揃うことはありません。
-- `=` のアライメントでは、文字列・コメント・`( )`・`[ ]` の中の `=`、および `==` `!=` `<=` `>=` `=>` は対象外です（代入の `=` のみを揃えます）。
-- 既定では `=` を揃えます。言語によって既定のオペレーターが変わり、`json` / `jsonc` / `yaml` / `css` / `scss` / `less` では `:`、`dotenv` / `properties` / `toml` では `=` を揃えます。
-- 行末コメント（`//` / `#`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外）。
-- Markdown では、テーブルの列（`|` 区切り）が縦に揃って見えるようにします。
-- タブを含む行でも、タブ幅（`editor.tabSize`）を考慮して視覚的な位置で揃えます。
+- Consecutive lines are grouped, and within each group the operator position is aligned to match the rightmost line.
+- A change in indentation width starts a new group, so nested blocks (such as JSON objects) never get aligned across different nesting levels.
+- For `=` alignment, `=` inside strings, comments, `( )`, `[ ]`, and multi-character operators such as `==` `!=` `<=` `>=` `=>` are excluded (only assignment `=` is aligned).
+- `=` is aligned by default. The default operator varies by language: `json` / `jsonc` / `yaml` / `css` / `scss` / `less` align `:`, while `dotenv` / `properties` / `toml` align `=`.
+- Trailing line comments (`//` / `#`) can also be aligned (opt-in via `"//"` / `"#"` in `ghostAlign.operators` etc.; comments inside strings, URLs like `http://`, and lines that are entirely a comment are excluded).
+- In Markdown, table columns (separated by `|`) are aligned so they line up vertically.
+- Lines containing tabs are aligned by their visual column, taking the tab width (`editor.tabSize`) into account.
 
-## インストール
+## Installation
 
-VS Code の拡張機能ビュー（`Ctrl+Shift+X`）で **Ghost Align** を検索し、Install を押します。
+Search for **Ghost Align** in the VS Code Extensions view (`Ctrl+Shift+X`) and click Install.
 
-コマンドラインからは次のとおりです。
+From the command line:
 
 ```bash
 code --install-extension upu.ghost-align
 ```
 
-Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=upu.ghost-align>
+Marketplace page: <https://marketplace.visualstudio.com/items?itemName=upu.ghost-align>
 
-## 使い方
+## Usage
 
-拡張機能を有効にすると、対象のオペレーターを含む行が自動的に揃って表示されます。
+Once enabled, lines containing a target operator are automatically displayed aligned.
 
-表示上のアライメントは、コマンドパレットから次のコマンドでオン／オフを切り替えられます。
+You can toggle the visual alignment on/off from the Command Palette:
 
-- `Ghost Align: Toggle`（コマンド ID: `ghostAlign.toggle`）
+- `Ghost Align: Toggle` (command ID: `ghostAlign.toggle`)
 
-`ghostAlign.showStatusBar` を有効にすると、ステータスバーに ON/OFF 表示が出て、クリックでもトグルできます。
+Enabling `ghostAlign.showStatusBar` adds an ON/OFF indicator to the status bar, which you can also click to toggle.
 
-## 設定
+## Settings
 
-すべて `ghostAlign` 名前空間の設定です。
+All settings live under the `ghostAlign` namespace.
 
-| 設定 | 型 | 既定値 | 説明 |
+| Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ghostAlign.enabled` | boolean | `true` | 視覚的なアライメントを有効にします。 |
-| `ghostAlign.showStatusBar` | boolean | `false` | Ghost Align の ON/OFF を示すステータスバー項目を表示します（クリックでトグル）。 |
-| `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順が優先度で、1 行につき先頭で見つかった 1 つだけを揃えます。 |
-| `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "css": [":"], "scss": [":"], "less": [":"] }` | 言語 ID（`json`, `jsonc`, `typescript` など）ごとのオペレーター上書き。現在のドキュメントの言語がここに含まれる場合、`ghostAlign.operators` の代わりにこちらが使われます。 |
-| `ghostAlign.ghostCharacter` | string | `" "`（U+00A0 / ノーブレークスペース） | ゴーストパディングに使う文字。通常の ASCII スペースはエディタの描画で 1 文字分に詰められてアライメントが崩れるため、NBSP（U+00A0）や en space（U+2002）を使ってください。設定 UI で空にすると既定値に戻ります。 |
-| `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | ゴーストパディングの色（任意の CSS カラー文字列）。前景色・背景色の両方に適用され、実際の空白と区別できます。`"transparent"` で着色を無効化できます。設定 UI で空にすると既定値に戻ります。 |
+| `ghostAlign.enabled` | boolean | `true` | Enable visual alignment. |
+| `ghostAlign.showStatusBar` | boolean | `false` | Show a status bar item indicating Ghost Align ON/OFF (click to toggle). |
+| `ghostAlign.operators` | array | `["="]` | Operators to align (used when the current language is not listed in `ghostAlign.operatorsByLanguage`). Supported special tokens: `"="` (assignment), `":"` (JSON/YAML key or CSS declaration), `"//"` and `"#"` (trailing line comments). Any other string is matched literally. The list order is the priority: the first operator found on a line is the one aligned, so only one column is aligned per line. |
+| `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "css": [":"], "scss": [":"], "less": [":"] }` | Per-language operator overrides keyed by languageId (e.g. `json`, `jsonc`, `typescript`). If the current document's language is listed here, this list is used in place of `ghostAlign.operators`. |
+| `ghostAlign.ghostCharacter` | string | `" "` (U+00A0, non-breaking space) | Character used for ghost padding. Defaults to a non-breaking space (U+00A0), which renders like a half-width space but is not collapsed by the editor's rendering. Plain ASCII spaces will be collapsed to one cell and break alignment — use NBSP or en-space (U+2002) if you customize this. Leaving this empty in the settings UI falls back to the default. |
+| `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | Tint color of the ghost padding (any CSS color string). Applied as both foreground and background so whitespace padding is distinguishable from real spaces. Leaving this empty in the settings UI falls back to the default; set `"transparent"` to disable tinting entirely. |
 
-## ライセンス
+## License
 
 MIT
