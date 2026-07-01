@@ -195,28 +195,62 @@ export function resolveOperatorsForLanguage(
   return config.get<string[]>("operators", ["="]);
 }
 
+/** State for {@link advanceQuoteState}: the currently open quote char, or `false`. */
+type QuoteState = { quote: string | false; escaped: boolean };
+
+export function initialQuoteState(): QuoteState {
+  return { quote: false, escaped: false };
+}
+
+/**
+ * Shared string/escape tracking step used by findColonOutsideString /
+ * findCssColon / findAssignmentEquals / findTrailingComment. Advances `state`
+ * by one character against `quoteChars` (the quote characters this call site
+ * recognizes, e.g. `"` only for JSON vs. `"`+`'` for CSS/JS-like assignments),
+ * tracking `\` escapes. Mutates `state` in place and returns whether `ch` was
+ * consumed by string/escape tracking — callers should skip their own
+ * per-character logic (and `continue`) for that iteration when this is `true`.
+ */
+export function advanceQuoteState(
+  state: QuoteState,
+  ch: string,
+  quoteChars: ReadonlySet<string>
+): boolean {
+  if (state.quote) {
+    if (state.escaped) {
+      state.escaped = false;
+    } else if (ch === "\\") {
+      state.escaped = true;
+    } else if (ch === state.quote) {
+      state.quote = false;
+    }
+    return true;
+  }
+  if (quoteChars.has(ch)) {
+    state.quote = ch;
+    return true;
+  }
+  return false;
+}
+
+/** Quote characters recognized by findColonOutsideString (JSON: double-quote only). */
+const DOUBLE_QUOTE_ONLY = new Set<string>(['"']);
+
+/** Quote characters recognized by findCssColon / findAssignmentEquals / findTrailingComment. */
+const QUOTE_CHARS = new Set<string>(['"', "'"]);
+
 /**
  * Index of the first `:` outside any double-quoted string. Walks the line
  * character by character, tracking string state and `\` escapes (JSON rules).
  */
 function findColonOutsideString(lineText: string): number {
-  let inString = false;
-  let escaped = false;
+  const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
+    if (advanceQuoteState(state, ch, DOUBLE_QUOTE_ONLY)) {
       continue;
     }
-    if (ch === '"') {
-      inString = true;
-    } else if (ch === ":") {
+    if (ch === ":") {
       return i;
     }
   }
@@ -266,23 +300,11 @@ function indexOfTopLevelBrace(lineText: string): number {
  */
 function findCssColon(lineText: string): number {
   const braceIndex = indexOfTopLevelBrace(lineText);
-  let inString: false | '"' | "'" = false;
-  let escaped = false;
+  const state = initialQuoteState();
   let parenDepth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === inString) {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inString = ch;
+    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
     if (ch === "(") {
@@ -325,23 +347,11 @@ function findCssColon(lineText: string): number {
  * comment running to the end of the line.
  */
 function findAssignmentEquals(lineText: string): number {
-  let inString: false | '"' | "'" = false;
-  let escaped = false;
+  const state = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === inString) {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inString = ch;
+    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
     if (ch === "/" && lineText[i + 1] === "/") {
@@ -395,23 +405,11 @@ function findAssignmentEquals(lineText: string): number {
  *   - `//` inside a single-line `/* ... *​/` block (only for the `//` marker)
  */
 function findTrailingComment(lineText: string, marker: "//" | "#"): number {
-  let inString: false | '"' | "'" = false;
-  let escaped = false;
+  const state = initialQuoteState();
   let seenCode = false;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === inString) {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      inString = ch;
+    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       seenCode = true;
       continue;
     }
