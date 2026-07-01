@@ -604,13 +604,65 @@ export function computePaddings(
 const MARKDOWN_LANGUAGES = new Set(["markdown"]);
 
 /**
- * Char indices of the unescaped `|` table delimiters in a line. A `|` preceded
+ * Char ranges `[start, end)` inside inline code spans (CommonMark: opened by
+ * a run of N backticks, closed by the next run of exactly N backticks).
+ * Spans don't cross lines, so an unmatched opening run is literal text, not
+ * a span.
+ */
+function findCodeSpanRanges(lineText: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  let i = 0;
+  while (i < lineText.length) {
+    if (lineText[i] !== "`") {
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (lineText[runEnd] === "`") {
+      runEnd++;
+    }
+    const runLength = runEnd - i;
+    let searchPos = runEnd;
+    let closeStart = -1;
+    while (searchPos < lineText.length) {
+      if (lineText[searchPos] !== "`") {
+        searchPos++;
+        continue;
+      }
+      let closeEnd = searchPos;
+      while (lineText[closeEnd] === "`") {
+        closeEnd++;
+      }
+      if (closeEnd - searchPos === runLength) {
+        closeStart = searchPos;
+        break;
+      }
+      searchPos = closeEnd;
+    }
+    if (closeStart === -1) {
+      i = runEnd;
+      continue;
+    }
+    ranges.push([runEnd, closeStart]);
+    i = closeStart + runLength;
+  }
+  return ranges;
+}
+
+/**
+ * Char indices of the table-delimiter `|` in a line. A `|` inside an inline
+ * code span is content, never a delimiter (backslash escapes aren't
+ * processed inside code spans either). Outside a code span, a `|` preceded
  * by an odd number of backslashes is escaped (`\|`) and not a delimiter.
  */
 export function findPipePositions(lineText: string): number[] {
+  const codeSpans = findCodeSpanRanges(lineText);
+  const isInCodeSpan = (index: number) =>
+    codeSpans.some(([start, end]) => index >= start && index < end);
+
   const positions: number[] = [];
   for (let i = 0; i < lineText.length; i++) {
-    if (lineText[i] !== "|") {
+    if (lineText[i] !== "|" || isInCodeSpan(i)) {
       continue;
     }
     let backslashes = 0;

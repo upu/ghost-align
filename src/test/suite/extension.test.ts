@@ -615,6 +615,22 @@ suite("findPipePositions", () => {
   test("`|` がない行は空配列", () => {
     assert.deepStrictEqual(findPipePositions("no pipes here"), []);
   });
+
+  test("インラインコードスパン内の `|` は区切りにしない", () => {
+    assert.deepStrictEqual(findPipePositions("| `a|b` | c |"), [0, 8, 12]);
+  });
+
+  test("2連バックティックのコードスパン内の `|` も区切りにしない", () => {
+    assert.deepStrictEqual(findPipePositions("| ``a|b`` | c |"), [0, 10, 14]);
+  });
+
+  test("閉じバックティックがない行はスパン扱いせず `|` を区切りにする", () => {
+    assert.deepStrictEqual(findPipePositions("| `a | b |"), [0, 5, 9]);
+  });
+
+  test("コードスパン内の `\\|` はエスケープでなくスパンにより除外される", () => {
+    assert.deepStrictEqual(findPipePositions("| `\\|` | b |"), [0, 7, 11]);
+  });
 });
 
 suite("isDelimiterRow", () => {
@@ -699,6 +715,19 @@ suite("computeMarkdownTablePaddings", () => {
       { lineIndex: 0, character: 9, padding: 1 },
       { lineIndex: 2, character: 4, padding: 2 },
       { lineIndex: 2, character: 8, padding: 2 },
+    ]);
+  });
+
+  test("コードスパン内の `|` を区切りと誤認せず列がずれない", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| `a|b` | c |", "| --- | --- |", "| x | yy |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 12, padding: 2 },
+      { lineIndex: 1, character: 6, padding: 2 },
+      { lineIndex: 2, character: 4, padding: 4 },
+      { lineIndex: 2, character: 9, padding: 1 },
     ]);
   });
 });
