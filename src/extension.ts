@@ -469,8 +469,47 @@ const COMPOUND_PREFIX_CHARS = new Set([
   "+", "-", "*", "/", "%", "&", "|", "^", "?", ":",
 ]);
 
-/** Prefixes that may double up before `=`: `**=`, `||=`, `&&=`, `??=`. */
-const DOUBLED_PREFIX_CHARS = new Set(["*", "|", "&", "?"]);
+/**
+ * Prefixes that may double up before `=`: `**=`, `||=`, `&&=`, `??=`, and
+ * Python's floor-division `//=` (reachable only for languages where `//` is
+ * not a comment — see LINE_COMMENT_MARKERS_BY_LANGUAGE).
+ */
+const DOUBLED_PREFIX_CHARS = new Set(["*", "|", "&", "?", "/"]);
+
+/**
+ * Line-comment markers for languages whose comments are not the C-style
+ * `//` / `/* ... *​/` that findAssignmentEquals handles by default. For these
+ * languages the C-style handling is disabled (`//` is floor division in
+ * Python, and not a comment in the others), and a marker starts a comment
+ * only at the line start or after whitespace (so shell's `$#` is not one).
+ */
+const LINE_COMMENT_MARKERS_BY_LANGUAGE: Record<string, readonly string[]> = {
+  python: ["#"],
+  shellscript: ["#"],
+  ruby: ["#"],
+  makefile: ["#"],
+  toml: ["#"],
+  dotenv: ["#"],
+  properties: ["#"],
+  ini: ["#", ";"],
+  yaml: ["#"],
+};
+
+/** Resolve the line-comment markers for a language, or undefined for C-style. */
+function lineCommentMarkers(
+  languageId: string | undefined
+): readonly string[] | undefined {
+  if (
+    languageId &&
+    Object.prototype.hasOwnProperty.call(
+      LINE_COMMENT_MARKERS_BY_LANGUAGE,
+      languageId
+    )
+  ) {
+    return LINE_COMMENT_MARKERS_BY_LANGUAGE[languageId];
+  }
+  return undefined;
+}
 
 /**
  * First assignment `=` on a line, or null. Excludes:
@@ -484,11 +523,19 @@ const DOUBLED_PREFIX_CHARS = new Set(["*", "|", "&", "?"]);
  * is the `=` and `insert` is the operator's first character, so padding never
  * splits the operator.
  *
+ * Comment handling depends on the language: languages listed in
+ * LINE_COMMENT_MARKERS_BY_LANGUAGE use their own markers (`#`, `;`) and the
+ * C-style handling is disabled for them; all others use `//` and `/* ... *​/`.
+ *
  * Block comments and template literals spanning multiple lines are not
  * tracked: this function sees one line at a time, so a `/*` without a
  * comment running to the end of the line.
  */
-function findAssignmentEquals(lineText: string): OperatorTarget | null {
+function findAssignmentEquals(
+  lineText: string,
+  languageId?: string
+): OperatorTarget | null {
+  const markers = lineCommentMarkers(languageId);
   const state = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -496,18 +543,28 @@ function findAssignmentEquals(lineText: string): OperatorTarget | null {
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
-    if (ch === "/" && lineText[i + 1] === "/") {
-      // Line comment: nothing after this can be an assignment.
-      return null;
-    }
-    if (ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        // Unterminated block comment: treat the rest of the line as comment.
+    if (markers) {
+      if (markers.includes(ch)) {
+        const prev = lineText[i - 1];
+        if (prev === undefined || prev === " " || prev === "\t") {
+          // Comment to the end of the line: no assignment can follow.
+          return null;
+        }
+      }
+    } else {
+      if (ch === "/" && lineText[i + 1] === "/") {
+        // Line comment: nothing after this can be an assignment.
         return null;
       }
-      i = close + 1; // loop's i++ advances past the closing `/`
-      continue;
+      if (ch === "/" && lineText[i + 1] === "*") {
+        const close = lineText.indexOf("*/", i + 2);
+        if (close === -1) {
+          // Unterminated block comment: treat the rest of the line as comment.
+          return null;
+        }
+        i = close + 1; // loop's i++ advances past the closing `/`
+        continue;
+      }
     }
     if (ch === "(" || ch === "[") {
       depth++;
@@ -655,7 +712,7 @@ export function findOperatorTarget(
 ): OperatorTarget | null {
   for (const op of operators) {
     if (op === "=") {
-      const target = findAssignmentEquals(lineText);
+      const target = findAssignmentEquals(lineText, languageId);
       if (target) {
         return target;
       }
