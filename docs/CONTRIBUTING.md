@@ -23,7 +23,7 @@ npm run compile      # tsc。テスト出力（out-tsc/test/**）と型チェッ
 npm run check-types  # 型チェックのみ（tsc --noEmit）
 ```
 
-配布物は esbuild でバンドルします（`esbuild.js`、`vscode:prepublish` → `npm run build`）。テストは tsc 出力に依存するため `compile` を維持しています。
+配布物は esbuild でバンドルします（`scripts/esbuild.js`、`vscode:prepublish` → `npm run build`）。テストは tsc 出力に依存するため `compile` を維持しています。
 
 ## デバッグ
 

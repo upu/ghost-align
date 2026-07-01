@@ -14,7 +14,6 @@ out-tsc/**
 node_modules/**
 .gitignore
 tsconfig.json
-esbuild.js
 CLAUDE.md
 **/*.map
 **/*.ts
