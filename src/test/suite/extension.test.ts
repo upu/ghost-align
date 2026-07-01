@@ -1163,6 +1163,40 @@ suite("resolveOperatorsForLanguage", () => {
     }
   });
 
+  test("python / shellscript / ruby / ini / makefile は既定で `=` を揃える", () => {
+    // グローバル operators を上書きしても、これらの言語はマップ側の `=` を返す
+    // （フォールバックではなく DEFAULT_OPERATORS_BY_LANGUAGE に含まれていること）
+    const config = mockConfig({ operators: [":"] });
+    for (const lang of ["python", "shellscript", "ruby", "ini", "makefile"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(config, lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
+  test("追加言語のサンプルで代入の `=` が連続行で揃う", () => {
+    const samples: Record<string, string[]> = {
+      python: ["x = 1", "longer = 2"],
+      shellscript: ["X=1", "LONGER=2"],
+      ruby: ["x = 1", "longer = 2"],
+      ini: ["key = 1", "longerkey = 2"],
+      makefile: ["VAR = 1", "LONGVAR = 2"],
+    };
+    for (const [lang, lines] of Object.entries(samples)) {
+      const operators = resolveOperatorsForLanguage(mockConfig({}), lang);
+      const groups = findAlignmentGroups(mockDocument(lines), operators, lang);
+      assert.strictEqual(groups.length, 1, lang);
+      const paddings = computePaddings(groups);
+      const aligned = groups[0].map((g) => {
+        const p = paddings.find((q) => q.lineIndex === g.lineIndex);
+        return g.visualColumn + (p ? p.padding : 0);
+      });
+      assert.strictEqual(aligned[0], aligned[1], lang);
+    }
+  });
+
   test("マップにない言語はグローバル `operators` にフォールバックする", () => {
     assert.deepStrictEqual(
       resolveOperatorsForLanguage(mockConfig({}), "typescript"),
