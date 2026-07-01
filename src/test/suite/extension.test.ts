@@ -595,6 +595,53 @@ suite("findOperatorColumn", () => {
   test("languageId なしでは従来どおり `#` をコメント扱いしない", () => {
     assert.strictEqual(findOperatorColumn("# x = 1", ["="]), 4);
   });
+
+  test("YAML: 丸ごとコメント行の `:` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("# key: value", [":"], "yaml"),
+      null
+    );
+  });
+
+  test("YAML: インデント付きコメント行の `:` も検出しない", () => {
+    assert.strictEqual(findOperatorColumn("  # a: b", [":"], "yaml"), null);
+  });
+
+  test("YAML: トレーリングコメントより前の `:` は従来どおり検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("key: 1  # note: x", [":"], "yaml"),
+      3
+    );
+  });
+
+  test("YAML: 空白前置のない `#` はコメント扱いしない", () => {
+    assert.strictEqual(findOperatorColumn("a#b: 1", [":"], "yaml"), 3);
+  });
+
+  test("JSONC: `//` 行コメント内の `:` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn('// "a": 1', [":"], "jsonc"),
+      null
+    );
+  });
+
+  test("JSONC: 単一行ブロックコメント内の `:` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn('/* "a": 1 */', [":"], "jsonc"),
+      null
+    );
+  });
+
+  test("JSONC: ブロックコメントの後ろの `:` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn('/* x */ "a": 1', [":"], "jsonc"),
+      11
+    );
+  });
+
+  test("JSON: コメント構文がないため `#` の後の `:` も従来どおり検出する", () => {
+    assert.strictEqual(findOperatorColumn("# x: 1", [":"], "json"), 3);
+  });
 });
 
 suite("findOperatorTarget", () => {
@@ -900,6 +947,16 @@ suite("findAlignmentGroups", () => {
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 4, padding: 4 },
     ]);
+  });
+
+  test("YAML: コメント行はグループを分断し最大列を押し上げない", () => {
+    const doc = mockDocument([
+      "a: 1",
+      "# veryLongCommentedOutKey: 99",
+      "b: 2",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "yaml");
+    assert.strictEqual(groups.length, 0);
   });
 
   test("`#` コメント行はグループを分断し最大列を押し上げない", () => {
