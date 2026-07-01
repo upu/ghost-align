@@ -682,6 +682,18 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].length, 2);
   });
+
+  test("全角文字を含む代入行は視覚カラムで揃える", () => {
+    // "あ = 1;" の = は文字インデックス2・視覚カラム3（あ=2 + 空白=1）。
+    // "あいう = 2;" の = は文字インデックス4・視覚カラム7。
+    const doc = mockDocument(["あ = 1;", "あいう = 2;"]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].operatorColumn, 2);
+    assert.strictEqual(groups[0][0].visualColumn, 3);
+    assert.strictEqual(groups[0][1].operatorColumn, 4);
+    assert.strictEqual(groups[0][1].visualColumn, 7);
+  });
 });
 
 suite("computePaddings", () => {
@@ -757,6 +769,22 @@ suite("visualColumn", () => {
 
   test("charIndex が行長を超えても破綻しない", () => {
     assert.strictEqual(visualColumn("ab", 10, 4), 2);
+  });
+
+  test("全角文字（East Asian Width Wide）は2カラム分進む", () => {
+    // "日本語" は各文字が幅2。文字インデックス3の直前は視覚カラム6。
+    assert.strictEqual(visualColumn("日本語", 3, 4), 6);
+  });
+
+  test("半角と全角が混在しても視覚幅で数える", () => {
+    // "aあb": a=1, あ=2, b=1。インデックス2（bの直前）は3。
+    assert.strictEqual(visualColumn("aあb", 1, 4), 1);
+    assert.strictEqual(visualColumn("aあb", 2, 4), 3);
+    assert.strictEqual(visualColumn("aあb", 3, 4), 4);
+  });
+
+  test("全角英字（Fullwidth）も幅2として数える", () => {
+    assert.strictEqual(visualColumn("ＡＢ", 2, 4), 4);
   });
 });
 
@@ -942,6 +970,21 @@ suite("computeMarkdownTablePaddings", () => {
       { lineIndex: 0, character: 9, padding: 1 },
       { lineIndex: 2, character: 4, padding: 2 },
       { lineIndex: 2, character: 8, padding: 2 },
+    ]);
+  });
+
+  test("全角文字セルを含む表でも視覚幅で列を揃える", () => {
+    // "あ"(幅2) と "cc"(幅2) は同じ視覚幅。文字数基準では "cc"=2, "あ"=1 と
+    // 誤って数え、列幅がずれていた。
+    const placements = computeMarkdownTablePaddings(
+      ["| あ | b |", "| --- | --- |", "| cc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 1 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      { lineIndex: 2, character: 5, padding: 1 },
+      { lineIndex: 2, character: 9, padding: 2 },
     ]);
   });
 
