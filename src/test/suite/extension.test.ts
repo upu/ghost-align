@@ -530,6 +530,71 @@ suite("findOperatorColumn", () => {
   test("複合代入 `+=` は = の位置（揃え列）を返す", () => {
     assert.strictEqual(findOperatorColumn("x += 1", ["="]), 3);
   });
+
+  test("`#` コメント言語では丸ごとコメント行の `=` を検出しない", () => {
+    for (const lang of [
+      "python",
+      "shellscript",
+      "ruby",
+      "makefile",
+      "toml",
+      "dotenv",
+      "properties",
+      "ini",
+    ]) {
+      assert.strictEqual(
+        findOperatorColumn("# default = 3", ["="], lang),
+        null,
+        lang
+      );
+    }
+  });
+
+  test("`#` コメント言語ではインデント付きコメント行も検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("  # x = 1", ["="], "python"),
+      null
+    );
+  });
+
+  test("INI の `;` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("; key = value", ["="], "ini"),
+      null
+    );
+  });
+
+  test("トレーリング `#` コメントより前の `=` は従来どおり検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("x = 1  # old = 2", ["="], "python"),
+      2
+    );
+  });
+
+  test("空白前置のない `#` はコメント扱いしない（shell の $# など）", () => {
+    assert.strictEqual(
+      findOperatorColumn("x=$#y", ["="], "shellscript"),
+      1
+    );
+  });
+
+  test("文字列内の `#` はコメント開始にならない", () => {
+    assert.strictEqual(
+      findOperatorColumn('s = "# not comment"', ["="], "python"),
+      2
+    );
+  });
+
+  test("`#` コメント言語では `//` をコメント扱いしない（Python の切り捨て除算）", () => {
+    assert.strictEqual(
+      findOperatorColumn("y = a // b", ["="], "python"),
+      2
+    );
+  });
+
+  test("languageId なしでは従来どおり `#` をコメント扱いしない", () => {
+    assert.strictEqual(findOperatorColumn("# x = 1", ["="]), 4);
+  });
 });
 
 suite("findOperatorTarget", () => {
@@ -606,6 +671,13 @@ suite("findOperatorTarget", () => {
     assert.deepStrictEqual(findOperatorTarget('  "a": 1', [":"]), {
       insert: 5,
       align: 5,
+    });
+  });
+
+  test("Python の `//=`（切り捨て除算代入）を分断しない", () => {
+    assert.deepStrictEqual(findOperatorTarget("x //= 2", ["="], "python"), {
+      insert: 2,
+      align: 4,
     });
   });
 });
@@ -828,6 +900,16 @@ suite("findAlignmentGroups", () => {
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 4, padding: 4 },
     ]);
+  });
+
+  test("`#` コメント行はグループを分断し最大列を押し上げない", () => {
+    const doc = mockDocument([
+      "x = 1",
+      "# veryLongCommentedOutName = 99",
+      "y = 2",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "python");
+    assert.strictEqual(groups.length, 0);
   });
 
   test("単純代入と複合代入が混在しても = の列で揃う", () => {
