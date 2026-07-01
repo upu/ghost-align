@@ -244,6 +244,17 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("{", [":"]), null);
   });
 
+  test("YAML: シングルクォートキー内の `:` ではなく本来の区切りの `:` を返す", () => {
+    assert.strictEqual(findOperatorColumn("'a:b': 1", [":"]), 5);
+  });
+
+  test("JSON: ダブルクォート文字列内のアポストロフィで引用符追跡が崩れない（回帰）", () => {
+    assert.strictEqual(
+      findOperatorColumn('  "it\'s fine": 1', [":"]),
+      13
+    );
+  });
+
   test("CSS: 擬似クラスの `:` ではなく宣言の `:` を返す", () => {
     // `a:hover { color: red; }` の宣言 `:`（列15）を返す。`a:hover` の `:`（列1）は対象外。
     assert.strictEqual(
