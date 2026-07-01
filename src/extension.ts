@@ -276,6 +276,87 @@ function findColonOutsideString(lineText: string): number {
 /** Language IDs whose `:` is a CSS declaration separator, not a JSON/YAML key. */
 const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
 
+/** Language IDs whose `:` is a TS/JS type annotation or object-literal separator. */
+const TS_JS_LANGUAGES = new Set([
+  "typescript",
+  "typescriptreact",
+  "javascript",
+  "javascriptreact",
+]);
+
+/**
+ * Index of the first type-annotation / property `:` on a TS/JS line, or -1.
+ * Excludes:
+ *   - `:` inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
+ *   - `:` inside `//` line comments or single-line `/* ... *​/` block comments
+ *   - the ternary-operator `:` (the branch separator matching a preceding
+ *     `? ... :` at the same bracket depth)
+ *
+ * The optional-property marker `?:` (`name?: string`) is not a ternary, so its
+ * `:` is returned as a normal type colon; `?.` and `??` are likewise excluded
+ * from ternary tracking. Colons inside `(...)`/`[...]`/`{...}` are still valid
+ * targets (function parameter annotations count), so bracket depth is tracked
+ * only to pair ternary `?`/`:`, not to exclude nested colons.
+ *
+ * Block comments and template literals spanning multiple lines are not tracked:
+ * this function sees one line at a time, matching the other single-line finders.
+ */
+function findTsColon(lineText: string): number {
+  const state = initialQuoteState();
+  const ternaryDepths: number[] = [];
+  let depth = 0;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+      continue;
+    }
+    if (ch === "/" && lineText[i + 1] === "/") {
+      return -1; // line comment: nothing after this is code
+    }
+    if (ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        return -1; // unterminated block comment: rest of the line is a comment
+      }
+      i = close + 1; // loop's i++ advances past the closing `/`
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      depth++;
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      if (depth > 0) {
+        depth--;
+      }
+      continue;
+    }
+    if (ch === "?") {
+      const next = lineText[i + 1];
+      if (next === ":") {
+        return i + 1; // optional-property marker `?:` — the `:` is a type colon
+      }
+      if (next === "." || next === "?") {
+        i++; // `?.` optional chaining / `??` nullish coalescing, not a ternary
+        continue;
+      }
+      ternaryDepths.push(depth);
+      continue;
+    }
+    if (ch === ":") {
+      if (
+        ternaryDepths.length > 0 &&
+        ternaryDepths[ternaryDepths.length - 1] === depth
+      ) {
+        ternaryDepths.pop(); // ternary branch separator, not a type colon
+        continue;
+      }
+      return i;
+    }
+  }
+  return -1;
+}
+
 /** Language IDs with `//` line comments; CSS itself has no `//` comment syntax. */
 const SCSS_LESS_LANGUAGES = new Set(["scss", "less"]);
 
@@ -492,10 +573,14 @@ export function findOperatorColumn(
         return idx;
       }
     } else if (op === ":") {
-      const idx =
-        languageId && CSS_LANGUAGES.has(languageId)
-          ? findCssColon(lineText, languageId)
-          : findColonOutsideString(lineText);
+      let idx: number;
+      if (languageId && CSS_LANGUAGES.has(languageId)) {
+        idx = findCssColon(lineText, languageId);
+      } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
+        idx = findTsColon(lineText);
+      } else {
+        idx = findColonOutsideString(lineText);
+      }
       if (idx !== -1) {
         return idx;
       }
