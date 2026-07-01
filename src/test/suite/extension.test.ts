@@ -16,6 +16,8 @@ import {
   debounce,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
+  initialQuoteState,
+  advanceQuoteState,
 } from "../../extension";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,6 +49,56 @@ function mockState(values: Record<string, unknown>) {
     },
   };
 }
+
+suite("advanceQuoteState", () => {
+  test("文字列外の通常文字は消費しない", () => {
+    const state = initialQuoteState();
+    assert.strictEqual(advanceQuoteState(state, "x", new Set(['"'])), false);
+    assert.strictEqual(state.quote, false);
+  });
+
+  test("quoteChars に含まれる文字で文字列を開始する", () => {
+    const state = initialQuoteState();
+    const quoteChars = new Set(['"']);
+    assert.strictEqual(advanceQuoteState(state, '"', quoteChars), true);
+    assert.strictEqual(state.quote, '"');
+  });
+
+  test("同じ引用符で文字列を終了する", () => {
+    const state = initialQuoteState();
+    const quoteChars = new Set(['"']);
+    advanceQuoteState(state, '"', quoteChars);
+    assert.strictEqual(advanceQuoteState(state, "a", quoteChars), true);
+    assert.strictEqual(advanceQuoteState(state, '"', quoteChars), true);
+    assert.strictEqual(state.quote, false);
+  });
+
+  test("バックスラッシュの直後の引用符はエスケープされ終了しない", () => {
+    const state = initialQuoteState();
+    const quoteChars = new Set(['"']);
+    advanceQuoteState(state, '"', quoteChars);
+    advanceQuoteState(state, "\\", quoteChars);
+    assert.strictEqual(advanceQuoteState(state, '"', quoteChars), true);
+    assert.strictEqual(state.quote, '"');
+  });
+
+  test("quoteChars に含まれない引用符は文字列を開始しない", () => {
+    const state = initialQuoteState();
+    const quoteChars = new Set(['"']);
+    assert.strictEqual(advanceQuoteState(state, "'", quoteChars), false);
+    assert.strictEqual(state.quote, false);
+  });
+
+  test("開始した引用符と異なる引用符は文字列を終了しない", () => {
+    const state = initialQuoteState();
+    const quoteChars = new Set(['"', "'"]);
+    advanceQuoteState(state, "'", quoteChars);
+    assert.strictEqual(advanceQuoteState(state, '"', quoteChars), true);
+    assert.strictEqual(state.quote, "'");
+    assert.strictEqual(advanceQuoteState(state, "'", quoteChars), true);
+    assert.strictEqual(state.quote, false);
+  });
+});
 
 suite("findOperatorColumn", () => {
   test("単純な代入の = を見つける", () => {
