@@ -668,6 +668,70 @@ suite("findMarkdownTables", () => {
     const tables = findMarkdownTables(["| a | b |", "| c | d |"]);
     assert.deepStrictEqual(tables, []);
   });
+
+  test("フェンスドコードブロック内のテーブル風行は対象外", () => {
+    const tables = findMarkdownTables([
+      "```",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "```",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("`~~~` フェンス内のテーブル風行も対象外", () => {
+    const tables = findMarkdownTables([
+      "~~~",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "~~~",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("言語指定付き・インデントされたフェンスも対象外にする", () => {
+    const tables = findMarkdownTables([
+      "  ```ts",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "  ```",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("閉じないフェンスは末尾までフェンス内として扱う", () => {
+    const tables = findMarkdownTables([
+      "```",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("バッククォートのフェンスはチルダでは閉じない", () => {
+    const tables = findMarkdownTables([
+      "```",
+      "~~~",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "```",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("フェンス外の通常テーブルは引き続き整列対象になる", () => {
+    const tables = findMarkdownTables([
+      "```",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "```",
+      "",
+      "| h |",
+      "|---|",
+      "| d |",
+    ]);
+    assert.deepStrictEqual(tables, [[5, 6, 7]]);
+  });
 });
 
 suite("computeMarkdownTablePaddings", () => {
