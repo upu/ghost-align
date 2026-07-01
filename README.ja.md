@@ -90,7 +90,7 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 | --- | --- | --- | --- |
 | `ghostAlign.enabled` | boolean | `true` | 視覚的なアライメントを有効にします。 |
 | `ghostAlign.showStatusBar` | boolean | `false` | Ghost Align の ON/OFF を示すステータスバー項目を表示します（クリックでトグル）。 |
-| `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順が優先度で、1 行につき先頭で見つかった 1 つだけを揃えます。 |
+| `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順は優先度かつ左から右へのカラム順です。リストの各オペレーターがそれぞれ独立したカラムとして同じ行の中で揃います（例: `["=", "#"]` なら代入と行末コメントの両方が揃う）。 |
 | `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "ini": ["="], "python": ["="], "shellscript": ["="], "ruby": ["="], "makefile": ["="], "css": [":"], "scss": [":"], "less": [":"] }` | 言語 ID（`json`, `jsonc`, `typescript` など）ごとのオペレーター上書き。現在のドキュメントの言語がここに含まれる場合、`ghostAlign.operators` の代わりにこちらが使われます。 |
 | `ghostAlign.ghostCharacter` | string | `" "`（U+00A0 / ノーブレークスペース） | ゴーストパディングに使う文字。通常の ASCII スペースはエディタの描画で 1 文字分に詰められてアライメントが崩れるため、NBSP（U+00A0）や en space（U+2002）を使ってください。設定 UI で空にすると既定値に戻ります。 |
 | `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | ゴーストパディングの色（任意の CSS カラー文字列）。前景色・背景色の両方に適用され、実際の空白と区別できます。`"transparent"` で着色を無効化できます。設定 UI で空にすると既定値に戻ります。 |

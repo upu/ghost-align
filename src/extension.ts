@@ -262,8 +262,8 @@ const TEMPLATE_QUOTE_CHARS = new Set<string>(['"', "'", "`"]);
 const C_COMMENT_COLON_LANGUAGES = new Set(["jsonc"]);
 
 /**
- * Index of the first `:` outside any `"..."` / `'...'` string. Walks the line
- * character by character, tracking string state and `\` escapes. Used for
+ * Indices of all `:` outside any `"..."` / `'...'` string, in order. Walks the
+ * line character by character, tracking string state and `\` escapes. Used for
  * JSON/JSONC (double-quote strings only, so `'` never opens a string there)
  * and YAML (which also allows single-quoted keys/values).
  *
@@ -272,7 +272,11 @@ const C_COMMENT_COLON_LANGUAGES = new Set(["jsonc"]);
  * single-line `/* ... *​/`. JSON has no comment syntax, so its behavior is
  * unchanged.
  */
-function findColonOutsideString(lineText: string, languageId?: string): number {
+function findColonOutsideString(
+  lineText: string,
+  languageId?: string
+): number[] {
+  const results: number[] = [];
   const markers = lineCommentMarkers(languageId);
   const cStyleComments =
     languageId !== undefined && C_COMMENT_COLON_LANGUAGES.has(languageId);
@@ -285,27 +289,27 @@ function findColonOutsideString(lineText: string, languageId?: string): number {
     if (markers && markers.includes(ch)) {
       const prev = lineText[i - 1];
       if (prev === undefined || prev === " " || prev === "\t") {
-        return -1; // comment to the end of the line
+        break; // comment to the end of the line
       }
     }
     if (cStyleComments) {
       if (ch === "/" && lineText[i + 1] === "/") {
-        return -1; // line comment: nothing after this is a key
+        break; // line comment: nothing after this is a key
       }
       if (ch === "/" && lineText[i + 1] === "*") {
         const close = lineText.indexOf("*/", i + 2);
         if (close === -1) {
-          return -1; // unterminated block comment: rest of the line is a comment
+          break; // unterminated block comment: rest of the line is a comment
         }
         i = close + 1; // loop's i++ advances past the closing `/`
         continue;
       }
     }
     if (ch === ":") {
-      return i;
+      results.push(i);
     }
   }
-  return -1;
+  return results;
 }
 
 /** Language IDs whose `:` is a CSS declaration separator, not a JSON/YAML key. */
@@ -320,7 +324,7 @@ const TS_JS_LANGUAGES = new Set([
 ]);
 
 /**
- * Index of the first type-annotation / property `:` on a TS/JS line, or -1.
+ * Indices of all type-annotation / property `:` on a TS/JS line, in order.
  * Excludes:
  *   - `:` inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - `:` inside `//` line comments or single-line `/* ... *​/` block comments
@@ -336,7 +340,8 @@ const TS_JS_LANGUAGES = new Set([
  * Block comments and template literals spanning multiple lines are not tracked:
  * this function sees one line at a time, matching the other single-line finders.
  */
-function findTsColon(lineText: string): number {
+function findTsColon(lineText: string): number[] {
+  const results: number[] = [];
   const state = initialQuoteState();
   const ternaryDepths: number[] = [];
   let depth = 0;
@@ -346,12 +351,12 @@ function findTsColon(lineText: string): number {
       continue;
     }
     if (ch === "/" && lineText[i + 1] === "/") {
-      return -1; // line comment: nothing after this is code
+      break; // line comment: nothing after this is code
     }
     if (ch === "/" && lineText[i + 1] === "*") {
       const close = lineText.indexOf("*/", i + 2);
       if (close === -1) {
-        return -1; // unterminated block comment: rest of the line is a comment
+        break; // unterminated block comment: rest of the line is a comment
       }
       i = close + 1; // loop's i++ advances past the closing `/`
       continue;
@@ -369,7 +374,10 @@ function findTsColon(lineText: string): number {
     if (ch === "?") {
       const next = lineText[i + 1];
       if (next === ":") {
-        return i + 1; // optional-property marker `?:` — the `:` is a type colon
+        // optional-property marker `?:` — the `:` is a type colon
+        results.push(i + 1);
+        i++; // don't reprocess the `:` on the next iteration
+        continue;
       }
       if (next === "." || next === "?") {
         i++; // `?.` optional chaining / `??` nullish coalescing, not a ternary
@@ -386,10 +394,10 @@ function findTsColon(lineText: string): number {
         ternaryDepths.pop(); // ternary branch separator, not a type colon
         continue;
       }
-      return i;
+      results.push(i);
     }
   }
-  return -1;
+  return results;
 }
 
 /** Language IDs with `//` line comments; CSS itself has no `//` comment syntax. */
@@ -411,7 +419,7 @@ function indexOfTopLevelBrace(lineText: string): number {
 }
 
 /**
- * Index of the CSS declaration-separator `:` (the `:` in `color: red`),
+ * Indices of all CSS declaration-separator `:` (the `:` in `color: red`),
  * excluding:
  *   - `:` inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - `:` inside `(...)`, e.g. `url(http://...)`
@@ -429,7 +437,8 @@ function indexOfTopLevelBrace(lineText: string): number {
  * `{` — the common multi-line declaration such as `  color: red;` — is treated
  * as a declaration, so its first qualifying `:` is returned.
  */
-function findCssColon(lineText: string, languageId: string): number {
+function findCssColon(lineText: string, languageId: string): number[] {
+  const results: number[] = [];
   const braceIndex = indexOfTopLevelBrace(lineText);
   const state = initialQuoteState();
   let parenDepth = 0;
@@ -454,7 +463,7 @@ function findCssColon(lineText: string, languageId: string): number {
     if (ch === "/" && lineText[i + 1] === "*") {
       const close = lineText.indexOf("*/", i + 2);
       if (close === -1) {
-        return -1; // unterminated block comment: rest of the line is a comment
+        break; // unterminated block comment: rest of the line is a comment
       }
       i = close + 1; // loop's i++ advances past the closing `/`
       continue;
@@ -464,7 +473,7 @@ function findCssColon(lineText: string, languageId: string): number {
       ch === "/" &&
       lineText[i + 1] === "/"
     ) {
-      return -1; // SCSS/LESS line comment: nothing after this is a declaration
+      break; // SCSS/LESS line comment: nothing after this is a declaration
     }
     if (ch === ":") {
       if (lineText[i + 1] === ":") {
@@ -474,10 +483,10 @@ function findCssColon(lineText: string, languageId: string): number {
       if (braceIndex !== -1 && i < braceIndex) {
         continue; // selector pseudo-class, before the rule block
       }
-      return i;
+      results.push(i);
     }
   }
-  return -1;
+  return results;
 }
 
 /**
@@ -542,7 +551,7 @@ function lineCommentMarkers(
 }
 
 /**
- * First assignment `=` on a line, or null. Excludes:
+ * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
  *   - any `=` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
@@ -564,7 +573,8 @@ function lineCommentMarkers(
 function findAssignmentEquals(
   lineText: string,
   languageId?: string
-): OperatorTarget | null {
+): OperatorTarget[] {
+  const results: OperatorTarget[] = [];
   const markers = lineCommentMarkers(languageId);
   const state = initialQuoteState();
   let depth = 0;
@@ -578,19 +588,19 @@ function findAssignmentEquals(
         const prev = lineText[i - 1];
         if (prev === undefined || prev === " " || prev === "\t") {
           // Comment to the end of the line: no assignment can follow.
-          return null;
+          break;
         }
       }
     } else {
       if (ch === "/" && lineText[i + 1] === "/") {
         // Line comment: nothing after this can be an assignment.
-        return null;
+        break;
       }
       if (ch === "/" && lineText[i + 1] === "*") {
         const close = lineText.indexOf("*/", i + 2);
         if (close === -1) {
           // Unterminated block comment: treat the rest of the line as comment.
-          return null;
+          break;
         }
         i = close + 1; // loop's i++ advances past the closing `/`
         continue;
@@ -624,23 +634,25 @@ function findAssignmentEquals(
         }
         // shift assignment <<= / >>= (and >>>=)
         const insert = prev === ">" && lineText[i - 3] === ">" ? i - 3 : i - 2;
-        return { insert, align: i };
+        results.push({ insert, align: i });
+        continue;
       }
       if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
         const insert =
           DOUBLED_PREFIX_CHARS.has(prev) && lineText[i - 2] === prev
             ? i - 2
             : i - 1;
-        return { insert, align: i };
+        results.push({ insert, align: i });
+        continue;
       }
-      return { insert: i, align: i };
+      results.push({ insert: i, align: i });
     }
   }
-  return null;
+  return results;
 }
 
 /**
- * Index of the first arrow `=>` on a line, excluding:
+ * Indices of all arrows `=>` on a line, in order, excluding:
  *   - `=>` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
  *   - `=>` inside `//` line comments or single-line `/* ... *​/` blocks
  *
@@ -650,7 +662,8 @@ function findAssignmentEquals(
  * lines are not tracked — this function sees one line at a time, matching the
  * other single-line finders.
  */
-function findArrow(lineText: string): number {
+function findArrow(lineText: string): number[] {
+  const results: number[] = [];
   const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
@@ -658,21 +671,22 @@ function findArrow(lineText: string): number {
       continue;
     }
     if (ch === "/" && lineText[i + 1] === "/") {
-      return -1; // line comment: nothing after this is code
+      break; // line comment: nothing after this is code
     }
     if (ch === "/" && lineText[i + 1] === "*") {
       const close = lineText.indexOf("*/", i + 2);
       if (close === -1) {
-        return -1; // unterminated block comment: rest of the line is a comment
+        break; // unterminated block comment: rest of the line is a comment
       }
       i = close + 1; // loop's i++ advances past the closing `/`
       continue;
     }
     if (ch === "=" && lineText[i + 1] === ">") {
-      return i;
+      results.push(i);
+      i++; // skip the `>` so it is not reprocessed
     }
   }
-  return -1;
+  return results;
 }
 
 /**
@@ -729,53 +743,94 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
   return -1;
 }
 
+/** All occurrences of a single operator token on a line, in order. */
+function findOccurrences(
+  lineText: string,
+  op: string,
+  languageId?: string
+): OperatorTarget[] {
+  if (op === "=") {
+    return findAssignmentEquals(lineText, languageId);
+  }
+  if (op === ":") {
+    let indices: number[];
+    if (languageId && CSS_LANGUAGES.has(languageId)) {
+      indices = findCssColon(lineText, languageId);
+    } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
+      indices = findTsColon(lineText);
+    } else {
+      indices = findColonOutsideString(lineText, languageId);
+    }
+    return indices.map((i) => ({ insert: i, align: i }));
+  }
+  if (op === "//" || op === "#") {
+    const idx = findTrailingComment(lineText, op);
+    return idx === -1 ? [] : [{ insert: idx, align: idx }];
+  }
+  if (op === "=>") {
+    return findArrow(lineText).map((i) => ({ insert: i, align: i }));
+  }
+  const results: OperatorTarget[] = [];
+  let from = 0;
+  for (;;) {
+    const idx = lineText.indexOf(op, from);
+    if (idx === -1) {
+      break;
+    }
+    results.push({ insert: idx, align: idx });
+    from = idx + op.length;
+  }
+  return results;
+}
+
 /**
- * Find the first alignment-target operator on a line, as the pair of
- * insertion index (where padding goes) and alignment index (the column that
- * lines up across the group). The two differ only for compound assignments
- * such as `+=` — see {@link OperatorTarget}.
+ * A per-line alignment column: which operator in the configured list it
+ * belongs to (`opIndex`), plus the insert/align pair of that occurrence.
+ */
+export type ColumnTarget = OperatorTarget & { opIndex: number };
+
+/**
+ * All alignment columns on a line, in operator-list order. The k-th operator
+ * claims its first occurrence *after* the previously claimed column, so the
+ * configured list order is both the priority and the left-to-right column
+ * order. An operator with no such occurrence is skipped (the line simply has
+ * no column for it); listing the same operator twice claims its first and
+ * second occurrences.
+ */
+export function findOperatorTargets(
+  lineText: string,
+  operators: string[],
+  languageId?: string
+): ColumnTarget[] {
+  const columns: ColumnTarget[] = [];
+  let minIndex = 0;
+  for (let opIndex = 0; opIndex < operators.length; opIndex++) {
+    const occurrences = findOccurrences(lineText, operators[opIndex], languageId);
+    const match = occurrences.find((t) => t.insert >= minIndex);
+    if (!match) {
+      continue;
+    }
+    columns.push({ opIndex, insert: match.insert, align: match.align });
+    minIndex = match.align + 1;
+  }
+  return columns;
+}
+
+/**
+ * First alignment-target operator on a line, as the pair of insertion index
+ * (where padding goes) and alignment index (the column that lines up across
+ * the group). The two differ only for compound assignments such as `+=` —
+ * see {@link OperatorTarget}.
  */
 export function findOperatorTarget(
   lineText: string,
   operators: string[],
   languageId?: string
 ): OperatorTarget | null {
-  for (const op of operators) {
-    if (op === "=") {
-      const target = findAssignmentEquals(lineText, languageId);
-      if (target) {
-        return target;
-      }
-    } else if (op === ":") {
-      let idx: number;
-      if (languageId && CSS_LANGUAGES.has(languageId)) {
-        idx = findCssColon(lineText, languageId);
-      } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
-        idx = findTsColon(lineText);
-      } else {
-        idx = findColonOutsideString(lineText, languageId);
-      }
-      if (idx !== -1) {
-        return { insert: idx, align: idx };
-      }
-    } else if (op === "//" || op === "#") {
-      const idx = findTrailingComment(lineText, op);
-      if (idx !== -1) {
-        return { insert: idx, align: idx };
-      }
-    } else if (op === "=>") {
-      const idx = findArrow(lineText);
-      if (idx !== -1) {
-        return { insert: idx, align: idx };
-      }
-    } else {
-      const idx = lineText.indexOf(op);
-      if (idx !== -1) {
-        return { insert: idx, align: idx };
-      }
-    }
-  }
-  return null;
+  const columns = findOperatorTargets(lineText, operators, languageId);
+  return columns.length > 0
+    ? { insert: columns[0].insert, align: columns[0].align }
+    : null;
 }
 
 /** Column of the first alignment-target operator on a line (its `align` index). */
@@ -854,27 +909,46 @@ export function visualColumn(
   return col;
 }
 
+/** One alignment column of a group entry, in rendered coordinates. */
+export type AlignmentColumn = {
+  opIndex: number;
+  insert: number;
+  visualColumn: number;
+};
+
 /**
- * Group consecutive lines that contain an operator.
+ * A line in an alignment group. `operatorColumn` / `visualColumn` describe
+ * the first column (kept for backward compatibility with single-operator
+ * callers); `columns` lists every column on the line. Entries built by hand
+ * without `columns` are treated as having that single column.
+ */
+export type AlignmentEntry = {
+  lineIndex: number;
+  operatorColumn: number;
+  visualColumn: number;
+  columns?: AlignmentColumn[];
+};
+
+/**
+ * Group consecutive lines that contain at least one operator.
  * A group is also split when the leading indent width changes — this keeps
  * nested blocks (e.g. JSON objects) from being aligned across indent levels.
  *
- * `operatorColumn` is the character index where padding is inserted (the
- * operator's first character, so compound assignments like `+=` are never
- * split), while `visualColumn` is the rendered column of the alignment point
- * (the `=` itself) used to compute padding and the group's alignment target.
- * Indent comparison and alignment use visual columns so tabs and tab/space
- * mixes line up on screen, not by raw character count.
+ * Each column's `insert` is the character index where padding is inserted
+ * (the operator's first character, so compound assignments like `+=` are
+ * never split), while `visualColumn` is the rendered column of the alignment
+ * point (the `=` itself) used to compute padding and the group's alignment
+ * target. Indent comparison and alignment use visual columns so tabs and
+ * tab/space mixes line up on screen, not by raw character count.
  */
 export function findAlignmentGroups(
   document: vscode.TextDocument,
   operators: string[],
   languageId?: string,
   tabSize: number = DEFAULT_TAB_SIZE
-): { lineIndex: number; operatorColumn: number; visualColumn: number }[][] {
-  type Entry = { lineIndex: number; operatorColumn: number; visualColumn: number };
-  const groups: Entry[][] = [];
-  let currentGroup: Entry[] = [];
+): AlignmentEntry[][] {
+  const groups: AlignmentEntry[][] = [];
+  let currentGroup: AlignmentEntry[] = [];
   let currentIndent: number | null = null;
 
   const flush = () => {
@@ -887,9 +961,9 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-    const target = findOperatorTarget(lineText, operators, languageId);
+    const targets = findOperatorTargets(lineText, operators, languageId);
 
-    if (target === null) {
+    if (targets.length === 0) {
       flush();
       continue;
     }
@@ -898,10 +972,16 @@ export function findAlignmentGroups(
     if (currentIndent !== null && indent !== currentIndent) {
       flush();
     }
+    const columns = targets.map((t) => ({
+      opIndex: t.opIndex,
+      insert: t.insert,
+      visualColumn: visualColumn(lineText, t.align, tabSize),
+    }));
     currentGroup.push({
       lineIndex: i,
-      operatorColumn: target.insert,
-      visualColumn: visualColumn(lineText, target.align, tabSize),
+      operatorColumn: columns[0].insert,
+      visualColumn: columns[0].visualColumn,
+      columns,
     });
     currentIndent = indent;
   }
@@ -922,26 +1002,59 @@ function resolveTabSize(editor: vscode.TextEditor): number {
 
 /**
  * Compute the ghost-padding placements for alignment groups. Pure: for each
- * line that is not already at its group's max visual column, returns the line
- * and character to decorate (the operator's character index) and how many ghost
- * characters to insert before it.
+ * line and column that is not already at the group's max visual column,
+ * returns the line and character to decorate (the column's insert index) and
+ * how many ghost characters to insert before it.
+ *
+ * Columns are aligned in operator-list order (`opIndex` ascending). Padding
+ * applied to an earlier column shifts everything after it on that line, so
+ * later columns compare shifted visual positions. A tab between two columns
+ * would absorb part of that shift (tab stops), which is not modeled — a known
+ * limitation matching the finders' single-line scope.
  */
 export function computePaddings(
-  groups: { lineIndex: number; operatorColumn: number; visualColumn: number }[][]
+  groups: AlignmentEntry[][]
 ): { lineIndex: number; character: number; padding: number }[] {
   const placements: { lineIndex: number; character: number; padding: number }[] = [];
   for (const group of groups) {
-    const maxCol = Math.max(...group.map((g) => g.visualColumn));
-    for (const entry of group) {
-      const padding = maxCol - entry.visualColumn;
-      if (padding <= 0) {
-        continue; // already at the max position
+    const rows = group.map((entry) => ({
+      lineIndex: entry.lineIndex,
+      columns:
+        entry.columns ??
+        [
+          {
+            opIndex: 0,
+            insert: entry.operatorColumn,
+            visualColumn: entry.visualColumn,
+          },
+        ],
+      shift: 0,
+    }));
+    const opIndices = [
+      ...new Set(rows.flatMap((r) => r.columns.map((c) => c.opIndex))),
+    ].sort((a, b) => a - b);
+    for (const opIndex of opIndices) {
+      const active = rows
+        .map((row) => {
+          const column = row.columns.find((c) => c.opIndex === opIndex);
+          return column ? { row, column } : undefined;
+        })
+        .filter((x): x is NonNullable<typeof x> => x !== undefined);
+      const maxCol = Math.max(
+        ...active.map(({ row, column }) => column.visualColumn + row.shift)
+      );
+      for (const { row, column } of active) {
+        const padding = maxCol - (column.visualColumn + row.shift);
+        if (padding <= 0) {
+          continue; // already at the max position
+        }
+        placements.push({
+          lineIndex: row.lineIndex,
+          character: column.insert,
+          padding,
+        });
+        row.shift += padding;
       }
-      placements.push({
-        lineIndex: entry.lineIndex,
-        character: entry.operatorColumn,
-        padding,
-      });
     }
   }
   return placements;

@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import {
   findOperatorColumn,
   findOperatorTarget,
+  findOperatorTargets,
   findAlignmentGroups,
   visualColumn,
   computePaddings,
@@ -729,6 +730,74 @@ suite("findOperatorTarget", () => {
   });
 });
 
+suite("findOperatorTargets", () => {
+  test("複数演算子をリスト順にカラムとして返す", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("x = 1  # a", ["=", "#"], "python"),
+      [
+        { opIndex: 0, insert: 2, align: 2 },
+        { opIndex: 1, insert: 7, align: 7 },
+      ]
+    );
+  });
+
+  test("後段の演算子は前段より後方の出現だけを対象にする", () => {
+    // "//" が先頭カラムのとき、その手前にある `=` は第2カラムにならない
+    assert.deepStrictEqual(
+      findOperatorTargets("x = 1; // c", ["//", "="]),
+      [{ opIndex: 0, insert: 7, align: 7 }]
+    );
+  });
+
+  test("見つからない演算子はスキップして次の演算子を探す", () => {
+    // `#` がない行でも `=>` は第3カラムとして拾われる
+    assert.deepStrictEqual(
+      findOperatorTargets("const f = (x) => x;", ["=", "#", "=>"]),
+      [
+        { opIndex: 0, insert: 8, align: 8 },
+        { opIndex: 2, insert: 14, align: 14 },
+      ]
+    );
+  });
+
+  test("先頭の演算子がない行は後段の演算子だけを返す", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("foo(1)  # b", ["=", "#"], "python"),
+      [{ opIndex: 1, insert: 8, align: 8 }]
+    );
+  });
+
+  test("同じ演算子を2回並べると2つ目の出現が第2カラムになる", () => {
+    assert.deepStrictEqual(findOperatorTargets("a -> b -> c", ["->", "->"]), [
+      { opIndex: 0, insert: 2, align: 2 },
+      { opIndex: 1, insert: 7, align: 7 },
+    ]);
+  });
+
+  test("演算子が1つも見つからなければ空配列", () => {
+    assert.deepStrictEqual(findOperatorTargets("foo()", ["=", "#"]), []);
+  });
+
+  test("複合代入は第1カラムでも insert/align を分けて返す", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("x += 1  # a", ["=", "#"], "python"),
+      [
+        { opIndex: 0, insert: 2, align: 3 },
+        { opIndex: 1, insert: 8, align: 8 },
+      ]
+    );
+  });
+
+  test("コメント内の後段演算子は対象にならない", () => {
+    // python: # 以降はコメントなので、その中の 2 個目の # は… 1個目が
+    // トレーリングコメントとして第2カラムになるのみ
+    assert.deepStrictEqual(
+      findOperatorTargets("x = 1  # a = 2", ["=", "="], "python"),
+      [{ opIndex: 0, insert: 2, align: 2 }]
+    );
+  });
+});
+
 suite("findAlignmentGroups", () => {
   test("連続する代入行をグループ化する", () => {
     const doc = mockDocument([
@@ -947,6 +1016,42 @@ suite("findAlignmentGroups", () => {
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 4, padding: 4 },
     ]);
+  });
+
+  test("マルチカラム: `=` と `#` の両方が揃う", () => {
+    const doc = mockDocument(["x = 1 # a", "longer = 22 # b"]);
+    const groups = findAlignmentGroups(doc, ["=", "#"], "python");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    // 行0: = を列7へ(+5)、# は 6+5=11 から列12へ(+1)
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 5 },
+      { lineIndex: 0, character: 6, padding: 1 },
+    ]);
+  });
+
+  test("マルチカラム: 第1カラムがない行も第2カラムだけ揃う", () => {
+    const doc = mockDocument(["x = 1 # a", "foo(1) # b"]);
+    const groups = findAlignmentGroups(doc, ["=", "#"], "python");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    // `=` は行0のみ→パディングなし。# は行0が6、行1が7 → 行0に+1
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 6, padding: 1 },
+    ]);
+  });
+
+  test("マルチカラム: グループのエントリが columns を持つ", () => {
+    const doc = mockDocument(["x = 1 # a", "y = 2 # b"]);
+    const groups = findAlignmentGroups(doc, ["=", "#"], "python");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0][0].columns, [
+      { opIndex: 0, insert: 2, visualColumn: 2 },
+      { opIndex: 1, insert: 6, visualColumn: 6 },
+    ]);
+    // 後方互換: operatorColumn / visualColumn は第1ターゲットを指す
+    assert.strictEqual(groups[0][0].operatorColumn, 2);
+    assert.strictEqual(groups[0][0].visualColumn, 2);
   });
 
   test("YAML: コメント行はグループを分断し最大列を押し上げない", () => {
