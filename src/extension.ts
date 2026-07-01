@@ -258,18 +258,48 @@ const QUOTE_CHARS = new Set<string>(['"', "'"]);
  */
 const TEMPLATE_QUOTE_CHARS = new Set<string>(['"', "'", "`"]);
 
+/** Language IDs whose `:` finder must skip C-style `//` / `/* ... *​/` comments. */
+const C_COMMENT_COLON_LANGUAGES = new Set(["jsonc"]);
+
 /**
  * Index of the first `:` outside any `"..."` / `'...'` string. Walks the line
  * character by character, tracking string state and `\` escapes. Used for
  * JSON/JSONC (double-quote strings only, so `'` never opens a string there)
  * and YAML (which also allows single-quoted keys/values).
+ *
+ * Comments are skipped per language: YAML's `#` (line start or after
+ * whitespace, via LINE_COMMENT_MARKERS_BY_LANGUAGE) and JSONC's `//` /
+ * single-line `/* ... *​/`. JSON has no comment syntax, so its behavior is
+ * unchanged.
  */
-function findColonOutsideString(lineText: string): number {
+function findColonOutsideString(lineText: string, languageId?: string): number {
+  const markers = lineCommentMarkers(languageId);
+  const cStyleComments =
+    languageId !== undefined && C_COMMENT_COLON_LANGUAGES.has(languageId);
   const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
+    }
+    if (markers && markers.includes(ch)) {
+      const prev = lineText[i - 1];
+      if (prev === undefined || prev === " " || prev === "\t") {
+        return -1; // comment to the end of the line
+      }
+    }
+    if (cStyleComments) {
+      if (ch === "/" && lineText[i + 1] === "/") {
+        return -1; // line comment: nothing after this is a key
+      }
+      if (ch === "/" && lineText[i + 1] === "*") {
+        const close = lineText.indexOf("*/", i + 2);
+        if (close === -1) {
+          return -1; // unterminated block comment: rest of the line is a comment
+        }
+        i = close + 1; // loop's i++ advances past the closing `/`
+        continue;
+      }
     }
     if (ch === ":") {
       return i;
@@ -723,7 +753,7 @@ export function findOperatorTarget(
       } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
         idx = findTsColon(lineText);
       } else {
-        idx = findColonOutsideString(lineText);
+        idx = findColonOutsideString(lineText, languageId);
       }
       if (idx !== -1) {
         return { insert: idx, align: idx };
