@@ -260,6 +260,9 @@ function findColonOutsideString(lineText: string): number {
 /** Language IDs whose `:` is a CSS declaration separator, not a JSON/YAML key. */
 const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
 
+/** Language IDs with `//` line comments; CSS itself has no `//` comment syntax. */
+const SCSS_LESS_LANGUAGES = new Set(["scss", "less"]);
+
 /** Index of the first `{` outside any string, or -1. */
 function indexOfTopLevelBrace(lineText: string): number {
   const state = initialQuoteState();
@@ -282,13 +285,15 @@ function indexOfTopLevelBrace(lineText: string): number {
  *   - `:` inside `(...)`, e.g. `url(http://...)`
  *   - pseudo-element `::` and pseudo-class `:` in the selector part
  *     (`a:hover`, `.x::before`)
+ *   - anything from a `//` line comment onward, for SCSS/LESS only — CSS has
+ *     no `//` comment syntax, so `//` in a CSS value must not be treated as one
  *
  * The rule block `{` separates selector from declarations: colons before the
  * first `{` on the line are treated as selectors and skipped. A line with no
  * `{` — the common multi-line declaration such as `  color: red;` — is treated
  * as a declaration, so its first qualifying `:` is returned.
  */
-function findCssColon(lineText: string): number {
+function findCssColon(lineText: string, languageId: string): number {
   const braceIndex = indexOfTopLevelBrace(lineText);
   const state = initialQuoteState();
   let parenDepth = 0;
@@ -309,6 +314,13 @@ function findCssColon(lineText: string): number {
     }
     if (parenDepth !== 0) {
       continue;
+    }
+    if (
+      SCSS_LESS_LANGUAGES.has(languageId) &&
+      ch === "/" &&
+      lineText[i + 1] === "/"
+    ) {
+      return -1; // SCSS/LESS line comment: nothing after this is a declaration
     }
     if (ch === ":") {
       if (lineText[i + 1] === ":") {
@@ -454,7 +466,7 @@ export function findOperatorColumn(
     } else if (op === ":") {
       const idx =
         languageId && CSS_LANGUAGES.has(languageId)
-          ? findCssColon(lineText)
+          ? findCssColon(lineText, languageId)
           : findColonOutsideString(lineText);
       if (idx !== -1) {
         return idx;
