@@ -281,6 +281,34 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("SCSS: `//` 行コメント内の `:` は対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("// color: red", [":"], "scss"),
+      null
+    );
+  });
+
+  test("LESS: `//` 行コメント内の `:` は対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("// color: red", [":"], "less"),
+      null
+    );
+  });
+
+  test("SCSS: 宣言後の `//` コメントは宣言の `:` を返す", () => {
+    assert.strictEqual(
+      findOperatorColumn("color: red; // note", [":"], "scss"),
+      5
+    );
+  });
+
+  test("CSS: `//` はコメントではないため値中でも宣言の `:` に影響しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("color: red // not a comment", [":"], "css"),
+      5
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });
