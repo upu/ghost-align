@@ -697,20 +697,64 @@ export function isDelimiterRow(lineText: string): boolean {
   return /^[|\-:\s]+$/.test(t);
 }
 
+/** Matches a fenced code block's opening/closing delimiter line (``` or ~~~, 3+ chars). */
+const FENCE_RE = /^(`{3,}|~{3,})/;
+
+/**
+ * For each line, whether it is inside a fenced code block (```` ``` ```` or `~~~`).
+ * A fence opens on a line whose trimmed text starts with 3+ backticks or tildes, and
+ * closes on the next line whose trimmed text starts with 3+ of the same character. An
+ * unclosed fence extends to the end of the file.
+ */
+function computeFencedLines(lines: string[]): boolean[] {
+  const fenced = new Array<boolean>(lines.length).fill(false);
+  let fenceChar: string | null = null;
+  let fenceLen = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    const match = FENCE_RE.exec(trimmed);
+    if (fenceChar === null) {
+      if (match) {
+        fenceChar = match[1][0];
+        fenceLen = match[1].length;
+        fenced[i] = true;
+      }
+    } else {
+      fenced[i] = true;
+      if (match && match[1][0] === fenceChar && match[1].length >= fenceLen) {
+        fenceChar = null;
+      }
+    }
+  }
+  return fenced;
+}
+
 /**
  * Detect GFM table blocks: a header row (containing `|`), a delimiter row, then
  * data rows (non-blank, containing `|`). Returns each block as its line indices.
+ * Lines inside fenced code blocks (``` or ~~~) are skipped.
  */
 export function findMarkdownTables(lines: string[]): number[][] {
   const tables: number[][] = [];
+  const fenced = computeFencedLines(lines);
   let i = 0;
   while (i < lines.length) {
+    if (fenced[i]) {
+      i++;
+      continue;
+    }
     const isHeader = findPipePositions(lines[i]).length > 0;
-    if (isHeader && i + 1 < lines.length && isDelimiterRow(lines[i + 1])) {
+    if (
+      isHeader &&
+      i + 1 < lines.length &&
+      !fenced[i + 1] &&
+      isDelimiterRow(lines[i + 1])
+    ) {
       const block = [i, i + 1];
       let j = i + 2;
       while (
         j < lines.length &&
+        !fenced[j] &&
         lines[j].trim().length > 0 &&
         findPipePositions(lines[j]).length > 0
       ) {
