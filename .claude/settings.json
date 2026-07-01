@@ -1,4 +1,20 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(npm test*)",
+      "Bash(npm run compile*)",
+      "Bash(npm run check:package*)",
+      "Bash(git pull *)",
+      "Bash(git fetch *)",
+      "Bash(git status)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git ls-files *)",
+      "Bash(git check-ignore *)",
+      "Bash(gh label list*)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
