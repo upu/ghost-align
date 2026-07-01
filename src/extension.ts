@@ -262,23 +262,13 @@ const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
 
 /** Index of the first `{` outside any string, or -1. */
 function indexOfTopLevelBrace(lineText: string): number {
-  let inString: false | '"' | "'" = false;
-  let escaped = false;
+  const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === "\\") {
-        escaped = true;
-      } else if (ch === inString) {
-        inString = false;
-      }
+    if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
-    if (ch === '"' || ch === "'") {
-      inString = ch;
-    } else if (ch === "{") {
+    if (ch === "{") {
       return i;
     }
   }
