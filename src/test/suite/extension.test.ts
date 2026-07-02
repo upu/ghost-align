@@ -1950,9 +1950,56 @@ suite("resolveOperatorsForLanguage", () => {
 
   test("マップにない言語はグローバル `operators` にフォールバックする", () => {
     assert.deepStrictEqual(
-      resolveOperatorsForLanguage(mockConfig({}), "typescript"),
+      resolveOperatorsForLanguage(mockConfig({}), "plaintext"),
       ["="]
     );
+  });
+
+  test("TS/TSX/JS/JSX は既定で `:` と `=` を揃える", () => {
+    for (const lang of [
+      "typescript",
+      "typescriptreact",
+      "javascript",
+      "javascriptreact",
+    ]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(mockConfig({}), lang),
+        [":", "="],
+        lang
+      );
+    }
+  });
+
+  test("TS: 既定設定で型注釈の `:` と代入の `=` が連続行で両方揃う", () => {
+    const operators = resolveOperatorsForLanguage(
+      mockConfig({}),
+      "typescript"
+    );
+    const doc = mockDocument([
+      "const x: number = 1;",
+      "const longName: str = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, operators, "typescript");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 7, padding: 7 },
+      { lineIndex: 1, character: 20, padding: 3 },
+    ]);
+  });
+
+  test("TS: switch の case ラベルの `:` も既定で揃う（意図した挙動）", () => {
+    const operators = resolveOperatorsForLanguage(
+      mockConfig({}),
+      "typescript"
+    );
+    const doc = mockDocument(["  case 1:", "  case 22:"]);
+    const groups = findAlignmentGroups(doc, operators, "typescript");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 8, padding: 1 },
+    ]);
   });
 
   test("ruby / php / rust は既定で `=` と `=>` を揃える", () => {
@@ -2030,7 +2077,7 @@ suite("resolveOperatorsForLanguage", () => {
   test("operators がユーザー設定で上書きされていればフォールバック先がそれになる", () => {
     const ops = resolveOperatorsForLanguage(
       mockConfig({ operators: ["=", "=>"] }),
-      "typescript"
+      "plaintext"
     );
     assert.deepStrictEqual(ops, ["=", "=>"]);
   });
