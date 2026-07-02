@@ -60,6 +60,7 @@ The inserted whitespace is a decoration (a "ghost") and is never saved to the fi
 - Trailing line comments (`//` / `#`) can also be aligned (opt-in via `"//"` / `"#"` in `ghostAlign.operators` etc.; comments inside strings, URLs like `http://`, and lines that are entirely a comment are excluded).
 - If a single extremely long line would force a large amount of ghost padding onto the other lines, you can cap it with `ghostAlign.maxPadding` — outlier lines are excluded and the remaining lines are aligned without them (default is unlimited).
 - In Markdown, table columns (separated by `|`) are aligned so they line up vertically.
+- In CSV / TSV documents (language ID `csv` / `tsv`, as provided by extensions like Rainbow CSV — VS Code itself opens `.csv` as plain text), columns are aligned so the delimiters line up vertically. Commas inside double-quoted fields (RFC 4180, including `""` escapes) are not treated as delimiters.
 - Lines containing tabs are aligned by their visual column, taking the tab width (`editor.tabSize`) into account.
 
 ## Installation
