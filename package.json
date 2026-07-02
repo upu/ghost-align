@@ -147,6 +147,18 @@
             ],
             "java": [
               "="
+            ],
+            "swift": [
+              "="
+            ],
+            "kotlin": [
+              "="
+            ],
+            "dart": [
+              "="
+            ],
+            "zig": [
+              "="
             ]
           },
           "additionalProperties": {

@@ -783,6 +783,39 @@ suite("findOperatorTarget", () => {
     }
   });
 
+  test("Swift: `!=` を代入として検出しない", () => {
+    assert.strictEqual(
+      findOperatorTarget("if a != b {", ["="], "swift"),
+      null
+    );
+  });
+
+  test("Swift: nil 結合代入 `??=` を分断しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTarget("value ??= 1", ["="], "swift"),
+      { insert: 6, align: 8 }
+    );
+  });
+
+  test("Kotlin: 参照等価 `===` / `!==` を代入として検出しない", () => {
+    assert.strictEqual(findOperatorTarget("a === b", ["="], "kotlin"), null);
+    assert.strictEqual(findOperatorTarget("a !== b", ["="], "kotlin"), null);
+  });
+
+  test("Dart: null 結合代入 `??=` を分断しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTarget("value ??= 1;", ["="], "dart"),
+      { insert: 6, align: 8 }
+    );
+  });
+
+  test("Zig: `!=` を代入として検出しない", () => {
+    assert.strictEqual(
+      findOperatorTarget("if (a != b) {", ["="], "zig"),
+      null
+    );
+  });
+
   test("`=` 以外の演算子は insert と align が常に一致する", () => {
     assert.deepStrictEqual(findOperatorTarget('  "a": 1', [":"]), {
       insert: 5,
@@ -1934,6 +1967,10 @@ suite("resolveOperatorsForLanguage", () => {
       ruby: ["x = 1", "longer = 2"],
       ini: ["key = 1", "longerkey = 2"],
       makefile: ["VAR = 1", "LONGVAR = 2"],
+      swift: ["let x = 1", "let longName = 2"],
+      kotlin: ["val x = 1", "val longName = 2"],
+      dart: ["var x = 1;", "var longName = 2;"],
+      zig: ["const x = 1;", "const longName = 2;"],
     };
     for (const [lang, lines] of Object.entries(samples)) {
       const operators = resolveOperatorsForLanguage(mockConfig({}), lang);
@@ -2015,6 +2052,17 @@ suite("resolveOperatorsForLanguage", () => {
   test("go / lua / c / cpp / csharp / java は既定で `=` を揃える", () => {
     const config = mockConfig({ operators: [":"] });
     for (const lang of ["go", "lua", "c", "cpp", "csharp", "java"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(config, lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
+  test("swift / kotlin / dart / zig は既定で `=` を揃える", () => {
+    const config = mockConfig({ operators: [":"] });
+    for (const lang of ["swift", "kotlin", "dart", "zig"]) {
       assert.deepStrictEqual(
         resolveOperatorsForLanguage(config, lang),
         ["="],
