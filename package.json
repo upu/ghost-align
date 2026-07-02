@@ -151,6 +151,12 @@
           "default": true,
           "description": "Align the parameter-name and description columns of consecutive JSDoc @param lines in JavaScript/TypeScript."
         },
+        "ghostAlign.maxPadding": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum number of ghost characters inserted per alignment column on a single line. When aligning a group would require more, the extremely long outlier lines are excluded and the remaining lines are aligned without them. 0 means unlimited (default). Does not apply to Markdown table alignment."
+        },
         "ghostAlign.ghostCharacter": {
           "type": "string",
           "default": " ",

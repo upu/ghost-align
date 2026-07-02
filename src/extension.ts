@@ -1038,9 +1038,16 @@ function resolveTabSize(editor: vscode.TextEditor): number {
  * later columns compare shifted visual positions. A tab between two columns
  * would absorb part of that shift (tab stops), which is not modeled — a known
  * limitation matching the finders' single-line scope.
+ *
+ * When `maxPadding` is positive, any column whose alignment would require
+ * more than `maxPadding` ghost characters on some line is trimmed: the
+ * rightmost (outlier) lines are excluded from that column and the max is
+ * recomputed, repeating until the remaining lines fit. Excluded lines keep
+ * their position for that column but still participate in other columns.
  */
 export function computePaddings(
-  groups: AlignmentEntry[][]
+  groups: AlignmentEntry[][],
+  maxPadding: number = 0
 ): { lineIndex: number; character: number; padding: number }[] {
   const placements: { lineIndex: number; character: number; padding: number }[] = [];
   for (const group of groups) {
@@ -1061,12 +1068,26 @@ export function computePaddings(
       ...new Set(rows.flatMap((r) => r.columns.map((c) => c.opIndex))),
     ].sort((a, b) => a - b);
     for (const opIndex of opIndices) {
-      const active = rows
+      let active = rows
         .map((row) => {
           const column = row.columns.find((c) => c.opIndex === opIndex);
           return column ? { row, column } : undefined;
         })
         .filter((x): x is NonNullable<typeof x> => x !== undefined);
+      if (maxPadding > 0) {
+        for (;;) {
+          const positions = active.map(
+            ({ row, column }) => column.visualColumn + row.shift
+          );
+          const max = Math.max(...positions);
+          if (max - Math.min(...positions) <= maxPadding) {
+            break;
+          }
+          active = active.filter(
+            ({ row, column }) => column.visualColumn + row.shift !== max
+          );
+        }
+      }
       const maxCol = Math.max(
         ...active.map(({ row, column }) => column.visualColumn + row.shift)
       );
@@ -1171,7 +1192,8 @@ function parseJsdocParamLine(
  */
 export function computeJsdocParamPaddings(
   lines: string[],
-  tabSize: number
+  tabSize: number,
+  maxPadding: number = 0
 ): { lineIndex: number; character: number; padding: number }[] {
   const groups: AlignmentEntry[][] = [];
   let current: AlignmentEntry[] = [];
@@ -1209,7 +1231,7 @@ export function computeJsdocParamPaddings(
     });
   }
   flush();
-  return computePaddings(groups);
+  return computePaddings(groups, maxPadding);
 }
 
 /** Language IDs that use the Markdown table alignment path instead of operators. */
@@ -1435,13 +1457,20 @@ function decorateEditor(
     placements = computeMarkdownTablePaddings(lines, tabSize);
   } else {
     const operators = resolveOperatorsForLanguage(config, languageId);
+    const rawMaxPadding = config.get<number>("maxPadding", 0);
+    const maxPadding =
+      typeof rawMaxPadding === "number" &&
+      Number.isFinite(rawMaxPadding) &&
+      rawMaxPadding > 0
+        ? Math.floor(rawMaxPadding)
+        : 0;
     const groups = findAlignmentGroups(
       editor.document,
       operators,
       languageId,
       tabSize
     );
-    placements = computePaddings(groups);
+    placements = computePaddings(groups, maxPadding);
     if (
       TS_JS_LANGUAGES.has(languageId) &&
       config.get<boolean>("alignJsdocParams", true)
@@ -1451,7 +1480,7 @@ function decorateEditor(
         lines.push(editor.document.lineAt(i).text);
       }
       placements = placements.concat(
-        computeJsdocParamPaddings(lines, tabSize)
+        computeJsdocParamPaddings(lines, tabSize, maxPadding)
       );
     }
   }

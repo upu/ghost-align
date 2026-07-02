@@ -58,6 +58,7 @@ const longName = 3;
 - 既定では `=` を揃えます。言語によって既定のオペレーターが変わり、`json` / `jsonc` / `yaml` / `css` / `scss` / `less` では `:`、`dotenv` / `properties` / `toml` / `ini` / `python` / `shellscript` / `makefile` / `go` / `lua` / `c` / `cpp` / `csharp` / `java` では `=` を揃えます。`ruby` / `php` / `rust` では `=` に加えて `=>`（ハッシュロケット・連想配列・match アーム）も揃えます。
 - JavaScript/TypeScript では、連続する JSDoc の `@param` 行も整列します。パラメータ名のカラムと説明文のカラムがそれぞれ縦に揃います（`ghostAlign.alignJsdocParams` で無効化できます）。
 - 行末コメント（`//` / `#`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外）。
+- 1行だけ極端に長い行があると他の行に大量のゴーストが入りますが、`ghostAlign.maxPadding` で上限を設定すると、外れ値の行を除外して残りの行だけで揃えます（既定は無制限）。
 - Markdown では、テーブルの列（`|` 区切り）が縦に揃って見えるようにします。
 - タブを含む行でも、タブ幅（`editor.tabSize`）を考慮して視覚的な位置で揃えます。
 
@@ -94,6 +95,7 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 | `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順は優先度かつ左から右へのカラム順です。リストの各オペレーターがそれぞれ独立したカラムとして同じ行の中で揃います（例: `["=", "#"]` なら代入と行末コメントの両方が揃う）。 |
 | `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "ini": ["="], "python": ["="], "shellscript": ["="], "ruby": ["=", "=>"], "makefile": ["="], "css": [":"], "scss": [":"], "less": [":"], "php": ["=", "=>"], "rust": ["=", "=>"], "go": ["="], "lua": ["="], "c": ["="], "cpp": ["="], "csharp": ["="], "java": ["="] }` | 言語 ID（`json`, `jsonc`, `typescript` など）ごとのオペレーター上書き。現在のドキュメントの言語がここに含まれる場合、`ghostAlign.operators` の代わりにこちらが使われます。 |
 | `ghostAlign.alignJsdocParams` | boolean | `true` | JavaScript/TypeScript で、連続する JSDoc `@param` 行のパラメータ名カラムと説明文カラムを揃えます。 |
+| `ghostAlign.maxPadding` | number | `0` | 1行・1カラムあたりに挿入するゴースト文字数の上限。揃えるのにこれを超えるパディングが必要な場合、極端に長い外れ値の行を除外して残りの行だけで揃えます。`0` は無制限。Markdown テーブルの整列には適用されません。 |
 | `ghostAlign.ghostCharacter` | string | `" "`（U+00A0 / ノーブレークスペース） | ゴーストパディングに使う文字。通常の ASCII スペースはエディタの描画で 1 文字分に詰められてアライメントが崩れるため、NBSP（U+00A0）や en space（U+2002）を使ってください。設定 UI で空にすると既定値に戻ります。 |
 | `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | ゴーストパディングの色（任意の CSS カラー文字列）。前景色・背景色の両方に適用され、実際の空白と区別できます。`"transparent"` で着色を無効化できます。設定 UI で空にすると既定値に戻ります。 |
 
