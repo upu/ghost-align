@@ -1603,6 +1603,22 @@ function decorateEditor(
   editor.setDecorations(alignDecorationType, decorations);
 }
 
+// Allowlist of URI schemes that receive alignment decorations. Editors like
+// the output panel (`output`), debug console, or search editor also appear in
+// visibleTextEditors; an allowlist keeps unknown non-file schemes out, which
+// an exclusion list would not.
+const ALIGNABLE_SCHEMES = new Set([
+  "file",
+  "untitled",
+  "vscode-remote",
+  "vscode-vfs",
+]);
+
+/** Whether documents with this URI scheme should be aligned. */
+export function isAlignableScheme(scheme: string): boolean {
+  return ALIGNABLE_SCHEMES.has(scheme);
+}
+
 function updateDecorations() {
   if (!enabled) {
     clearDecorations();
@@ -1612,6 +1628,10 @@ function updateDecorations() {
 
   const { ghostChar, ghostColor } = resolveGhostSettings(config);
   for (const editor of vscode.window.visibleTextEditors) {
+    if (!isAlignableScheme(editor.document.uri.scheme)) {
+      editor.setDecorations(alignDecorationType, []);
+      continue;
+    }
     decorateEditor(editor, config, ghostChar, ghostColor);
   }
 }
