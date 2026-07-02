@@ -533,6 +533,14 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("/* a => b */", ["=>"]), null);
   });
 
+  test("宇宙船演算子 `<=>` を `=>` として誤検出しない", () => {
+    assert.strictEqual(findOperatorColumn("a <=> b", ["=>"]), null);
+  });
+
+  test("宇宙船演算子 `<=>` を含んでいてもハッシュロケット `=>` は検出する", () => {
+    assert.strictEqual(findOperatorColumn("a <=> b, c => d", ["=>"]), 11);
+  });
+
   test("複合代入 `+=` は = の位置（揃え列）を返す", () => {
     assert.strictEqual(findOperatorColumn("x += 1", ["="]), 3);
   });
