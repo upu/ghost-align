@@ -649,8 +649,8 @@ function findAssignmentEquals(
     if (ch === "=") {
       const prev = lineText[i - 1];
       const next = lineText[i + 1];
-      if (next === "=" || next === ">") {
-        continue;
+      if (next === "=" || next === ">" || next === "~") {
+        continue; // ==, =>, and Ruby's regex match =~
       }
       if (prev === "=" || prev === "!" || prev === "~") {
         continue; // ==, !=, and Lua's not-equal ~=
