@@ -1183,6 +1183,115 @@ suite("computePaddings", () => {
       { lineIndex: 3, character: 1, padding: 2 },
     ]);
   });
+
+  test("maxPadding: 超過の原因になる外れ値行を除外し残りで揃える", () => {
+    const placements = computePaddings(
+      [
+        [
+          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
+          { lineIndex: 1, operatorColumn: 12, visualColumn: 12 },
+          { lineIndex: 2, operatorColumn: 50, visualColumn: 50 },
+        ],
+      ],
+      10
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 10, padding: 2 },
+    ]);
+  });
+
+  test("maxPadding: 除外後もまだ超過するなら収束するまで反復して除外する", () => {
+    const placements = computePaddings(
+      [
+        [
+          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
+          { lineIndex: 1, operatorColumn: 12, visualColumn: 12 },
+          { lineIndex: 2, operatorColumn: 30, visualColumn: 30 },
+          { lineIndex: 3, operatorColumn: 50, visualColumn: 50 },
+        ],
+      ],
+      10
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 10, padding: 2 },
+    ]);
+  });
+
+  test("maxPadding: ちょうど maxPadding のパディングは許容する（境界値）", () => {
+    const placements = computePaddings(
+      [
+        [
+          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
+          { lineIndex: 1, operatorColumn: 20, visualColumn: 20 },
+        ],
+      ],
+      10
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 10, padding: 10 },
+    ]);
+  });
+
+  test("maxPadding: 1 超えたら外れ値が除外され、残り 1 行では揃えない", () => {
+    const placements = computePaddings(
+      [
+        [
+          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
+          { lineIndex: 1, operatorColumn: 21, visualColumn: 21 },
+        ],
+      ],
+      10
+    );
+    assert.deepStrictEqual(placements, []);
+  });
+
+  test("maxPadding: 0 は無制限（従来挙動）", () => {
+    const placements = computePaddings(
+      [
+        [
+          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
+          { lineIndex: 1, operatorColumn: 50, visualColumn: 50 },
+        ],
+      ],
+      0
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 10, padding: 40 },
+    ]);
+  });
+
+  test("maxPadding: 除外はカラム単位で、外れ値行の別カラムは揃う", () => {
+    const placements = computePaddings(
+      [
+        [
+          {
+            lineIndex: 0,
+            operatorColumn: 10,
+            visualColumn: 10,
+            columns: [
+              { opIndex: 0, insert: 10, visualColumn: 10 },
+              { opIndex: 1, insert: 60, visualColumn: 60 },
+            ],
+          },
+          {
+            lineIndex: 1,
+            operatorColumn: 50,
+            visualColumn: 50,
+            columns: [
+              { opIndex: 0, insert: 50, visualColumn: 50 },
+              { opIndex: 1, insert: 62, visualColumn: 62 },
+            ],
+          },
+        ],
+      ],
+      10
+    );
+    // opIndex 0 は行1（50）が外れ値として除外され揃わないが、
+    // opIndex 1 は 60 vs 62 で差 2 なので揃う。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 60, padding: 2 },
+    ]);
+  });
 });
 
 suite("visualColumn", () => {
