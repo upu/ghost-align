@@ -79,7 +79,7 @@ Marketplace page: <https://marketplace.visualstudio.com/items?itemName=upu.ghost
 
 Once enabled, lines containing a target operator are automatically displayed aligned.
 
-You can toggle the visual alignment on/off from the Command Palette:
+You can toggle the visual alignment on/off from the Command Palette (the state persists across window reloads):
 
 - `Ghost Align: Toggle` (command ID: `ghostAlign.toggle`)
 
@@ -91,7 +91,6 @@ All settings live under the `ghostAlign` namespace.
 
 | Setting | Type | Default | Description |
 | --- | --- | --- | --- |
-| `ghostAlign.enabled` | boolean | `true` | Enable visual alignment. |
 | `ghostAlign.showStatusBar` | boolean | `false` | Show a status bar item indicating Ghost Align ON/OFF (click to toggle). |
 | `ghostAlign.operators` | array | `["="]` | Operators to align (used when the current language is not listed in `ghostAlign.operatorsByLanguage`). Supported special tokens: `"="` (assignment), `":"` (JSON/YAML key or CSS declaration), `"//"` and `"#"` (trailing line comments). Any other string is matched literally. The list order defines both the priority and the left-to-right column order: each listed operator is aligned as its own column on the same line (e.g. `["=", "#"]` aligns assignments and then trailing comments). |
 | `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "ini": ["="], "python": ["="], "shellscript": ["="], "ruby": ["=", "=>"], "makefile": ["="], "css": [":"], "scss": [":"], "less": [":"], "php": ["=", "=>"], "rust": ["=", "=>"], "go": ["="], "lua": ["="], "c": ["="], "cpp": ["="], "csharp": ["="], "java": ["="] }` | Per-language operator overrides keyed by languageId (e.g. `json`, `jsonc`, `typescript`). If the current document's language is listed here, this list is used in place of `ghostAlign.operators`. |

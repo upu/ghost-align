@@ -79,7 +79,7 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 
 拡張機能を有効にすると、対象のオペレーターを含む行が自動的に揃って表示されます。
 
-表示上のアライメントは、コマンドパレットから次のコマンドでオン／オフを切り替えられます。
+表示上のアライメントは、コマンドパレットから次のコマンドでオン／オフを切り替えられます（状態はウィンドウのリロード後も保持されます）。
 
 - `Ghost Align: Toggle`（コマンド ID: `ghostAlign.toggle`）
 
@@ -91,7 +91,6 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 
 | 設定 | 型 | 既定値 | 説明 |
 | --- | --- | --- | --- |
-| `ghostAlign.enabled` | boolean | `true` | 視覚的なアライメントを有効にします。 |
 | `ghostAlign.showStatusBar` | boolean | `false` | Ghost Align の ON/OFF を示すステータスバー項目を表示します（クリックでトグル）。 |
 | `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順は優先度かつ左から右へのカラム順です。リストの各オペレーターがそれぞれ独立したカラムとして同じ行の中で揃います（例: `["=", "#"]` なら代入と行末コメントの両方が揃う）。 |
 | `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "ini": ["="], "python": ["="], "shellscript": ["="], "ruby": ["=", "=>"], "makefile": ["="], "css": [":"], "scss": [":"], "less": [":"], "php": ["=", "=>"], "rust": ["=", "=>"], "go": ["="], "lua": ["="], "c": ["="], "cpp": ["="], "csharp": ["="], "java": ["="] }` | 言語 ID（`json`, `jsonc`, `typescript` など）ごとのオペレーター上書き。現在のドキュメントの言語がここに含まれる場合、`ghostAlign.operators` の代わりにこちらが使われます。 |

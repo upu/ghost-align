@@ -1604,11 +1604,11 @@ function decorateEditor(
 }
 
 function updateDecorations() {
-  const config = vscode.workspace.getConfiguration("ghostAlign");
-  if (!config.get<boolean>("enabled", true) || !enabled) {
+  if (!enabled) {
     clearDecorations();
     return;
   }
+  const config = vscode.workspace.getConfiguration("ghostAlign");
 
   const { ghostChar, ghostColor } = resolveGhostSettings(config);
   for (const editor of vscode.window.visibleTextEditors) {

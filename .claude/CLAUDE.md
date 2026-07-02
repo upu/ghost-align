@@ -28,7 +28,7 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 
 - VS CodeのDecoration APIを使い、ソースコードを変更せずに視覚的なパディングを挿入
 - 連続する行をグループ化し、グループ内でオペレーターの位置を最も右の行に合わせる
-- 設定の名前空間は `ghostAlign`（例: `ghostAlign.enabled`, `ghostAlign.operators`）
+- 設定の名前空間は `ghostAlign`（例: `ghostAlign.operators`, `ghostAlign.showStatusBar`）
 - コマンドIDは `ghostAlign.toggle`
 
 ## 将来の方針

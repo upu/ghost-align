@@ -48,11 +48,6 @@
     "configuration": {
       "title": "Ghost Align",
       "properties": {
-        "ghostAlign.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable visual alignment"
-        },
         "ghostAlign.showStatusBar": {
           "type": "boolean",
           "default": false,
