@@ -18,6 +18,7 @@ import {
   resolveOperatorsForLanguage,
   resolveInitialEnabled,
   statusBarText,
+  isAlignableScheme,
   debounce,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
@@ -1950,6 +1951,22 @@ suite("statusBarText", () => {
 
   test("無効なら OFF を表示する", () => {
     assert.strictEqual(statusBarText(false), "Ghost Align: OFF");
+  });
+});
+
+suite("isAlignableScheme", () => {
+  test("通常ファイル・未保存・リモート系のスキーマは整列対象", () => {
+    assert.strictEqual(isAlignableScheme("file"), true);
+    assert.strictEqual(isAlignableScheme("untitled"), true);
+    assert.strictEqual(isAlignableScheme("vscode-remote"), true);
+    assert.strictEqual(isAlignableScheme("vscode-vfs"), true);
+  });
+
+  test("出力パネル・デバッグ・検索エディタなどは整列対象外", () => {
+    assert.strictEqual(isAlignableScheme("output"), false);
+    assert.strictEqual(isAlignableScheme("debug"), false);
+    assert.strictEqual(isAlignableScheme("search-editor"), false);
+    assert.strictEqual(isAlignableScheme("comment"), false);
   });
 });
 
