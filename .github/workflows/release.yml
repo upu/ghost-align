@@ -8,6 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
     env:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
@@ -47,3 +48,21 @@ jobs:
       - name: Publish to VS Code Marketplace
         if: ${{ env.VSCE_PAT != '' }}
         run: npx @vscode/vsce publish --packagePath dist/ghost-align.vsix -p "$VSCE_PAT"
+      - name: Close milestone
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          MILESTONE=$(gh api "repos/${{ github.repository }}/milestones" -f state=all --jq \
+            ".[] | select(.title == \"$GITHUB_REF_NAME\")")
+          if [ -z "$MILESTONE" ]; then
+            echo "No milestone titled $GITHUB_REF_NAME; skipping."
+            exit 0
+          fi
+          NUMBER=$(echo "$MILESTONE" | jq -r '.number')
+          OPEN_ISSUES=$(echo "$MILESTONE" | jq -r '.open_issues')
+          if [ "$OPEN_ISSUES" -gt 0 ]; then
+            echo "::warning::Milestone $GITHUB_REF_NAME has $OPEN_ISSUES open issue(s); not closing."
+            exit 0
+          fi
+          gh api --method PATCH "repos/${{ github.repository }}/milestones/$NUMBER" -f state=closed
+          echo "Closed milestone $GITHUB_REF_NAME"
