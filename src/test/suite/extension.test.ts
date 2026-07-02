@@ -1952,3 +1952,19 @@ suite("statusBarText", () => {
     assert.strictEqual(statusBarText(false), "Ghost Align: OFF");
   });
 });
+
+suite("有効/無効の一本化", () => {
+  test("ghostAlign.enabled 設定は廃止されている（トグル状態に一本化）", () => {
+    // 設定とトグルの二重管理が表示と実効状態の食い違いを生んでいた。
+    // 設定スキーマに残っていれば再導入の退行とみなす。
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const props =
+      ext.packageJSON?.contributes?.configuration?.properties ?? {};
+    assert.ok(
+      !("ghostAlign.enabled" in props),
+      "ghostAlign.enabled が設定スキーマに存在しない"
+    );
+    assert.ok("ghostAlign.operators" in props);
+  });
+});
