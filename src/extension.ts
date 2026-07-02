@@ -723,7 +723,7 @@ function findArrow(lineText: string): number[] {
       i = close + 1; // loop's i++ advances past the closing `/`
       continue;
     }
-    if (ch === "=" && lineText[i + 1] === ">") {
+    if (ch === "=" && lineText[i + 1] === ">" && lineText[i - 1] !== "<") {
       results.push(i);
       i++; // skip the `>` so it is not reprocessed
     }
