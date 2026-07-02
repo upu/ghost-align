@@ -671,6 +671,14 @@ function findAssignmentEquals(
         results.push({ insert, align: i });
         continue;
       }
+      if (prev === ".") {
+        if (lineText[i - 2] === ".") {
+          continue; // Rust's closed-range operator ..=, not an assignment
+        }
+        // PHP's string-concatenation compound assignment .=
+        results.push({ insert: i - 1, align: i });
+        continue;
+      }
       if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
         const insert =
           DOUBLED_PREFIX_CHARS.has(prev) && lineText[i - 2] === prev
