@@ -788,6 +788,20 @@ suite("findOperatorTarget", () => {
       align: 4,
     });
   });
+
+  test("PHP の `.=`（文字列連結代入）を分断しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTarget('$s .= "x";', ["="], "php"),
+      { insert: 3, align: 4 }
+    );
+  });
+
+  test("Rust の `..=`（閉区間レンジ）は代入として検出しない", () => {
+    assert.strictEqual(
+      findOperatorTarget("for i in 0..=n {", ["="], "rust"),
+      null
+    );
+  });
 });
 
 suite("findOperatorTargets", () => {
