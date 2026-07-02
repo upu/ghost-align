@@ -753,6 +753,27 @@ suite("findOperatorTarget", () => {
     assert.strictEqual(findOperatorTarget("() => 1", ["="]), null);
   });
 
+  test("Ruby の正規表現マッチ `=~` は代入として検出しない", () => {
+    assert.strictEqual(findOperatorTarget("a =~ /x/", ["="], "ruby"), null);
+  });
+
+  test("`=` を含む多文字演算子は代入として検出しない（網羅）", () => {
+    const lines = [
+      "a == b",
+      "a === b",
+      "a != b",
+      "a !== b",
+      "a <= b",
+      "a >= b",
+      "a => b",
+      "a =~ b",
+      "a ~= b",
+    ];
+    for (const line of lines) {
+      assert.deepStrictEqual(findOperatorTargets(line, ["="]), [], line);
+    }
+  });
+
   test("`=` 以外の演算子は insert と align が常に一致する", () => {
     assert.deepStrictEqual(findOperatorTarget('  "a": 1', [":"]), {
       insert: 5,
