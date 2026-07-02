@@ -74,6 +74,13 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
     vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
+    // Large files are decorated per visible range, so scrolling must
+    // recompute; small files are fully decorated and can ignore scrolling.
+    vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
+      if (e.textEditor.document.lineCount >= LARGE_FILE_LINE_THRESHOLD) {
+        debouncedUpdate();
+      }
+    }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       const shown = vscode.window.visibleTextEditors.some(
         (editor) => editor.document === e.document
@@ -965,6 +972,16 @@ export type AlignmentEntry = {
 };
 
 /**
+ * The subset of vscode.TextDocument the alignment scan needs. Structural, so
+ * a slice of a large document (visible-range mode) can be scanned by
+ * presenting its lines as a smaller document.
+ */
+type LineSource = {
+  lineCount: number;
+  lineAt(line: number): { text: string };
+};
+
+/**
  * Group consecutive lines that contain at least one operator.
  * A group is also split when the leading indent width changes — this keeps
  * nested blocks (e.g. JSON objects) from being aligned across indent levels.
@@ -977,7 +994,7 @@ export type AlignmentEntry = {
  * tab/space mixes line up on screen, not by raw character count.
  */
 export function findAlignmentGroups(
-  document: vscode.TextDocument,
+  document: LineSource,
   operators: string[],
   languageId?: string,
   tabSize: number = DEFAULT_TAB_SIZE
@@ -1538,6 +1555,46 @@ export function computeCsvPaddings(
   return placements;
 }
 
+// ── Visible-range mode for large files ──────────────────────────────────
+
+/** Files with at least this many lines are decorated per visible range. */
+const LARGE_FILE_LINE_THRESHOLD = 10000;
+
+/** Extra lines scanned above/below the visible range before boundary expansion. */
+const VISIBLE_RANGE_BUFFER = 100;
+
+/** Hard cap on how far a group-boundary expansion may walk past the buffer. */
+const GROUP_EXPANSION_LIMIT = 1000;
+
+/**
+ * Line range `[start, end]` to compute for a large file: the visible range
+ * plus `buffer` lines, then extended in both directions while `isGroupLine`
+ * says an alignment group continues, so a group straddling the visible
+ * boundary is still aligned against all of its members. The expansion walks
+ * at most `limit` lines each way, so a file where every line is a group line
+ * cannot degrade back into a full scan.
+ */
+export function computeSliceBounds(
+  lineCount: number,
+  visibleStart: number,
+  visibleEnd: number,
+  isGroupLine: (line: number) => boolean,
+  buffer: number = VISIBLE_RANGE_BUFFER,
+  limit: number = GROUP_EXPANSION_LIMIT
+): [number, number] {
+  let start = Math.max(0, visibleStart - buffer);
+  let end = Math.min(lineCount - 1, visibleEnd + buffer);
+  const minStart = start;
+  const maxEnd = end;
+  while (start > 0 && minStart - start < limit && isGroupLine(start - 1)) {
+    start--;
+  }
+  while (end < lineCount - 1 && end - maxEnd < limit && isGroupLine(end + 1)) {
+    end++;
+  }
+  return [start, end];
+}
+
 /** Apply ghost-align decorations to a single editor. */
 function decorateEditor(
   editor: vscode.TextEditor,
@@ -1545,25 +1602,71 @@ function decorateEditor(
   ghostChar: string,
   ghostColor: string
 ) {
-  const languageId = editor.document.languageId;
+  const document = editor.document;
+  const languageId = document.languageId;
   const tabSize = resolveTabSize(editor);
+  const lineCount = document.lineCount;
+
+  const csvDelimiter = CSV_DELIMITERS.get(languageId);
+  const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
+  const isOperatorPath = !isMarkdown && csvDelimiter === undefined;
+  const operators = isOperatorPath
+    ? resolveOperatorsForLanguage(config, languageId)
+    : [];
+  const alignJsdoc =
+    isOperatorPath &&
+    TS_JS_LANGUAGES.has(languageId) &&
+    config.get<boolean>("alignJsdocParams", true);
+
+  // Large files are computed per visible range instead of whole-file, and
+  // re-decorated on scroll. The slice is expanded to group boundaries so a
+  // group straddling the visible edge still aligns against all its members.
+  // Known limits of the slice view: a CSV/TSV table aligns to the widest
+  // cell within the slice (the whole file is one table, so no boundary to
+  // expand to), and Markdown fence state opened above the slice is not seen.
+  let sliceStart = 0;
+  let sliceEnd = lineCount - 1;
+  if (lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0) {
+    const visibleStart = Math.min(
+      ...editor.visibleRanges.map((r) => r.start.line)
+    );
+    const visibleEnd = Math.max(...editor.visibleRanges.map((r) => r.end.line));
+    let isGroupLine: (line: number) => boolean;
+    if (isMarkdown) {
+      isGroupLine = (i) => findPipePositions(document.lineAt(i).text).length > 0;
+    } else if (csvDelimiter !== undefined) {
+      isGroupLine = () => false;
+    } else {
+      isGroupLine = (i) => {
+        const text = document.lineAt(i).text;
+        return (
+          findOperatorTargets(text, operators, languageId).length > 0 ||
+          (alignJsdoc && parseJsdocParamLine(text) !== null)
+        );
+      };
+    }
+    [sliceStart, sliceEnd] = computeSliceBounds(
+      lineCount,
+      visibleStart,
+      visibleEnd,
+      isGroupLine
+    );
+  }
+
+  const sliceLines = (): string[] => {
+    const lines: string[] = [];
+    for (let i = sliceStart; i <= sliceEnd; i++) {
+      lines.push(document.lineAt(i).text);
+    }
+    return lines;
+  };
 
   let placements: { lineIndex: number; character: number; padding: number }[];
-  const csvDelimiter = CSV_DELIMITERS.get(languageId);
-  if (MARKDOWN_LANGUAGES.has(languageId)) {
-    const lines: string[] = [];
-    for (let i = 0; i < editor.document.lineCount; i++) {
-      lines.push(editor.document.lineAt(i).text);
-    }
-    placements = computeMarkdownTablePaddings(lines, tabSize);
+  if (isMarkdown) {
+    placements = computeMarkdownTablePaddings(sliceLines(), tabSize);
   } else if (csvDelimiter !== undefined) {
-    const lines: string[] = [];
-    for (let i = 0; i < editor.document.lineCount; i++) {
-      lines.push(editor.document.lineAt(i).text);
-    }
-    placements = computeCsvPaddings(lines, csvDelimiter, tabSize);
+    placements = computeCsvPaddings(sliceLines(), csvDelimiter, tabSize);
   } else {
-    const operators = resolveOperatorsForLanguage(config, languageId);
     const rawMaxPadding = config.get<number>("maxPadding", 0);
     const maxPadding =
       typeof rawMaxPadding === "number" &&
@@ -1571,25 +1674,26 @@ function decorateEditor(
       rawMaxPadding > 0
         ? Math.floor(rawMaxPadding)
         : 0;
-    const groups = findAlignmentGroups(
-      editor.document,
-      operators,
-      languageId,
-      tabSize
-    );
+    const source: LineSource =
+      sliceStart === 0 && sliceEnd === lineCount - 1
+        ? document
+        : {
+            lineCount: sliceEnd - sliceStart + 1,
+            lineAt: (i: number) => document.lineAt(sliceStart + i),
+          };
+    const groups = findAlignmentGroups(source, operators, languageId, tabSize);
     placements = computePaddings(groups, maxPadding);
-    if (
-      TS_JS_LANGUAGES.has(languageId) &&
-      config.get<boolean>("alignJsdocParams", true)
-    ) {
-      const lines: string[] = [];
-      for (let i = 0; i < editor.document.lineCount; i++) {
-        lines.push(editor.document.lineAt(i).text);
-      }
+    if (alignJsdoc) {
       placements = placements.concat(
-        computeJsdocParamPaddings(lines, tabSize, maxPadding)
+        computeJsdocParamPaddings(sliceLines(), tabSize, maxPadding)
       );
     }
+  }
+  if (sliceStart > 0) {
+    placements = placements.map((p) => ({
+      ...p,
+      lineIndex: p.lineIndex + sliceStart,
+    }));
   }
 
   const decorations: vscode.DecorationOptions[] = placements.map(

@@ -19,6 +19,7 @@ import {
   resolveInitialEnabled,
   statusBarText,
   isAlignableScheme,
+  computeSliceBounds,
   debounce,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
@@ -1371,6 +1372,57 @@ suite("visualColumn", () => {
     // コードユニット単位の走査では 2 と過大計上され整列がずれていた。
     assert.strictEqual(visualColumn("𝐀=", 2, 4), 1);
     assert.strictEqual(visualColumn("𝐀𝐁=", 4, 4), 2);
+  });
+});
+
+suite("computeSliceBounds", () => {
+  test("可視範囲にバッファを加えた範囲を返す", () => {
+    assert.deepStrictEqual(
+      computeSliceBounds(30000, 200, 210, () => false, 100, 1000),
+      [100, 310]
+    );
+  });
+
+  test("グループが続く間は境界まで拡張する", () => {
+    const isGroupLine = (i: number) => i >= 50 && i <= 205;
+    assert.deepStrictEqual(
+      computeSliceBounds(30000, 200, 210, isGroupLine, 100, 1000),
+      [50, 310]
+    );
+  });
+
+  test("ファイル先頭・末尾でクランプする", () => {
+    assert.deepStrictEqual(
+      computeSliceBounds(30000, 20, 29990, () => false, 100, 1000),
+      [0, 29999]
+    );
+  });
+
+  test("拡張は limit で打ち切る", () => {
+    assert.deepStrictEqual(
+      computeSliceBounds(30000, 5000, 5010, () => true, 0, 1000),
+      [4000, 6010]
+    );
+  });
+
+  test("可視範囲の境界をまたぐグループがスライスでも全文スキャンと同じに揃う", () => {
+    const lines: string[] = new Array<string>(20).fill("");
+    lines[3] = "a = 1";
+    lines[4] = "bb = 2";
+    lines[5] = "ccc = 3";
+    lines[6] = "dddd = 4";
+    lines[7] = "e = 5";
+    const isGroupLine = (i: number) =>
+      findOperatorTargets(lines[i], ["="]).length > 0;
+    const [s, e] = computeSliceBounds(lines.length, 5, 10, isGroupLine, 0, 1000);
+    assert.strictEqual(s, 3);
+    const slicePlacements = computePaddings(
+      findAlignmentGroups(mockDocument(lines.slice(s, e + 1)), ["="])
+    ).map((p) => ({ ...p, lineIndex: p.lineIndex + s }));
+    const fullPlacements = computePaddings(
+      findAlignmentGroups(mockDocument(lines), ["="])
+    );
+    assert.deepStrictEqual(slicePlacements, fullPlacements);
   });
 });
 
