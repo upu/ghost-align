@@ -277,6 +277,59 @@ const QUOTE_CHARS = new Set<string>(['"', "'"]);
  */
 const TEMPLATE_QUOTE_CHARS = new Set<string>(['"', "'", "`"]);
 
+/**
+ * Languages where `'` is not a generic string delimiter: it opens a char
+ * literal (`'x'`, `'\n'`) but far more often starts a lifetime (`'a`,
+ * `&'static`) that is never closed on the line. Treating `'` as a quote
+ * char there would swallow the rest of the line as "inside a string" (see
+ * {@link rustCharLiteralEnd}).
+ */
+const LIFETIME_LANGUAGES = new Set(["rust"]);
+
+/** {@link TEMPLATE_QUOTE_CHARS} without `'`, for {@link LIFETIME_LANGUAGES}. */
+const NON_LIFETIME_QUOTE_CHARS = new Set<string>(['"', "`"]);
+
+/**
+ * Quote characters for findAssignmentEquals / findArrow, aware that
+ * {@link LIFETIME_LANGUAGES} must not treat `'` as a generic quote char.
+ */
+function assignmentQuoteChars(languageId: string | undefined): ReadonlySet<string> {
+  if (languageId !== undefined && LIFETIME_LANGUAGES.has(languageId)) {
+    return NON_LIFETIME_QUOTE_CHARS;
+  }
+  return TEMPLATE_QUOTE_CHARS;
+}
+
+/**
+ * If `lineText[i]` (a `'`) opens a Rust char literal — `'x'`, `'\n'`, `'\''`,
+ * `'\u{7FFF}'` — returns the index just past its closing `'`. Otherwise (a
+ * lifetime like `'a` or `'static`) returns -1 so the caller leaves the `'`
+ * alone instead of treating it as an unterminated string open.
+ */
+function rustCharLiteralEnd(lineText: string, i: number): number {
+  let j = i + 1;
+  if (lineText[j] === undefined) {
+    return -1;
+  }
+  if (lineText[j] === "\\") {
+    j++;
+    if (lineText[j] === "u" && lineText[j + 1] === "{") {
+      const close = lineText.indexOf("}", j + 2);
+      if (close === -1) {
+        return -1;
+      }
+      j = close + 1;
+    } else if (lineText[j] !== undefined) {
+      j++; // one char after the backslash: n, t, ', \, 0, or a hex digit
+    } else {
+      return -1;
+    }
+  } else {
+    j++;
+  }
+  return lineText[j] === "'" ? j + 1 : -1;
+}
+
 /** Language IDs whose `:` finder must skip C-style `//` / `/* ... *​/` comments. */
 const C_COMMENT_COLON_LANGUAGES = new Set(["jsonc"]);
 
@@ -618,11 +671,22 @@ function findAssignmentEquals(
   const cStyle =
     markers === undefined ||
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
+  const isLifetimeLang =
+    languageId !== undefined && LIFETIME_LANGUAGES.has(languageId);
+  const quoteChars = assignmentQuoteChars(languageId);
   const state = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+    if (isLifetimeLang && state.quote === false && ch === "'") {
+      const end = rustCharLiteralEnd(lineText, i);
+      if (end !== -1) {
+        i = end - 1; // loop's i++ advances past the closing `'`
+        continue;
+      }
+      // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+    }
+    if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
     }
     if (markers && startsLineComment(lineText, i, markers)) {
@@ -707,13 +771,28 @@ function findAssignmentEquals(
  * alignment target. Block comments and template literals spanning multiple
  * lines are not tracked — this function sees one line at a time, matching the
  * other single-line finders.
+ *
+ * For {@link LIFETIME_LANGUAGES} (Rust), `'` is not treated as a generic
+ * quote char — see {@link assignmentQuoteChars} / {@link rustCharLiteralEnd} —
+ * so a lifetime like `&'a str` before a match arm's `=>` does not swallow it.
  */
-function findArrow(lineText: string): number[] {
+function findArrow(lineText: string, languageId?: string): number[] {
   const results: number[] = [];
+  const isLifetimeLang =
+    languageId !== undefined && LIFETIME_LANGUAGES.has(languageId);
+  const quoteChars = assignmentQuoteChars(languageId);
   const state = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+    if (isLifetimeLang && state.quote === false && ch === "'") {
+      const end = rustCharLiteralEnd(lineText, i);
+      if (end !== -1) {
+        i = end - 1; // loop's i++ advances past the closing `'`
+        continue;
+      }
+      // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+    }
+    if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
     }
     if (ch === "/" && lineText[i + 1] === "/") {
@@ -814,7 +893,7 @@ function findOccurrences(
     return idx === -1 ? [] : [{ insert: idx, align: idx }];
   }
   if (op === "=>") {
-    return findArrow(lineText).map((i) => ({ insert: i, align: i }));
+    return findArrow(lineText, languageId).map((i) => ({ insert: i, align: i }));
   }
   const results: OperatorTarget[] = [];
   let from = 0;

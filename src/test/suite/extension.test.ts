@@ -2043,6 +2043,37 @@ suite("resolveOperatorsForLanguage", () => {
     ]);
   });
 
+  test("Rust: ライフタイム `&'static str` を含む行でも代入の `=` を検出する", () => {
+    const line = "let s: &'static str = \"x\";";
+    assert.deepStrictEqual(findOperatorTarget(line, ["="], "rust"), {
+      insert: 20,
+      align: 20,
+    });
+  });
+
+  test("Rust: ライフタイム `'a` を含む行でも代入の `=` を検出する", () => {
+    const line = "let x: &'a str = y;";
+    assert.deepStrictEqual(findOperatorTarget(line, ["="], "rust"), {
+      insert: 15,
+      align: 15,
+    });
+  });
+
+  test("Rust: char リテラル内の `=` は代入として検出しない（回帰）", () => {
+    const line = "let c = '=';";
+    assert.deepStrictEqual(findOperatorTargets(line, ["="], "rust"), [
+      { opIndex: 0, insert: 6, align: 6 },
+    ]);
+  });
+
+  test("Rust: ライフタイムを含む match アーム行でも `=>` を検出する", () => {
+    const line = "x: &'a str => 1,";
+    assert.deepStrictEqual(findOperatorTarget(line, ["=>"], "rust"), {
+      insert: 11,
+      align: 11,
+    });
+  });
+
   test("PHP: 連想配列の `=>` が連続行で揃う", () => {
     const doc = mockDocument(["'a' => 1,", "'long' => 2,"]);
     const groups = findAlignmentGroups(doc, ["=", "=>"], "php");
