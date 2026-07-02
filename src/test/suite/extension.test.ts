@@ -16,6 +16,8 @@ import {
   computeJsdocParamPaddings,
   resolveGhostSettings,
   resolveOperatorsForLanguage,
+  isLanguageDisabled,
+  decorateEditor,
   resolveInitialEnabled,
   statusBarText,
   isAlignableScheme,
@@ -55,6 +57,26 @@ function mockState(values: Record<string, unknown>) {
       return (key in values ? values[key] : defaultValue) as T;
     },
   };
+}
+
+// vscode.TextEditor の最小限モック（setDecorations 呼び出しを記録する）
+function mockEditor(languageId: string, lines: string[] = []) {
+  const calls: vscode.DecorationOptions[][] = [];
+  const editor = {
+    document: {
+      languageId,
+      lineCount: lines.length,
+      lineAt(i: number) {
+        return { text: lines[i] };
+      },
+    },
+    visibleRanges: [],
+    options: { tabSize: 2 },
+    setDecorations(_type: unknown, decorations: vscode.DecorationOptions[]) {
+      calls.push(decorations);
+    },
+  } as unknown as vscode.TextEditor;
+  return { editor, calls };
 }
 
 suite("advanceQuoteState", () => {
@@ -2184,6 +2206,78 @@ suite("resolveOperatorsForLanguage", () => {
       "json"
     );
     assert.deepStrictEqual(ops, []);
+  });
+});
+
+suite("isLanguageDisabled", () => {
+  test("disabledLanguages に載っている言語は true", () => {
+    assert.strictEqual(
+      isLanguageDisabled(mockConfig({ disabledLanguages: ["yaml"] }), "yaml"),
+      true
+    );
+  });
+
+  test("disabledLanguages に載っていない言語は false", () => {
+    assert.strictEqual(
+      isLanguageDisabled(
+        mockConfig({ disabledLanguages: ["yaml"] }),
+        "typescript"
+      ),
+      false
+    );
+  });
+
+  test("デフォルト（空配列）はどの言語も無効化しない", () => {
+    assert.strictEqual(
+      isLanguageDisabled(mockConfig({}), "typescript"),
+      false
+    );
+  });
+});
+
+suite("decorateEditor と disabledLanguages", () => {
+  test("disabledLanguages に載った言語では装飾が一切適用されない", () => {
+    const { editor, calls } = mockEditor("yaml", ["a = 1", "bb = 2"]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        disabledLanguages: ["yaml"],
+        operators: ["="],
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.strictEqual(calls.length, 1);
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("disabledLanguages は operatorsByLanguage より優先される", () => {
+    const { editor, calls } = mockEditor("yaml", ["a = 1", "bb = 2"]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        disabledLanguages: ["yaml"],
+        operatorsByLanguage: { yaml: ["="] },
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("disabledLanguages に載っていない言語では通常どおり整列される", () => {
+    const { editor, calls } = mockEditor("typescript", ["a = 1", "bb = 2"]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        disabledLanguages: ["json"],
+        operators: ["="],
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.strictEqual(calls.length, 1);
+    assert.ok(calls[0].length > 0);
   });
 });
 

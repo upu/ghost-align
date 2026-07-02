@@ -169,6 +169,14 @@
           },
           "description": "Per-language operator overrides keyed by languageId (e.g. \"json\", \"jsonc\", \"typescript\"). If the current document's language is listed here, this list is used in place of ghostAlign.operators. Each value is a list of operators (see ghostAlign.operators for supported tokens such as \"=\", \":\", \"//\", \"#\"); e.g. set \"typescript\": [\"//\"] to align trailing comments."
         },
+        "ghostAlign.disabledLanguages": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Language IDs (e.g. \"markdown\", \"yaml\") for which Ghost Align decoration is fully disabled, including Markdown table / CSV / JSDoc alignment. Takes priority over ghostAlign.operatorsByLanguage: listing a language here disables it even if it also has an entry there. Equivalent to setting \"<languageId>\": [] in ghostAlign.operatorsByLanguage, but discoverable as its own setting."
+        },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
           "default": true,

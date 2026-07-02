@@ -10,6 +10,7 @@
 ### Added
 
 - 既定の整列対象言語に Swift / Kotlin / Dart / Zig を追加。`=` の代入がグループ間で揃うようになり、Swift/Dart の `??=`、Kotlin の `===` / `!==` も誤検出されない。
+- `ghostAlign.disabledLanguages` 設定を追加。languageId を列挙すると、その言語のドキュメントでは Markdown テーブル / CSV / JSDoc を含む整列を丸ごと無効化できる。`ghostAlign.operatorsByLanguage` より優先される。
 
 ### Changed
 
