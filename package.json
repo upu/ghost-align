@@ -146,6 +146,11 @@
           },
           "description": "Per-language operator overrides keyed by languageId (e.g. \"json\", \"jsonc\", \"typescript\"). If the current document's language is listed here, this list is used in place of ghostAlign.operators. Each value is a list of operators (see ghostAlign.operators for supported tokens such as \"=\", \":\", \"//\", \"#\"); e.g. set \"typescript\": [\"//\"] to align trailing comments."
         },
+        "ghostAlign.alignJsdocParams": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align the parameter-name and description columns of consecutive JSDoc @param lines in JavaScript/TypeScript."
+        },
         "ghostAlign.ghostCharacter": {
           "type": "string",
           "default": " ",
