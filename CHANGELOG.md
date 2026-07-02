@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `ghostAlign.disabledLanguages` 設定を追加。languageId を列挙すると、その言語のドキュメントでは Markdown テーブル / CSV / JSDoc を含む整列を丸ごと無効化できる。`ghostAlign.operatorsByLanguage` より優先される。
+
 ## [0.3.0] - 2026-07-02
 
 ### Added

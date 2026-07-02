@@ -215,6 +215,20 @@ export function resolveOperatorsForLanguage(
   return config.get<string[]>("operators", ["="]);
 }
 
+/**
+ * Whether decoration should be fully disabled for `languageId` via
+ * `ghostAlign.disabledLanguages`. Takes priority over `operatorsByLanguage`.
+ */
+export function isLanguageDisabled(
+  config: { get<T>(key: string, defaultValue: T): T },
+  languageId: string
+): boolean {
+  const disabledLanguages = config.get<string[]>("disabledLanguages", []);
+  return (
+    Array.isArray(disabledLanguages) && disabledLanguages.includes(languageId)
+  );
+}
+
 /** State for {@link advanceQuoteState}: the currently open quote char, or `false`. */
 type QuoteState = { quote: string | false; escaped: boolean };
 
@@ -1596,7 +1610,7 @@ export function computeSliceBounds(
 }
 
 /** Apply ghost-align decorations to a single editor. */
-function decorateEditor(
+export function decorateEditor(
   editor: vscode.TextEditor,
   config: vscode.WorkspaceConfiguration,
   ghostChar: string,
@@ -1604,6 +1618,12 @@ function decorateEditor(
 ) {
   const document = editor.document;
   const languageId = document.languageId;
+
+  if (isLanguageDisabled(config, languageId)) {
+    editor.setDecorations(alignDecorationType, []);
+    return;
+  }
+
   const tabSize = resolveTabSize(editor);
   const lineCount = document.lineCount;
 
