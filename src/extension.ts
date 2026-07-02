@@ -183,6 +183,10 @@ const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   cpp: ["="],
   csharp: ["="],
   java: ["="],
+  swift: ["="],
+  kotlin: ["="],
+  dart: ["="],
+  zig: ["="],
 };
 
 /**

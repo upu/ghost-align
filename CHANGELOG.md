@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- 既定の整列対象言語に Swift / Kotlin / Dart / Zig を追加。`=` の代入がグループ間で揃うようになり、Swift/Dart の `??=`、Kotlin の `===` / `!==` も誤検出されない。
+
 ### Changed
 
 - TypeScript / TypeScriptReact / JavaScript / JavaScriptReact の既定の整列対象を `=` のみから `:` と `=` に変更。型注釈やオブジェクトリテラルの `:`（三項演算子・文字列・コメント内は除外）が、代入の `=` と同じ2カラムで既定で揃うようになった。`case` ラベルの `:` も同じ判定に含まれるため、連続する `case` ラベルは意図した挙動として既定で揃う。
