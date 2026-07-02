@@ -766,6 +766,23 @@ suite("findOperatorTarget", () => {
     assert.strictEqual(findOperatorTarget("a =~ /x/", ["="], "ruby"), null);
   });
 
+  test("C++: 桁区切りの `'`（奇数個）が文字列開始と誤認されず後続の `=` を検出する", () => {
+    const target = findOperatorTarget("f(1'000); y = 2;", ["="], "cpp");
+    assert.deepStrictEqual(target, { insert: 12, align: 12 });
+  });
+
+  test("C: 桁区切りの `'` は 0x 付き16進数でも文字列開始と誤認しない", () => {
+    const target = findOperatorTarget("f(0x1'000); y = 2;", ["="], "c");
+    assert.deepStrictEqual(target, { insert: 14, align: 14 });
+  });
+
+  test("C++: char リテラル `'='` 内の `=` は引き続き文字列として除外する（回帰）", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("char c = '=';", ["="], "cpp"),
+      [{ opIndex: 0, insert: 7, align: 7 }]
+    );
+  });
+
   test("`=` を含む多文字演算子は代入として検出しない（網羅）", () => {
     const lines = [
       "a == b",

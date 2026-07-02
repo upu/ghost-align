@@ -646,6 +646,14 @@ function lineCommentMarkers(
   return undefined;
 }
 
+/** Language IDs whose numeric literals use `'` as a C++14 digit separator (`1'000'000`), not a quote. */
+const DIGIT_SEPARATOR_LANGUAGES = new Set(["c", "cpp"]);
+
+/** Whether `ch` is a hex/decimal digit, i.e. a valid neighbor of a C++14 digit-separator `'`. */
+function isDigitSeparatorNeighbor(ch: string | undefined): boolean {
+  return ch !== undefined && /[0-9a-fA-F]/.test(ch);
+}
+
 /**
  * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
@@ -662,6 +670,12 @@ function lineCommentMarkers(
  * LINE_COMMENT_MARKERS_BY_LANGUAGE use their own markers (`#`, `;`) and the
  * C-style handling is disabled for them; all others use `//` and `/* ... *​/`.
  *
+ * For C/C++ (DIGIT_SEPARATOR_LANGUAGES), a `'` flanked by hex/decimal digits
+ * on both sides (`1'000`, `0x1'000`) is a digit separator, not a quote: it is
+ * skipped rather than opening a string, so it cannot swallow the rest of the
+ * line. A char literal like `'a'` / `'\0'` / `'='` still opens a real quote
+ * because at least one side of its `'` is not a digit.
+ *
  * Block comments and template literals spanning multiple lines are not
  * tracked: this function sees one line at a time, so a `/*` without a
  * comment running to the end of the line.
@@ -672,6 +686,8 @@ function findAssignmentEquals(
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
   const markers = lineCommentMarkers(languageId);
+  const digitSeparators =
+    languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId);
   const cStyle =
     markers === undefined ||
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
@@ -689,6 +705,15 @@ function findAssignmentEquals(
         continue;
       }
       // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+    }
+    if (
+      ch === "'" &&
+      !state.quote &&
+      digitSeparators &&
+      isDigitSeparatorNeighbor(lineText[i - 1]) &&
+      isDigitSeparatorNeighbor(lineText[i + 1])
+    ) {
+      continue; // C++14 digit separator (1'000'000), not a quote
     }
     if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
