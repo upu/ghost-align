@@ -55,6 +55,7 @@ const longName = 3;
 - 連続する行をグループ化し、グループ内でオペレーターの位置を最も右の行に合わせます。
 - インデント幅が変わると別グループとして扱うため、ネストしたブロック（JSON のオブジェクトなど）が異なる階層をまたいで揃うことはありません。
 - `=` のアライメントでは、文字列・コメント・`( )`・`[ ]` の中の `=`、および `==` `!=` `<=` `>=` `=>` は対象外です（代入の `=` のみを揃えます）。
+- アロー関数（`=>`）は独立したトークンとして揃えられます。`ghostAlign.operators`（または `operatorsByLanguage`）に `"=>"` を追加すると、`const onClick = (e) => ...` のような連続行の `=>` の位置が揃います。文字列・コメント内の出現は対象外です。
 - 既定では `=` を揃えます。言語によって既定のオペレーターが変わり、`json` / `jsonc` / `yaml` / `css` / `scss` / `less` では `:`、`dotenv` / `properties` / `toml` / `ini` / `python` / `shellscript` / `makefile` / `go` / `lua` / `c` / `cpp` / `csharp` / `java` では `=` を揃えます。`ruby` / `php` / `rust` では `=` に加えて `=>`（ハッシュロケット・連想配列・match アーム）も揃えます。
 - JavaScript/TypeScript では、連続する JSDoc の `@param` 行も整列します。パラメータ名のカラムと説明文のカラムがそれぞれ縦に揃います（`ghostAlign.alignJsdocParams` で無効化できます）。
 - 行末コメント（`//` / `#`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外）。
@@ -92,7 +93,7 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 | 設定 | 型 | 既定値 | 説明 |
 | --- | --- | --- | --- |
 | `ghostAlign.showStatusBar` | boolean | `false` | Ghost Align の ON/OFF を示すステータスバー項目を表示します（クリックでトグル）。 |
-| `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）に対応。並び順は優先度かつ左から右へのカラム順です。リストの各オペレーターがそれぞれ独立したカラムとして同じ行の中で揃います（例: `["=", "#"]` なら代入と行末コメントの両方が揃う）。 |
+| `ghostAlign.operators` | array | `["="]` | 揃える対象のオペレーター。現在の言語が `ghostAlign.operatorsByLanguage` に無い場合に使われます。`"="`（代入）、`":"`（JSON/YAML のキーや CSS の宣言）、`"//"` / `"#"`（行末コメント）、`"=>"`（アロー関数）に対応。`"="` と `"=>"` は文字列・コメント内の出現を除外します。それ以外の文字列はそのまま一致します。並び順は優先度かつ左から右へのカラム順です。リストの各オペレーターがそれぞれ独立したカラムとして同じ行の中で揃います（例: `["=", "#"]` なら代入と行末コメントの両方が揃う）。 |
 | `ghostAlign.operatorsByLanguage` | object | `{ "json": [":"], "jsonc": [":"], "yaml": [":"], "dotenv": ["="], "properties": ["="], "toml": ["="], "ini": ["="], "python": ["="], "shellscript": ["="], "ruby": ["=", "=>"], "makefile": ["="], "css": [":"], "scss": [":"], "less": [":"], "php": ["=", "=>"], "rust": ["=", "=>"], "go": ["="], "lua": ["="], "c": ["="], "cpp": ["="], "csharp": ["="], "java": ["="] }` | 言語 ID（`json`, `jsonc`, `typescript` など）ごとのオペレーター上書き。現在のドキュメントの言語がここに含まれる場合、`ghostAlign.operators` の代わりにこちらが使われます。 |
 | `ghostAlign.alignJsdocParams` | boolean | `true` | JavaScript/TypeScript で、連続する JSDoc `@param` 行のパラメータ名カラムと説明文カラムを揃えます。 |
 | `ghostAlign.maxPadding` | number | `0` | 1行・1カラムあたりに挿入するゴースト文字数の上限。揃えるのにこれを超えるパディングが必要な場合、極端に長い外れ値の行を除外して残りの行だけで揃えます。`0` は無制限。Markdown テーブルの整列には適用されません。 |
