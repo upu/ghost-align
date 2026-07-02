@@ -883,10 +883,11 @@ function leadingIndent(lineText: string): number {
 }
 
 /**
- * East Asian Width Wide/Fullwidth code point ranges (BMP). VS Code renders
- * these at double width, so alignment must count them as 2 columns. JS regex
- * has no `\p{East_Asian_Width=...}`, so we test against an explicit table.
- * Astral (surrogate-pair) code points are out of scope.
+ * East Asian Width Wide/Fullwidth code point ranges, plus emoji. VS Code
+ * renders these at double width, so alignment must count them as 2 columns.
+ * JS regex has no `\p{East_Asian_Width=...}`, so we test against an explicit
+ * table. Variation selectors and ZWJ emoji sequences are out of scope: each
+ * code point is measured on its own.
  */
 const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x1100, 0x115f], // Hangul Jamo
@@ -901,13 +902,15 @@ const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0xfe30, 0xfe6f], // CJK Compatibility Forms, Small Form Variants
   [0xff00, 0xff60], // Fullwidth Forms
   [0xffe0, 0xffe6], // Fullwidth signs
+  [0x1f300, 0x1faff], // Emoji and pictographs (Misc Symbols .. Ext-A)
+  [0x20000, 0x3fffd], // CJK Unified Ideographs Extension B and beyond
 ];
 
-/** Rendered column width of a single BMP code unit: 2 for wide/fullwidth, else 1. */
-function charWidth(code: number): number {
+/** Rendered column width of a single code point: 2 for wide/fullwidth, else 1. */
+function charWidth(codePoint: number): number {
   for (const [lo, hi] of WIDE_CHAR_RANGES) {
-    if (code < lo) break;
-    if (code <= hi) return 2;
+    if (codePoint < lo) break;
+    if (codePoint <= hi) return 2;
   }
   return 1;
 }
@@ -915,9 +918,11 @@ function charWidth(code: number): number {
 /**
  * Visual column of the character at `charIndex` (the rendered width of the
  * prefix before it), expanding tabs to the next multiple of `tabSize` and
- * counting East Asian Wide/Fullwidth characters as 2. Used so alignment and
- * group splitting compare on-screen positions rather than raw character counts,
- * which differ once tabs or full-width characters are involved.
+ * counting East Asian Wide/Fullwidth characters and emoji as 2. The scan is
+ * per code point (`charIndex` stays a UTF-16 code-unit index), so surrogate
+ * pairs count once by their real width instead of twice. Used so alignment
+ * and group splitting compare on-screen positions rather than raw character
+ * counts, which differ once tabs or full-width characters are involved.
  */
 export function visualColumn(
   lineText: string,
@@ -926,12 +931,15 @@ export function visualColumn(
 ): number {
   let col = 0;
   const end = Math.min(charIndex, lineText.length);
-  for (let i = 0; i < end; i++) {
+  for (let i = 0; i < end; ) {
     if (lineText[i] === "\t") {
       col += tabSize - (col % tabSize);
-    } else {
-      col += charWidth(lineText.charCodeAt(i));
+      i++;
+      continue;
     }
+    const codePoint = lineText.codePointAt(i) as number;
+    col += charWidth(codePoint);
+    i += codePoint > 0xffff ? 2 : 1;
   }
   return col;
 }

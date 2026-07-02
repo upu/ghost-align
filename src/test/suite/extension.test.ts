@@ -1353,6 +1353,25 @@ suite("visualColumn", () => {
   test("全角英字（Fullwidth）も幅2として数える", () => {
     assert.strictEqual(visualColumn("ＡＢ", 2, 4), 4);
   });
+
+  test("絵文字（サロゲートペア）は幅2として数える", () => {
+    // "😀=" の絵文字は 2 コードユニット・視覚幅 2。= の位置（インデックス2）は 2。
+    assert.strictEqual(visualColumn("😀=", 2, 4), 2);
+    // "a😀b": a=1, 😀=2。b（インデックス3）の視覚カラムは 3。
+    assert.strictEqual(visualColumn("a😀b", 3, 4), 3);
+  });
+
+  test("CJK 拡張 B（U+20000 以降）は幅2として数える", () => {
+    // "𠀀=" の 𠀀 は 2 コードユニット・視覚幅 2。
+    assert.strictEqual(visualColumn("𠀀=", 2, 4), 2);
+  });
+
+  test("幅1の astral 文字（数学用英字など）は幅1として数える", () => {
+    // "𝐀=" の 𝐀（U+1D400）は 2 コードユニットだが視覚幅 1。
+    // コードユニット単位の走査では 2 と過大計上され整列がずれていた。
+    assert.strictEqual(visualColumn("𝐀=", 2, 4), 1);
+    assert.strictEqual(visualColumn("𝐀𝐁=", 4, 4), 2);
+  });
 });
 
 suite("findPipePositions", () => {
