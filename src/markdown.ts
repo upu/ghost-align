@@ -206,11 +206,41 @@ export function findMarkdownTables(
 }
 
 /**
+ * Where to insert padding in a delimiter-row cell so the ruled line stays
+ * continuous: before a trailing `:` (keeps `---:` / `:---:` markers at the
+ * cell edge), otherwise right after the last `-`. Falls back to the pipe
+ * position for cells with neither (e.g. empty cells).
+ */
+function delimiterCellInsertPos(
+  text: string,
+  segStart: number,
+  pipe: number
+): number {
+  let j = pipe - 1;
+  while (j >= segStart && (text[j] === " " || text[j] === "\t")) {
+    j--;
+  }
+  if (j >= segStart && text[j] === ":") {
+    return j;
+  }
+  if (j >= segStart && text[j] === "-") {
+    return j + 1;
+  }
+  return pipe;
+}
+
+/**
  * Ghost-padding placements that align the `|` delimiters of every Markdown table
  * in `lines`. Each cell is padded to its column's widest cell by inserting ghost
  * characters before the trailing `|`, so all delimiters line up. Returns the same
  * placement shape as computePaddings. `initialState` seeds the fence state as of
  * line 0 (see computeFenceStateBefore), for large-file visible-range slices.
+ *
+ * Delimiter rows (`|---|:--:|`) are the exception: their cells are padded with
+ * `-` (padChar) at the end of the dash run — before a trailing `:` — so the
+ * ruled line keeps looking continuous and alignment markers stay at the cell
+ * edge. The segment left of the table's first `|` is ordinary padding even on
+ * a delimiter row, since the ruled line doesn't extend past the table edge.
  */
 export function computeMarkdownTablePaddings(
   lines: string[],
@@ -241,9 +271,22 @@ export function computeMarkdownTablePaddings(
     }
 
     for (const row of rows) {
+      const text = lines[row.lineIndex];
+      const isDelimiter = isDelimiterRow(text);
       row.pipes.forEach((pipe, k) => {
         const padding = maxSeg[k] - row.segWidths[k];
-        if (padding > 0) {
+        if (padding <= 0) {
+          return;
+        }
+        if (isDelimiter && k > 0) {
+          const segStart = row.pipes[k - 1] + 1;
+          placements.push({
+            lineIndex: row.lineIndex,
+            character: delimiterCellInsertPos(text, segStart, pipe),
+            padding,
+            padChar: "-",
+          });
+        } else {
           placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
         }
       });

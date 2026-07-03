@@ -17,21 +17,23 @@ export type TextRange = {
 };
 
 /**
- * Insert `paddings` into `lineText` as real spaces, at each `character`
- * column. Padding is inserted before the existing character at that column
- * (mirroring the decoration's `before` render option), so no original
+ * Insert `paddings` into `lineText` as real characters, at each `character`
+ * column — ASCII spaces, or the placement's `padChar` when set (e.g. `-` on
+ * a Markdown table delimiter row, which must stay `-` to remain a valid GFM
+ * delimiter cell). Padding is inserted before the existing character at that
+ * column (mirroring the decoration's `before` render option), so no original
  * character is consumed.
  */
 export function applyPaddingsToLine(
   lineText: string,
-  paddings: { character: number; padding: number }[]
+  paddings: { character: number; padding: number; padChar?: string }[]
 ): string {
   const sorted = [...paddings].sort((a, b) => a.character - b.character);
   let result = "";
   let cursor = 0;
-  for (const { character, padding } of sorted) {
+  for (const { character, padding, padChar } of sorted) {
     result += lineText.slice(cursor, character);
-    result += " ".repeat(padding);
+    result += (padChar ?? " ").repeat(padding);
     cursor = character;
   }
   result += lineText.slice(cursor);
@@ -50,13 +52,16 @@ export function buildAlignedText(
   range: TextRange | null,
   eol: string = "\n"
 ): string {
-  const byLine = new Map<number, { character: number; padding: number }[]>();
-  for (const { lineIndex, character, padding } of placements) {
+  const byLine = new Map<
+    number,
+    { character: number; padding: number; padChar?: string }[]
+  >();
+  for (const { lineIndex, character, padding, padChar } of placements) {
     const list = byLine.get(lineIndex);
     if (list) {
-      list.push({ character, padding });
+      list.push({ character, padding, padChar });
     } else {
-      byLine.set(lineIndex, [{ character, padding }]);
+      byLine.set(lineIndex, [{ character, padding, padChar }]);
     }
   }
 
@@ -70,7 +75,11 @@ export function buildAlignedText(
     const to = range && i === range.endLine ? range.endChar : lineText.length;
     const paddings = (byLine.get(i) ?? [])
       .filter((p) => p.character >= from && p.character <= to)
-      .map((p) => ({ character: p.character - from, padding: p.padding }));
+      .map((p) => ({
+        character: p.character - from,
+        padding: p.padding,
+        padChar: p.padChar,
+      }));
     outLines.push(applyPaddingsToLine(lineText.slice(from, to), paddings));
   }
   return outLines.join(eol);

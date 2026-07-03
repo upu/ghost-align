@@ -223,7 +223,7 @@ suite("computeMarkdownTablePaddings", () => {
     );
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 13, padding: 2 },
-      { lineIndex: 1, character: 6, padding: 3 },
+      { lineIndex: 1, character: 5, padding: 3, padChar: "-" },
       { lineIndex: 2, character: 4, padding: 5 },
       { lineIndex: 2, character: 8, padding: 2 },
     ]);
@@ -264,9 +264,59 @@ suite("computeMarkdownTablePaddings", () => {
     );
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 12, padding: 2 },
-      { lineIndex: 1, character: 6, padding: 2 },
+      { lineIndex: 1, character: 5, padding: 2, padChar: "-" },
       { lineIndex: 2, character: 4, padding: 4 },
       { lineIndex: 2, character: 9, padding: 1 },
+    ]);
+  });
+
+  test("区切り行のパディングは padChar `-` 付きで、最後の `-` の直後に挿入される", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | b |", "| --- | --- |", "| cccccc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 5 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      { lineIndex: 1, character: 5, padding: 3, padChar: "-" },
+      { lineIndex: 2, character: 13, padding: 2 },
+    ]);
+  });
+
+  test("右寄せ `---:` は trailing `:` の直前に `-` を挿入して `:` が端に残る", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | b |", "| ---: | --- |", "| cccccc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 5 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      { lineIndex: 1, character: 5, padding: 2, padChar: "-" },
+      { lineIndex: 2, character: 13, padding: 2 },
+    ]);
+  });
+
+  test("中央寄せ `:---:` も trailing `:` の直前に `-` を挿入する", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | b |", "| :---: | --- |", "| cccccc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 5 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      { lineIndex: 1, character: 6, padding: 1, padChar: "-" },
+      { lineIndex: 2, character: 13, padding: 2 },
+    ]);
+  });
+
+  test("区切り行でも表の左端より前のセグメントは従来どおり padChar なしでパディングする", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["  | a |", "| --- |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 6, padding: 2 },
+      { lineIndex: 1, character: 0, padding: 2 },
     ]);
   });
 

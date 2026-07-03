@@ -91,6 +91,12 @@ export type Placement = {
   lineIndex: number;
   character: number;
   padding: number;
+  /**
+   * Character to fill the padding with, when the padding should look like
+   * surrounding content (e.g. `-` on a Markdown table delimiter row) instead
+   * of the configured ghost character / a copy-time space.
+   */
+  padChar?: string;
 };
 
 /** One alignment column of a group entry, in rendered coordinates. */

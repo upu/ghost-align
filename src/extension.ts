@@ -543,11 +543,20 @@ export function decorateEditor(
       return {
         range: new vscode.Range(pos, pos),
         renderOptions: {
-          before: {
-            contentText: ghostChar.repeat(p.padding),
-            color: ghostColor,
-            backgroundColor: ghostColor,
-          },
+          // padChar padding (e.g. `-` on a Markdown delimiter row) must be
+          // legible, so it keeps the theme's text color and only carries the
+          // ghost background; default padding hides its glyphs by drawing
+          // them in the background color.
+          before: p.padChar
+            ? {
+                contentText: p.padChar.repeat(p.padding),
+                backgroundColor: ghostColor,
+              }
+            : {
+                contentText: ghostChar.repeat(p.padding),
+                color: ghostColor,
+                backgroundColor: ghostColor,
+              },
         },
       };
     }

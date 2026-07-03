@@ -1,7 +1,15 @@
 import * as assert from "assert";
 import { applyPaddingsToLine, buildAlignedText } from "../../copyAligned";
+import { computeMarkdownTablePaddings } from "../../markdown";
 
 suite("applyPaddingsToLine", () => {
+  test("padChar 指定のパディングはその文字で実体化される", () => {
+    const result = applyPaddingsToLine("| ---: |", [
+      { character: 5, padding: 2, padChar: "-" },
+    ]);
+    assert.strictEqual(result, "| -----: |");
+  });
+
   test("character 位置の前に padding 分のスペースを実体化する（元の文字は消費しない）", () => {
     const result = applyPaddingsToLine("a = 1", [{ character: 2, padding: 1 }]);
     assert.strictEqual(result, "a  = 1");
@@ -61,5 +69,16 @@ suite("buildAlignedText", () => {
       { startLine: 0, startChar: 2, endLine: 2, endChar: 3 }
     );
     assert.strictEqual(text, "cde\nfghij\nklm");
+  });
+
+  test("Markdown 区切り行の `-` パディングはコピーでも `-` で実体化され GFM として妥当なまま", () => {
+    const lines = ["| a | b |", "| ---: | --- |", "| cccccc | d |"];
+    const text = buildAlignedText(
+      lines,
+      computeMarkdownTablePaddings(lines, 4),
+      null,
+      "\n"
+    );
+    assert.strictEqual(text.split("\n")[1], "| -----: | --- |");
   });
 });
