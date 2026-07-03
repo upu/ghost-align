@@ -52,7 +52,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          MILESTONE=$(gh api "repos/${{ github.repository }}/milestones" -f state=all --jq \
+          MILESTONE=$(gh api --method GET "repos/${{ github.repository }}/milestones" -f state=all --jq \
             ".[] | select(.title == \"$GITHUB_REF_NAME\")")
           if [ -z "$MILESTONE" ]; then
             echo "No milestone titled $GITHUB_REF_NAME; skipping."
