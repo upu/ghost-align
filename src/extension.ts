@@ -8,7 +8,11 @@ import {
   findAlignmentGroups,
 } from "./paddings";
 import { computeJsdocParamPaddings, parseJsdocParamLine } from "./jsdoc";
-import { computeMarkdownTablePaddings, findPipePositions } from "./markdown";
+import {
+  computeMarkdownTablePaddings,
+  computeFenceStateBefore,
+  findPipePositions,
+} from "./markdown";
 import { computeCsvPaddings } from "./csv";
 
 // Decoration type: the base style is empty; per-instance renderOptions inject
@@ -304,9 +308,10 @@ export function decorateEditor(
   // Large files are computed per visible range instead of whole-file, and
   // re-decorated on scroll. The slice is expanded to group boundaries so a
   // group straddling the visible edge still aligns against all its members.
-  // Known limits of the slice view: a CSV/TSV table aligns to the widest
-  // cell within the slice (the whole file is one table, so no boundary to
-  // expand to), and Markdown fence state opened above the slice is not seen.
+  // Known limit of the slice view: a CSV/TSV table aligns to the widest cell
+  // within the slice (the whole file is one table, so no boundary to expand
+  // to). Markdown fence state opened above the slice is tracked separately
+  // below via computeFenceStateBefore.
   let sliceStart = 0;
   let sliceEnd = lineCount - 1;
   if (lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0) {
@@ -346,7 +351,15 @@ export function decorateEditor(
 
   let placements: { lineIndex: number; character: number; padding: number }[];
   if (isMarkdown) {
-    placements = computeMarkdownTablePaddings(sliceLines(), tabSize);
+    // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
+    // fence opened above sliceStart would otherwise look unfenced at the top of the
+    // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
+    // so it's fine to run over every line above the slice even for a huge file.
+    const fenceState =
+      sliceStart > 0
+        ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
+        : undefined;
+    placements = computeMarkdownTablePaddings(sliceLines(), tabSize, fenceState);
   } else if (csvDelimiter !== undefined) {
     placements = computeCsvPaddings(sliceLines(), csvDelimiter, tabSize);
   } else {
