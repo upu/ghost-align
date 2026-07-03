@@ -9,11 +9,13 @@ import {
 } from "./paddings";
 import { computeJsdocParamPaddings, parseJsdocParamLine } from "./jsdoc";
 import {
+  FenceState,
   computeMarkdownTablePaddings,
   computeFenceStateBefore,
   findPipePositions,
 } from "./markdown";
 import { computeCsvPaddings } from "./csv";
+import { TextRange, buildAlignedText } from "./copyAligned";
 
 // Decoration type: the base style is empty; per-instance renderOptions inject
 // the padding. Created in `activate` and registered for disposal there.
@@ -82,6 +84,20 @@ export function activate(context: vscode.ExtensionContext) {
         clearDecorations();
       }
       updateStatusBar();
+    })
+  );
+
+  // Copy with Alignment: turns the current ghost padding into real ASCII
+  // spaces and copies it, without touching the source document.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("ghostAlign.copyAligned", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      const config = vscode.workspace.getConfiguration("ghostAlign");
+      const text = buildCopyAlignedText(editor, config);
+      await vscode.env.clipboard.writeText(text);
     })
   );
 
@@ -272,6 +288,57 @@ function resolveTabSize(editor: vscode.TextEditor): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TAB_SIZE;
 }
 
+/**
+ * Compute the ghost-padding placements for `lines`, dispatching to whichever
+ * alignment path `languageId` uses (Markdown table / CSV-TSV / operators +
+ * JSDoc). `source` backs the operator path's group scan and must present the
+ * same lines as `lines` (index-for-index); `markdownFenceState` is only
+ * consulted on the Markdown path, for when `lines` is a slice that starts
+ * mid-file (see decorateEditor's large-file mode).
+ */
+export function computeDocumentPlacements(
+  lines: string[],
+  source: LineSource,
+  languageId: string,
+  config: vscode.WorkspaceConfiguration,
+  tabSize: number,
+  markdownFenceState?: FenceState
+): { lineIndex: number; character: number; padding: number }[] {
+  const csvDelimiter = CSV_DELIMITERS.get(languageId);
+  const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
+  const isOperatorPath = !isMarkdown && csvDelimiter === undefined;
+  const operators = isOperatorPath
+    ? resolveOperatorsForLanguage(config, languageId)
+    : [];
+  const alignJsdoc =
+    isOperatorPath &&
+    TS_JS_LANGUAGES.has(languageId) &&
+    config.get<boolean>("alignJsdocParams", true);
+
+  if (isMarkdown) {
+    return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState);
+  }
+  if (csvDelimiter !== undefined) {
+    return computeCsvPaddings(lines, csvDelimiter, tabSize);
+  }
+
+  const rawMaxPadding = config.get<number>("maxPadding", 0);
+  const maxPadding =
+    typeof rawMaxPadding === "number" &&
+    Number.isFinite(rawMaxPadding) &&
+    rawMaxPadding > 0
+      ? Math.floor(rawMaxPadding)
+      : 0;
+  const groups = findAlignmentGroups(source, operators, languageId, tabSize);
+  let placements = computePaddings(groups, maxPadding);
+  if (alignJsdoc) {
+    placements = placements.concat(
+      computeJsdocParamPaddings(lines, tabSize, maxPadding)
+    );
+  }
+  return placements;
+}
+
 // ── Visible-range mode for large files ────────────────────────────────────
 
 /** Files with at least this many lines are decorated per visible range. */
@@ -350,42 +417,29 @@ export function decorateEditor(
     return lines;
   };
 
-  let placements: { lineIndex: number; character: number; padding: number }[];
-  if (isMarkdown) {
-    // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
-    // fence opened above sliceStart would otherwise look unfenced at the top of the
-    // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
-    // so it's fine to run over every line above the slice even for a huge file.
-    const fenceState =
-      sliceStart > 0
-        ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
-        : undefined;
-    placements = computeMarkdownTablePaddings(sliceLines(), tabSize, fenceState);
-  } else if (csvDelimiter !== undefined) {
-    placements = computeCsvPaddings(sliceLines(), csvDelimiter, tabSize);
-  } else {
-    const rawMaxPadding = config.get<number>("maxPadding", 0);
-    const maxPadding =
-      typeof rawMaxPadding === "number" &&
-      Number.isFinite(rawMaxPadding) &&
-      rawMaxPadding > 0
-        ? Math.floor(rawMaxPadding)
-        : 0;
-    const source: LineSource =
-      sliceStart === 0 && sliceEnd === lineCount - 1
-        ? document
-        : {
-            lineCount: sliceEnd - sliceStart + 1,
-            lineAt: (i: number) => document.lineAt(sliceStart + i),
-          };
-    const groups = findAlignmentGroups(source, operators, languageId, tabSize);
-    placements = computePaddings(groups, maxPadding);
-    if (alignJsdoc) {
-      placements = placements.concat(
-        computeJsdocParamPaddings(sliceLines(), tabSize, maxPadding)
-      );
-    }
-  }
+  // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
+  // fence opened above sliceStart would otherwise look unfenced at the top of the
+  // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
+  // so it's fine to run over every line above the slice even for a huge file.
+  const fenceState =
+    isMarkdown && sliceStart > 0
+      ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
+      : undefined;
+  const source: LineSource =
+    sliceStart === 0 && sliceEnd === lineCount - 1
+      ? document
+      : {
+          lineCount: sliceEnd - sliceStart + 1,
+          lineAt: (i: number) => document.lineAt(sliceStart + i),
+        };
+  let placements = computeDocumentPlacements(
+    sliceLines(),
+    source,
+    languageId,
+    config,
+    tabSize,
+    fenceState
+  );
   if (sliceStart > 0) {
     placements = placements.map((p) => ({
       ...p,
@@ -410,6 +464,49 @@ export function decorateEditor(
   );
 
   editor.setDecorations(alignDecorationType, decorations);
+}
+
+/**
+ * Build the "Copy with Alignment" clipboard text: the current selection (or
+ * the whole document, when there is no selection) with its ghost padding
+ * turned into real ASCII spaces — regardless of `ghostAlign.ghostCharacter`,
+ * for compatibility with the paste target. Always computed over the whole
+ * document (no visible-range slicing), since this runs once per invocation
+ * rather than on every keystroke. The document itself is never modified.
+ */
+export function buildCopyAlignedText(
+  editor: vscode.TextEditor,
+  config: vscode.WorkspaceConfiguration
+): string {
+  const document = editor.document;
+  const languageId = document.languageId;
+  const lines: string[] = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    lines.push(document.lineAt(i).text);
+  }
+
+  const placements = isLanguageDisabled(config, languageId)
+    ? []
+    : computeDocumentPlacements(
+        lines,
+        document,
+        languageId,
+        config,
+        resolveTabSize(editor)
+      );
+
+  const selection = editor.selection;
+  const range: TextRange | null = selection.isEmpty
+    ? null
+    : {
+        startLine: selection.start.line,
+        startChar: selection.start.character,
+        endLine: selection.end.line,
+        endChar: selection.end.character,
+      };
+
+  const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
+  return buildAlignedText(lines, placements, range, eol);
 }
 
 // Allowlist of URI schemes that receive alignment decorations. Editors like
