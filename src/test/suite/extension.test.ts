@@ -28,6 +28,8 @@ import {
   resolveOperatorsForLanguage,
   isLanguageDisabled,
   decorateEditor,
+  computeDocumentPlacements,
+  buildCopyAlignedText,
   resolveInitialEnabled,
   statusBarText,
   isAlignableScheme,
@@ -36,6 +38,7 @@ import {
   DEFAULT_GHOST_COLOR,
   DEFAULT_OPERATORS_BY_LANGUAGE,
 } from "../../extension";
+import { applyPaddingsToLine, buildAlignedText } from "../../copyAligned";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -71,7 +74,8 @@ function mockState(values: Record<string, unknown>) {
 function mockEditor(
   languageId: string,
   lines: string[] = [],
-  visibleRanges: { start: number; end: number }[] = []
+  visibleRanges: { start: number; end: number }[] = [],
+  selection: vscode.Selection = new vscode.Selection(0, 0, 0, 0)
 ) {
   const calls: vscode.DecorationOptions[][] = [];
   const editor = {
@@ -87,6 +91,7 @@ function mockEditor(
       end: { line: r.end },
     })),
     options: { tabSize: 2 },
+    selection,
     setDecorations(_type: unknown, decorations: vscode.DecorationOptions[]) {
       calls.push(decorations);
     },
@@ -2454,6 +2459,253 @@ suite("decorateEditor と可視範囲モード（大きい Markdown）", () => {
       "gray"
     );
     assert.ok(calls[0].length > 0);
+  });
+});
+
+suite("applyPaddingsToLine", () => {
+  test("character 位置の前に padding 分のスペースを実体化する（元の文字は消費しない）", () => {
+    const result = applyPaddingsToLine("a = 1", [{ character: 2, padding: 1 }]);
+    assert.strictEqual(result, "a  = 1");
+  });
+
+  test("複数の padding は character の昇順で適用され、位置は元の文字列基準のまま", () => {
+    // わざと降順で渡し、内部でソートされることを確認する
+    const result = applyPaddingsToLine("abcdefghij", [
+      { character: 6, padding: 1 },
+      { character: 3, padding: 2 },
+    ]);
+    assert.strictEqual(result, "abc  def ghij");
+  });
+
+  test("padding が空なら元の文字列のまま", () => {
+    assert.strictEqual(applyPaddingsToLine("a = 1", []), "a = 1");
+  });
+});
+
+suite("buildAlignedText", () => {
+  test("range が null なら全行を対象にし、指定した eol で結合する", () => {
+    const lines = ["a = 1", "bb = 2"];
+    const text = buildAlignedText(
+      lines,
+      [{ lineIndex: 0, character: 2, padding: 1 }],
+      null,
+      "\n"
+    );
+    assert.strictEqual(text, "a  = 1\nbb = 2");
+  });
+
+  test("選択範囲より前のパディングは対象外になる（選択範囲外にトリムされる）", () => {
+    const lines = ["a = 1"];
+    const text = buildAlignedText(
+      lines,
+      [{ lineIndex: 0, character: 2, padding: 1 }],
+      { startLine: 0, startChar: 3, endLine: 0, endChar: 5 }
+    );
+    assert.strictEqual(text, " 1");
+  });
+
+  test("選択範囲の開始位置に一致するパディングは含まれ、相対位置に補正される", () => {
+    const lines = ["a = 1"];
+    const text = buildAlignedText(
+      lines,
+      [{ lineIndex: 0, character: 2, padding: 1 }],
+      { startLine: 0, startChar: 2, endLine: 0, endChar: 5 }
+    );
+    assert.strictEqual(text, " = 1");
+  });
+
+  test("複数行の選択範囲は先頭行を startChar から、末尾行を endChar までにトリムし、中間行は全体を使う", () => {
+    const lines = ["abcde", "fghij", "klmno"];
+    const text = buildAlignedText(
+      lines,
+      [],
+      { startLine: 0, startChar: 2, endLine: 2, endChar: 3 }
+    );
+    assert.strictEqual(text, "cde\nfghij\nklm");
+  });
+});
+
+suite("computeDocumentPlacements", () => {
+  test("演算子パスは findAlignmentGroups + computePaddings と同じ結果になる", () => {
+    const lines = ["a = 1", "bb = 2"];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "typescript",
+      mockConfig({ operators: ["="] }) as unknown as vscode.WorkspaceConfiguration,
+      2
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 1 },
+    ]);
+  });
+
+  test("markdown 言語ではテーブルのパイプ整列を計算する", () => {
+    const lines = ["| a | bb |", "| --- | --- |", "| ccc | d |"];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "markdown",
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 2 },
+      { lineIndex: 0, character: 9, padding: 1 },
+      { lineIndex: 2, character: 10, padding: 2 },
+    ]);
+  });
+
+  test("csv 言語では区切り文字の列整列を計算する", () => {
+    const lines = ["a,b,c", '"x,y",zz,w'];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "csv",
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 1, padding: 4 },
+      { lineIndex: 0, character: 3, padding: 1 },
+    ]);
+  });
+
+  test("TS/JS では JSDoc @param の整列も合成される", () => {
+    const lines = [" * @param {number} count x", " * @param {string} s 説明"];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "typescript",
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 21, padding: 4 },
+    ]);
+  });
+});
+
+suite("buildCopyAlignedText", () => {
+  test("選択がなければドキュメント全体を対象にする（演算子整列）", () => {
+    const { editor } = mockEditor("typescript", ["a = 1", "bb = 2"]);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({ operators: ["="] }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(text, "a  = 1\nbb = 2");
+  });
+
+  test("選択範囲があればその範囲だけを対象にする", () => {
+    const { editor } = mockEditor(
+      "typescript",
+      ["a = 1", "bb = 2"],
+      [],
+      new vscode.Selection(0, 0, 0, 5)
+    );
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({ operators: ["="] }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(text, "a  = 1");
+  });
+
+  test("選択範囲外の行を含むグループでも、表示と同じアライメント先で揃える", () => {
+    // 選択は0-1行目だけだが、2行目（選択範囲外）が最も右にあるためそこに揃う。
+    const lines = ["a = 1", "bb = 2", "ccc = 3"];
+    const config = mockConfig({
+      operators: ["="],
+    }) as unknown as vscode.WorkspaceConfiguration;
+    const { editor } = mockEditor(
+      "typescript",
+      lines,
+      [],
+      new vscode.Selection(0, 0, 1, 6)
+    );
+    const text = buildCopyAlignedText(editor, config);
+    const expected = buildAlignedText(
+      lines,
+      computeDocumentPlacements(lines, mockDocument(lines), "typescript", config, 2),
+      { startLine: 0, startChar: 0, endLine: 1, endChar: 6 }
+    );
+    assert.strictEqual(text, expected);
+  });
+
+  test("disabledLanguages の言語ではパディングを挿入せずそのままコピーする", () => {
+    const { editor } = mockEditor("yaml", ["a = 1", "bb = 2"]);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({
+        disabledLanguages: ["yaml"],
+        operators: ["="],
+      }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(text, "a = 1\nbb = 2");
+  });
+
+  test("markdown テーブルの整列もコピー時に実スペース化される", () => {
+    const lines = ["| a | bb |", "| --- | --- |", "| ccc | d |"];
+    const { editor } = mockEditor("markdown", lines);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration
+    );
+    const expected = buildAlignedText(
+      lines,
+      [
+        { lineIndex: 0, character: 4, padding: 2 },
+        { lineIndex: 0, character: 9, padding: 1 },
+        { lineIndex: 2, character: 10, padding: 2 },
+      ],
+      null
+    );
+    assert.strictEqual(text, expected);
+  });
+
+  test("csv の列整列もコピー時に実スペース化される", () => {
+    const lines = ["a,b,c", '"x,y",zz,w'];
+    const { editor } = mockEditor("csv", lines);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration
+    );
+    const expected = buildAlignedText(
+      lines,
+      [
+        { lineIndex: 0, character: 1, padding: 4 },
+        { lineIndex: 0, character: 3, padding: 1 },
+      ],
+      null
+    );
+    assert.strictEqual(text, expected);
+  });
+
+  test("JSDoc @param の整列もコピー時に実スペース化される", () => {
+    const lines = [" * @param {number} count x", " * @param {string} s 説明"];
+    const { editor } = mockEditor("typescript", lines);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration
+    );
+    const expected = buildAlignedText(
+      lines,
+      [{ lineIndex: 1, character: 21, padding: 4 }],
+      null
+    );
+    assert.strictEqual(text, expected);
+  });
+});
+
+suite("ghostAlign.copyAligned コマンド", () => {
+  test("package.json にコマンドパレット用のコマンドが登録されている", () => {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const commands: { command: string; title: string }[] =
+      ext!.packageJSON?.contributes?.commands ?? [];
+    assert.ok(
+      commands.some((c) => c.command === "ghostAlign.copyAligned"),
+      "ghostAlign.copyAligned コマンドが package.json に存在すること"
+    );
   });
 });
 

@@ -43,6 +43,10 @@
       {
         "command": "ghostAlign.toggle",
         "title": "Ghost Align: Toggle"
+      },
+      {
+        "command": "ghostAlign.copyAligned",
+        "title": "Ghost Align: Copy with Alignment"
       }
     ],
     "configuration": {
