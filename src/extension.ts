@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
-import { TS_JS_LANGUAGES, findOperatorTargets } from "./finders";
+import {
+  DocScanState,
+  TS_JS_LANGUAGES,
+  computeLineStateBefore,
+  findOperatorTargets,
+} from "./finders";
 import {
   DEFAULT_TAB_SIZE,
   LineSource,
@@ -293,8 +298,10 @@ function resolveTabSize(editor: vscode.TextEditor): number {
  * alignment path `languageId` uses (Markdown table / CSV-TSV / operators +
  * JSDoc). `source` backs the operator path's group scan and must present the
  * same lines as `lines` (index-for-index); `markdownFenceState` is only
- * consulted on the Markdown path, for when `lines` is a slice that starts
- * mid-file (see decorateEditor's large-file mode).
+ * consulted on the Markdown path, and `initialDocState` only on the operator
+ * path — both for when `lines` is a slice that starts mid-file (see
+ * decorateEditor's large-file mode), seeding the state a fence / block
+ * comment / template literal opened above the slice left behind.
  */
 export function computeDocumentPlacements(
   lines: string[],
@@ -302,7 +309,8 @@ export function computeDocumentPlacements(
   languageId: string,
   config: vscode.WorkspaceConfiguration,
   tabSize: number,
-  markdownFenceState?: FenceState
+  markdownFenceState?: FenceState,
+  initialDocState?: DocScanState
 ): { lineIndex: number; character: number; padding: number }[] {
   const csvDelimiter = CSV_DELIMITERS.get(languageId);
   const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
@@ -329,7 +337,13 @@ export function computeDocumentPlacements(
     rawMaxPadding > 0
       ? Math.floor(rawMaxPadding)
       : 0;
-  const groups = findAlignmentGroups(source, operators, languageId, tabSize);
+  const groups = findAlignmentGroups(
+    source,
+    operators,
+    languageId,
+    tabSize,
+    initialDocState
+  );
   let placements = computePaddings(groups, maxPadding);
   if (alignJsdoc) {
     placements = placements.concat(
@@ -425,6 +439,17 @@ export function decorateEditor(
     isMarkdown && sliceStart > 0
       ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
       : undefined;
+  // A block comment or template literal opened above sliceStart would
+  // otherwise look like plain code at the top of the slice; seed the scan
+  // with whatever state it left behind (mirrors the fence-state pre-scan above).
+  const initialDocState =
+    isOperatorPath && sliceStart > 0
+      ? computeLineStateBefore(
+          sliceStart,
+          (i) => document.lineAt(i).text,
+          languageId
+        )
+      : undefined;
   const source: LineSource =
     sliceStart === 0 && sliceEnd === lineCount - 1
       ? document
@@ -438,7 +463,8 @@ export function decorateEditor(
     languageId,
     config,
     tabSize,
-    fenceState
+    fenceState,
+    initialDocState
   );
   if (sliceStart > 0) {
     placements = placements.map((p) => ({

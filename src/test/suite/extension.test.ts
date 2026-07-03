@@ -7,6 +7,7 @@ import {
   initialQuoteState,
   advanceQuoteState,
   advanceCommentState,
+  computeLineStateBefore,
 } from "../../finders";
 import {
   findAlignmentGroups,
@@ -207,6 +208,56 @@ suite("advanceCommentState", () => {
     assert.strictEqual(
       advanceCommentState(line, 2, line[2], { cStyle: true }),
       "break"
+    );
+  });
+});
+
+suite("computeLineStateBefore", () => {
+  test("ブロックコメントが閉じないまま終わっていれば blockComment を返す", () => {
+    const lines = ["const a = 1;", "/*", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
+      "blockComment"
+    );
+  });
+
+  test("ブロックコメントが閉じていれば code を返す", () => {
+    const lines = ["/*", "comment", "*/", "const a = 1;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
+      "code"
+    );
+  });
+
+  test("テンプレートリテラルが閉じないまま終わっていれば template を返す（TS/JS のみ）", () => {
+    const lines = ["const s = `", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
+      "template"
+    );
+  });
+
+  test("テンプレートリテラルが閉じていれば code を返す", () => {
+    const lines = ["const s = `", "still open", "`;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
+      "code"
+    );
+  });
+
+  test("ブロックコメント/テンプレートリテラルを扱わない言語は常に code を返す", () => {
+    const lines = ["/*", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "python"),
+      "code"
+    );
+  });
+
+  test("言語未指定なら C 系コメントとして扱う", () => {
+    const lines = ["/*", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i]),
+      "blockComment"
     );
   });
 });
@@ -1032,6 +1083,34 @@ suite("findOperatorTargets", () => {
       [{ opIndex: 0, insert: 2, align: 2 }]
     );
   });
+
+  test("blockComment 状態から開始すると閉じるまでの内容は無視する", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("comment */ x = 1", ["="], undefined, "blockComment"),
+      [{ opIndex: 0, insert: 13, align: 13 }]
+    );
+  });
+
+  test("blockComment 状態のまま行内で閉じなければ演算子は検出しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("still a = 1 comment", ["="], undefined, "blockComment"),
+      []
+    );
+  });
+
+  test("template 状態から開始すると閉じるまでの内容は無視する", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("abc` x = 1", ["="], "typescript", "template"),
+      [{ opIndex: 0, insert: 7, align: 7 }]
+    );
+  });
+
+  test("template 状態のまま行内で閉じなければ演算子は検出しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("still x = 1 template", ["="], "typescript", "template"),
+      []
+    );
+  });
 });
 
 suite("findAlignmentGroups", () => {
@@ -1328,6 +1407,52 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][0].visualColumn, 3);
     assert.strictEqual(groups[0][1].operatorColumn, 4);
     assert.strictEqual(groups[0][1].visualColumn, 7);
+  });
+});
+
+suite("findAlignmentGroups（複数行ブロックコメント / テンプレートリテラル）", () => {
+  test("複数行ブロックコメント内の = は整列対象にならない", () => {
+    const doc = mockDocument([
+      "/*",
+      " * a = 1",
+      " */",
+      "const x = 1;",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 3);
+    assert.strictEqual(groups[0][1].lineIndex, 4);
+  });
+
+  test("複数行テンプレートリテラル内の = は整列対象にならない", () => {
+    const doc = mockDocument([
+      "const s = `",
+      "  x = 1",
+      "`;",
+      "const y = 2;",
+      "const longName = 3;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 3);
+    assert.strictEqual(groups[0][1].lineIndex, 4);
+  });
+
+  test("初期状態に blockComment を渡すとスライス先頭からブロックコメント内として扱う", () => {
+    const doc = mockDocument([
+      " * still comment",
+      " */",
+      "const x = 1;",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "typescript", 4, "blockComment");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 2);
+    assert.strictEqual(groups[0][1].lineIndex, 3);
   });
 });
 
@@ -2706,6 +2831,45 @@ suite("ghostAlign.copyAligned コマンド", () => {
       commands.some((c) => c.command === "ghostAlign.copyAligned"),
       "ghostAlign.copyAligned コマンドが package.json に存在すること"
     );
+  });
+});
+
+suite("decorateEditor と可視範囲モード（複数行ブロックコメント）", () => {
+  test("可視範囲より上で閉じていないブロックコメント内の演算子は整列されない", () => {
+    const lineCount = 10001;
+    const lines = new Array<string>(lineCount).fill("filler");
+    lines[0] = "/*";
+    lines[9990] = "  a = 1;";
+    lines[9991] = "  longName = 2;";
+    const { editor, calls } = mockEditor("typescript", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("可視範囲より上でブロックコメントが閉じていれば演算子は通常どおり整列される", () => {
+    const lineCount = 10001;
+    const lines = new Array<string>(lineCount).fill("filler");
+    lines[0] = "/*";
+    lines[1] = "*/";
+    lines[9990] = "  a = 1;";
+    lines[9991] = "  longName = 2;";
+    const { editor, calls } = mockEditor("typescript", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.ok(calls[0].length > 0);
   });
 });
 
