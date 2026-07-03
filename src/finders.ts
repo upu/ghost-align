@@ -748,6 +748,177 @@ function findOccurrences(
   return results;
 }
 
+// ── Multi-line block-comment / template-literal tracking ──────────────────
+//
+// Every finder above sees one line at a time, so a `/* ... */` block comment
+// or a `` `...` `` template literal spanning multiple lines cannot be
+// recognized as such from within a single line: each finder just treats an
+// unclosed comment-open or backtick as running to the end of that one line,
+// with nothing carried over to the next. The functions below compute, for a
+// document (or a slice of one), the state each line *starts* in — plain
+// code, inside a block comment, or inside a template literal — so callers
+// can seed findOperatorTargets with it instead of always assuming line 0
+// starts as plain code.
+
+/** State a line can start a scan in, once block comments/template literals may span lines. */
+export type DocScanState = "code" | "blockComment" | "template";
+
+/**
+ * Which multi-line constructs apply to `languageId`, mirroring the same rules
+ * the single-line finders already use: `cStyle` follows the C-style
+ * comment-support decision in findAssignmentEquals (marker-only languages,
+ * e.g. Python/YAML, don't get it; PHP gets both; plain JSON has no comment
+ * syntax at all, unlike JSONC). `template` is TS/JS-only — the languages
+ * with real template-literal syntax.
+ */
+function resolveDocScanOptions(
+  languageId: string | undefined
+): { cStyle: boolean; template: boolean } {
+  const isMarkerOnly =
+    languageId !== undefined &&
+    Object.prototype.hasOwnProperty.call(
+      LINE_COMMENT_MARKERS_BY_LANGUAGE,
+      languageId
+    ) &&
+    !C_STYLE_COMMENT_ALSO.has(languageId);
+  const cStyle = languageId !== "json" && !isMarkerOnly;
+  const template = languageId !== undefined && TS_JS_LANGUAGES.has(languageId);
+  return { cStyle, template };
+}
+
+/** Index of `quoteChar`'s matching close in `lineText` from `from` (respecting `\` escapes), or -1. */
+function scanClosingQuote(
+  lineText: string,
+  from: number,
+  quoteChar: string
+): number {
+  const state: QuoteState = { quote: quoteChar, escaped: false };
+  for (let i = from; i < lineText.length; i++) {
+    advanceQuoteState(state, lineText[i], TEMPLATE_QUOTE_CHARS);
+    if (!state.quote) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * The {@link DocScanState} that follows `lineText`, given the state it
+ * started in. Mirrors the comment/quote handling the finders already do per
+ * line, but carries an unterminated block comment or template literal into
+ * the next line instead of resetting at the line boundary.
+ *
+ * Does not model `${...}` interpolation inside a template literal (real code,
+ * including its own strings/comments, can appear there) — a `` ` `` found
+ * while scanning one is treated as closing it, the same simplification the
+ * single-line finders already make for template literals.
+ */
+function advanceLineDocState(
+  lineText: string,
+  state: DocScanState,
+  opts: { cStyle: boolean; template: boolean }
+): DocScanState {
+  let i = 0;
+  if (state === "blockComment") {
+    const close = lineText.indexOf("*/");
+    if (close === -1) {
+      return "blockComment";
+    }
+    i = close + 2;
+  } else if (state === "template") {
+    const close = scanClosingQuote(lineText, 0, "`");
+    if (close === -1) {
+      return "template";
+    }
+    i = close + 1;
+  }
+  const quote = initialQuoteState();
+  const quoteChars = opts.template ? new Set<string>(['"', "'"]) : TEMPLATE_QUOTE_CHARS;
+  for (; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(quote, ch, quoteChars)) {
+      continue;
+    }
+    if (opts.template && ch === "`") {
+      const close = scanClosingQuote(lineText, i + 1, "`");
+      if (close === -1) {
+        return "template";
+      }
+      i = close;
+      continue;
+    }
+    if (opts.cStyle) {
+      if (ch === "/" && lineText[i + 1] === "/") {
+        return "code"; // rest of the line is a line comment; nothing carries over
+      }
+      if (ch === "/" && lineText[i + 1] === "*") {
+        const close = lineText.indexOf("*/", i + 2);
+        if (close === -1) {
+          return "blockComment";
+        }
+        i = close + 1;
+        continue;
+      }
+    }
+  }
+  return "code";
+}
+
+/**
+ * Advances {@link DocScanState} across `lineText` for `languageId`, applying
+ * that language's cStyle/template rules. Exported so callers with their own
+ * line loop (e.g. findAlignmentGroups) can track document state one line at
+ * a time without needing {@link resolveDocScanOptions} / {@link advanceLineDocState}.
+ */
+export function nextDocScanState(
+  lineText: string,
+  state: DocScanState,
+  languageId?: string
+): DocScanState {
+  const opts = resolveDocScanOptions(languageId);
+  if (!opts.cStyle && !opts.template) {
+    return "code"; // language has neither construct; state never leaves "code"
+  }
+  return advanceLineDocState(lineText, state, opts);
+}
+
+/**
+ * The {@link DocScanState} as of `lineCount` lines scanned via `lineAt`,
+ * without computing per-line operator targets. Used to seed the
+ * visible-range slice's starting state with whatever a block comment or
+ * template literal opened above it left behind — mirrors
+ * computeFenceStateBefore in markdown.ts, which solves the same "a slice
+ * doesn't start at line 0" problem for fenced code blocks.
+ */
+export function computeLineStateBefore(
+  lineCount: number,
+  lineAt: (index: number) => string,
+  languageId?: string
+): DocScanState {
+  let state: DocScanState = "code";
+  for (let i = 0; i < lineCount; i++) {
+    state = nextDocScanState(lineAt(i), state, languageId);
+  }
+  return state;
+}
+
+/**
+ * Char index in `lineText` where normal scanning resumes given `state`, or
+ * null if the whole line is still inside a block comment/template literal
+ * that doesn't close on it.
+ */
+function skipToCodeStart(lineText: string, state: DocScanState): number | null {
+  if (state === "code") {
+    return 0;
+  }
+  if (state === "blockComment") {
+    const close = lineText.indexOf("*/");
+    return close === -1 ? null : close + 2;
+  }
+  const close = scanClosingQuote(lineText, 0, "`");
+  return close === -1 ? null : close + 1;
+}
+
 /**
  * A per-line alignment column: which operator in the configured list it
  * belongs to (`opIndex`), plus the insert/align pair of that occurrence.
@@ -765,17 +936,32 @@ export type ColumnTarget = OperatorTarget & { opIndex: number };
 export function findOperatorTargets(
   lineText: string,
   operators: string[],
-  languageId?: string
+  languageId?: string,
+  initialState: DocScanState = "code"
 ): ColumnTarget[] {
+  let text = lineText;
+  let offset = 0;
+  if (initialState !== "code") {
+    const resolved = skipToCodeStart(lineText, initialState);
+    if (resolved === null) {
+      return []; // whole line still inside a block comment/template literal
+    }
+    offset = resolved;
+    text = lineText.slice(offset);
+  }
   const columns: ColumnTarget[] = [];
   let minIndex = 0;
   for (let opIndex = 0; opIndex < operators.length; opIndex++) {
-    const occurrences = findOccurrences(lineText, operators[opIndex], languageId);
+    const occurrences = findOccurrences(text, operators[opIndex], languageId);
     const match = occurrences.find((t) => t.insert >= minIndex);
     if (!match) {
       continue;
     }
-    columns.push({ opIndex, insert: match.insert, align: match.align });
+    columns.push({
+      opIndex,
+      insert: match.insert + offset,
+      align: match.align + offset,
+    });
     minIndex = match.align + 1;
   }
   return columns;
@@ -790,9 +976,10 @@ export function findOperatorTargets(
 export function findOperatorTarget(
   lineText: string,
   operators: string[],
-  languageId?: string
+  languageId?: string,
+  initialState: DocScanState = "code"
 ): OperatorTarget | null {
-  const columns = findOperatorTargets(lineText, operators, languageId);
+  const columns = findOperatorTargets(lineText, operators, languageId, initialState);
   return columns.length > 0
     ? { insert: columns[0].insert, align: columns[0].align }
     : null;
@@ -802,8 +989,9 @@ export function findOperatorTarget(
 export function findOperatorColumn(
   lineText: string,
   operators: string[],
-  languageId?: string
+  languageId?: string,
+  initialState: DocScanState = "code"
 ): number | null {
-  const target = findOperatorTarget(lineText, operators, languageId);
+  const target = findOperatorTarget(lineText, operators, languageId, initialState);
   return target ? target.align : null;
 }

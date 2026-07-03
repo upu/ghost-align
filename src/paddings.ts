@@ -5,7 +5,7 @@
 // measurement (tabs, East Asian wide/fullwidth chars) shared by every
 // alignment path, and the visible-range slicing used for large files.
 
-import { findOperatorTargets } from "./finders";
+import { DocScanState, findOperatorTargets, nextDocScanState } from "./finders";
 
 /** Default tab width used when an editor's tabSize cannot be resolved. */
 export const DEFAULT_TAB_SIZE = 4;
@@ -122,16 +122,27 @@ export type LineSource = {
  * point (the `=` itself) used to compute padding and the group's alignment
  * target. Indent comparison and alignment use visual columns so tabs and
  * tab/space mixes line up on screen, not by raw character count.
+ *
+ * `initialDocState` seeds the state (plain code / inside a block comment /
+ * inside a template literal) that line 0 of `document` starts in, so a
+ * visible-range slice of a large file can resume whatever a multi-line block
+ * comment or template literal opened above it left behind — see
+ * computeLineStateBefore in finders.ts. Each line's targets are found
+ * relative to that state, which is then advanced across the loop via
+ * nextDocScanState, so an operator inside an unclosed block comment or
+ * template literal is never treated as an alignment target.
  */
 export function findAlignmentGroups(
   document: LineSource,
   operators: string[],
   languageId?: string,
-  tabSize: number = DEFAULT_TAB_SIZE
+  tabSize: number = DEFAULT_TAB_SIZE,
+  initialDocState: DocScanState = "code"
 ): AlignmentEntry[][] {
   const groups: AlignmentEntry[][] = [];
   let currentGroup: AlignmentEntry[] = [];
   let currentIndent: number | null = null;
+  let docState: DocScanState = initialDocState;
 
   const flush = () => {
     if (currentGroup.length >= 2) {
@@ -143,7 +154,8 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-    const targets = findOperatorTargets(lineText, operators, languageId);
+    const targets = findOperatorTargets(lineText, operators, languageId, docState);
+    docState = nextDocScanState(lineText, docState, languageId);
 
     if (targets.length === 0) {
       flush();
