@@ -123,8 +123,6 @@ export function computeJsdocParamPaddings(
     }
     current.push({
       lineIndex: i,
-      operatorColumn: columns[0].insert,
-      visualColumn: columns[0].visualColumn,
       columns,
     });
   }

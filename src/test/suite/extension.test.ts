@@ -1,13 +1,12 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
 import {
-  findOperatorColumn,
-  findOperatorTarget,
   findOperatorTargets,
   initialQuoteState,
   advanceQuoteState,
   advanceCommentState,
   computeLineStateBefore,
+  DocScanState,
 } from "../../finders";
 import {
   findAlignmentGroups,
@@ -42,6 +41,31 @@ import {
 import { applyPaddingsToLine, buildAlignedText } from "../../copyAligned";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// #203: finders.ts から削除された findOperatorTarget / findOperatorColumn
+// 互換 API を、現行の findOperatorTargets から組み立てるテスト専用ヘルパー。
+// 単一演算子・第1カラムのみを見る既存テストの検証意図はそのまま維持する。
+function findOperatorTarget(
+  lineText: string,
+  operators: string[],
+  languageId?: string,
+  initialState: DocScanState = "code"
+): { insert: number; align: number } | null {
+  const columns = findOperatorTargets(lineText, operators, languageId, initialState);
+  return columns.length > 0
+    ? { insert: columns[0].insert, align: columns[0].align }
+    : null;
+}
+
+function findOperatorColumn(
+  lineText: string,
+  operators: string[],
+  languageId?: string,
+  initialState: DocScanState = "code"
+): number | null {
+  const target = findOperatorTarget(lineText, operators, languageId, initialState);
+  return target ? target.align : null;
+}
 
 // vscode.TextDocument の最小限モック
 function mockDocument(lines: string[]) {
@@ -1144,7 +1168,7 @@ suite("findAlignmentGroups", () => {
     const paddings = computePaddings(groups);
     const aligned = groups[0].map((g) => {
       const p = paddings.find((q) => q.lineIndex === g.lineIndex);
-      return g.visualColumn + (p ? p.padding : 0);
+      return g.columns[0].visualColumn + (p ? p.padding : 0);
     });
     assert.strictEqual(aligned[0], aligned[1]);
   });
@@ -1175,14 +1199,14 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 2);
   });
 
-  test("operatorColumn が正しい値を持つ", () => {
+  test("columns[0].insert が正しい値を持つ", () => {
     const doc = mockDocument([
       "const x = 1;",       // = at 8
       "const longName = 2;", // = at 15
     ]);
     const groups = findAlignmentGroups(doc, ["="]);
-    assert.strictEqual(groups[0][0].operatorColumn, 8);
-    assert.strictEqual(groups[0][1].operatorColumn, 15);
+    assert.strictEqual(groups[0][0].columns[0].insert, 8);
+    assert.strictEqual(groups[0][1].columns[0].insert, 15);
   });
 
   test("インデント幅が変わったら別グループになる", () => {
@@ -1241,8 +1265,8 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 1);
-    assert.strictEqual(groups[0][0].operatorColumn, 7);
-    assert.strictEqual(groups[0][1].operatorColumn, 12);
+    assert.strictEqual(groups[0][0].columns[0].insert, 7);
+    assert.strictEqual(groups[0][1].columns[0].insert, 12);
   });
 
   test("インデント減少でも別グループになる", () => {
@@ -1264,10 +1288,10 @@ suite("findAlignmentGroups", () => {
     const doc = mockDocument(["\tx = 1;", "\tlongName = 2;"]);
     const groups = findAlignmentGroups(doc, ["="], undefined, 4);
     assert.strictEqual(groups.length, 1);
-    assert.strictEqual(groups[0][0].operatorColumn, 3);
-    assert.strictEqual(groups[0][0].visualColumn, 6);
-    assert.strictEqual(groups[0][1].operatorColumn, 10);
-    assert.strictEqual(groups[0][1].visualColumn, 13);
+    assert.strictEqual(groups[0][0].columns[0].insert, 3);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 6);
+    assert.strictEqual(groups[0][1].columns[0].insert, 10);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 13);
   });
 
   test("tabSize を変えても同じグループにまとまる", () => {
@@ -1275,8 +1299,8 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, ["="], undefined, 8);
     assert.strictEqual(groups.length, 1);
     // tabSize 8: \t→8。= の視覚カラムは 10 と 17。
-    assert.strictEqual(groups[0][0].visualColumn, 10);
-    assert.strictEqual(groups[0][1].visualColumn, 17);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 10);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 17);
   });
 
   test("連続行の行末コメント `//` をグループ化する", () => {
@@ -1286,8 +1310,8 @@ suite("findAlignmentGroups", () => {
     ]);
     const groups = findAlignmentGroups(doc, ["//"]);
     assert.strictEqual(groups.length, 1);
-    assert.strictEqual(groups[0][0].operatorColumn, 7);
-    assert.strictEqual(groups[0][1].operatorColumn, 12);
+    assert.strictEqual(groups[0][0].columns[0].insert, 7);
+    assert.strictEqual(groups[0][1].columns[0].insert, 12);
   });
 
   test("丸ごとコメント行はグループを分断する", () => {
@@ -1313,10 +1337,10 @@ suite("findAlignmentGroups", () => {
     const doc = mockDocument(["x += 1", "long -= 2"]);
     const groups = findAlignmentGroups(doc, ["="]);
     assert.strictEqual(groups.length, 1);
-    assert.strictEqual(groups[0][0].operatorColumn, 2);
-    assert.strictEqual(groups[0][0].visualColumn, 3);
-    assert.strictEqual(groups[0][1].operatorColumn, 5);
-    assert.strictEqual(groups[0][1].visualColumn, 6);
+    assert.strictEqual(groups[0][0].columns[0].insert, 2);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 3);
+    assert.strictEqual(groups[0][1].columns[0].insert, 5);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 6);
     const placements = computePaddings(groups);
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 2, padding: 3 },
@@ -1364,9 +1388,6 @@ suite("findAlignmentGroups", () => {
       { opIndex: 0, insert: 2, visualColumn: 2 },
       { opIndex: 1, insert: 6, visualColumn: 6 },
     ]);
-    // 後方互換: operatorColumn / visualColumn は第1ターゲットを指す
-    assert.strictEqual(groups[0][0].operatorColumn, 2);
-    assert.strictEqual(groups[0][0].visualColumn, 2);
   });
 
   test("YAML: コメント行はグループを分断し最大列を押し上げない", () => {
@@ -1403,10 +1424,10 @@ suite("findAlignmentGroups", () => {
     const doc = mockDocument(["あ = 1;", "あいう = 2;"]);
     const groups = findAlignmentGroups(doc, ["="]);
     assert.strictEqual(groups.length, 1);
-    assert.strictEqual(groups[0][0].operatorColumn, 2);
-    assert.strictEqual(groups[0][0].visualColumn, 3);
-    assert.strictEqual(groups[0][1].operatorColumn, 4);
-    assert.strictEqual(groups[0][1].visualColumn, 7);
+    assert.strictEqual(groups[0][0].columns[0].insert, 2);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 3);
+    assert.strictEqual(groups[0][1].columns[0].insert, 4);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 7);
   });
 });
 
@@ -1456,13 +1477,15 @@ suite("findAlignmentGroups（複数行ブロックコメント / テンプレー
   });
 });
 
+/** Builds a single-column AlignmentEntry for computePaddings tests. */
+function entry(lineIndex: number, insert: number, visualColumn: number) {
+  return { lineIndex, columns: [{ opIndex: 0, insert, visualColumn }] };
+}
+
 suite("computePaddings", () => {
   test("グループ内の各行を最大視覚カラムまでパディングする", () => {
     const placements = computePaddings([
-      [
-        { lineIndex: 0, operatorColumn: 8, visualColumn: 8 },
-        { lineIndex: 1, operatorColumn: 15, visualColumn: 15 },
-      ],
+      [entry(0, 8, 8), entry(1, 15, 15)],
     ]);
     // 行0 は 15-8=7 パディング、行1 は最大なのでスキップ。
     assert.deepStrictEqual(placements, [
@@ -1470,13 +1493,10 @@ suite("computePaddings", () => {
     ]);
   });
 
-  test("character は operatorColumn（文字インデックス）を使う", () => {
-    // タブで visualColumn と operatorColumn が異なるケース。
+  test("character は insert（文字インデックス）を使う", () => {
+    // タブで visualColumn と insert が異なるケース。
     const placements = computePaddings([
-      [
-        { lineIndex: 0, operatorColumn: 3, visualColumn: 6 },
-        { lineIndex: 1, operatorColumn: 10, visualColumn: 13 },
-      ],
+      [entry(0, 3, 6), entry(1, 10, 13)],
     ]);
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 3, padding: 7 },
@@ -1485,24 +1505,15 @@ suite("computePaddings", () => {
 
   test("既に揃っているグループは空を返す", () => {
     const placements = computePaddings([
-      [
-        { lineIndex: 0, operatorColumn: 5, visualColumn: 5 },
-        { lineIndex: 1, operatorColumn: 5, visualColumn: 5 },
-      ],
+      [entry(0, 5, 5), entry(1, 5, 5)],
     ]);
     assert.deepStrictEqual(placements, []);
   });
 
   test("複数グループをまとめて処理する", () => {
     const placements = computePaddings([
-      [
-        { lineIndex: 0, operatorColumn: 2, visualColumn: 2 },
-        { lineIndex: 1, operatorColumn: 4, visualColumn: 4 },
-      ],
-      [
-        { lineIndex: 3, operatorColumn: 1, visualColumn: 1 },
-        { lineIndex: 4, operatorColumn: 3, visualColumn: 3 },
-      ],
+      [entry(0, 2, 2), entry(1, 4, 4)],
+      [entry(3, 1, 1), entry(4, 3, 3)],
     ]);
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 2, padding: 2 },
@@ -1512,13 +1523,7 @@ suite("computePaddings", () => {
 
   test("maxPadding: 超過の原因になる外れ値行を除外し残りで揃える", () => {
     const placements = computePaddings(
-      [
-        [
-          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
-          { lineIndex: 1, operatorColumn: 12, visualColumn: 12 },
-          { lineIndex: 2, operatorColumn: 50, visualColumn: 50 },
-        ],
-      ],
+      [[entry(0, 10, 10), entry(1, 12, 12), entry(2, 50, 50)]],
       10
     );
     assert.deepStrictEqual(placements, [
@@ -1528,14 +1533,7 @@ suite("computePaddings", () => {
 
   test("maxPadding: 除外後もまだ超過するなら収束するまで反復して除外する", () => {
     const placements = computePaddings(
-      [
-        [
-          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
-          { lineIndex: 1, operatorColumn: 12, visualColumn: 12 },
-          { lineIndex: 2, operatorColumn: 30, visualColumn: 30 },
-          { lineIndex: 3, operatorColumn: 50, visualColumn: 50 },
-        ],
-      ],
+      [[entry(0, 10, 10), entry(1, 12, 12), entry(2, 30, 30), entry(3, 50, 50)]],
       10
     );
     assert.deepStrictEqual(placements, [
@@ -1545,12 +1543,7 @@ suite("computePaddings", () => {
 
   test("maxPadding: ちょうど maxPadding のパディングは許容する（境界値）", () => {
     const placements = computePaddings(
-      [
-        [
-          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
-          { lineIndex: 1, operatorColumn: 20, visualColumn: 20 },
-        ],
-      ],
+      [[entry(0, 10, 10), entry(1, 20, 20)]],
       10
     );
     assert.deepStrictEqual(placements, [
@@ -1560,12 +1553,7 @@ suite("computePaddings", () => {
 
   test("maxPadding: 1 超えたら外れ値が除外され、残り 1 行では揃えない", () => {
     const placements = computePaddings(
-      [
-        [
-          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
-          { lineIndex: 1, operatorColumn: 21, visualColumn: 21 },
-        ],
-      ],
+      [[entry(0, 10, 10), entry(1, 21, 21)]],
       10
     );
     assert.deepStrictEqual(placements, []);
@@ -1573,12 +1561,7 @@ suite("computePaddings", () => {
 
   test("maxPadding: 0 は無制限（従来挙動）", () => {
     const placements = computePaddings(
-      [
-        [
-          { lineIndex: 0, operatorColumn: 10, visualColumn: 10 },
-          { lineIndex: 1, operatorColumn: 50, visualColumn: 50 },
-        ],
-      ],
+      [[entry(0, 10, 10), entry(1, 50, 50)]],
       0
     );
     assert.deepStrictEqual(placements, [
@@ -1592,8 +1575,6 @@ suite("computePaddings", () => {
         [
           {
             lineIndex: 0,
-            operatorColumn: 10,
-            visualColumn: 10,
             columns: [
               { opIndex: 0, insert: 10, visualColumn: 10 },
               { opIndex: 1, insert: 60, visualColumn: 60 },
@@ -1601,8 +1582,6 @@ suite("computePaddings", () => {
           },
           {
             lineIndex: 1,
-            operatorColumn: 50,
-            visualColumn: 50,
             columns: [
               { opIndex: 0, insert: 50, visualColumn: 50 },
               { opIndex: 1, insert: 62, visualColumn: 62 },
@@ -2284,7 +2263,7 @@ suite("resolveOperatorsForLanguage", () => {
       const paddings = computePaddings(groups);
       const aligned = groups[0].map((g) => {
         const p = paddings.find((q) => q.lineIndex === g.lineIndex);
-        return g.visualColumn + (p ? p.padding : 0);
+        return g.columns[0].visualColumn + (p ? p.padding : 0);
       });
       assert.strictEqual(aligned[0], aligned[1], lang);
     }

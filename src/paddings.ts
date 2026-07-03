@@ -100,17 +100,10 @@ export type AlignmentColumn = {
   visualColumn: number;
 };
 
-/**
- * A line in an alignment group. `operatorColumn` / `visualColumn` describe
- * the first column (kept for backward compatibility with single-operator
- * callers); `columns` lists every column on the line. Entries built by hand
- * without `columns` are treated as having that single column.
- */
+/** A line in an alignment group: `columns` lists every alignment column on it. */
 export type AlignmentEntry = {
   lineIndex: number;
-  operatorColumn: number;
-  visualColumn: number;
-  columns?: AlignmentColumn[];
+  columns: AlignmentColumn[];
 };
 
 /**
@@ -185,8 +178,6 @@ export function findAlignmentGroups(
     }));
     currentGroup.push({
       lineIndex: i,
-      operatorColumn: columns[0].insert,
-      visualColumn: columns[0].visualColumn,
       columns,
     });
     currentIndent = indent;
@@ -222,15 +213,7 @@ export function computePaddings(
   for (const group of groups) {
     const rows = group.map((entry) => ({
       lineIndex: entry.lineIndex,
-      columns:
-        entry.columns ??
-        [
-          {
-            opIndex: 0,
-            insert: entry.operatorColumn,
-            visualColumn: entry.visualColumn,
-          },
-        ],
+      columns: entry.columns,
       shift: 0,
     }));
     const opIndices = [
