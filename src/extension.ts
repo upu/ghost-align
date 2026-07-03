@@ -25,7 +25,7 @@ let alignDecorationType: vscode.TextEditorDecorationType;
 // spaces in decoration `contentText`, so plain " ".repeat(N) renders as a
 // single space and breaks alignment. NBSP renders identically in monospace
 // fonts but is not collapsed.
-export const DEFAULT_GHOST_CHAR = " ";
+export const DEFAULT_GHOST_CHAR = " ";
 export const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 
 // globalState key under which the toggle state is persisted across reloads.
@@ -170,8 +170,9 @@ export function debounce<A extends unknown[]>(
 
 // ── Config resolution ─────────────────────────────────────────────────────
 
-// Default per-language operator overrides. Keep in sync with package.json.
-const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
+// Default per-language operator overrides. Keep in sync with package.json
+// (verified by a test that deep-compares this against the package.json default).
+export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   json: [":"],
   jsonc: [":"],
   yaml: [":"],

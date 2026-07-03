@@ -34,6 +34,7 @@ import {
   debounce,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
+  DEFAULT_OPERATORS_BY_LANGUAGE,
 } from "../../extension";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -2509,5 +2510,45 @@ suite("有効/無効の一本化", () => {
       "ghostAlign.enabled が設定スキーマに存在しない"
     );
     assert.ok("ghostAlign.operators" in props);
+  });
+});
+
+suite("package.json との既定値同期", () => {
+  // extension.ts のコメント頼みの二重管理（DEFAULT_OPERATORS_BY_LANGUAGE /
+  // DEFAULT_GHOST_CHAR / DEFAULT_GHOST_COLOR ⇔ package.json の default）が
+  // 片方だけ更新されて食い違うと、設定 UI の表示と実効値が静かにずれる。
+  function configProperties(): Record<string, { default?: unknown }> {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+  }
+
+  test("operatorsByLanguage の既定値が DEFAULT_OPERATORS_BY_LANGUAGE と一致する", () => {
+    const props = configProperties();
+    assert.deepStrictEqual(
+      props["ghostAlign.operatorsByLanguage"]?.default,
+      DEFAULT_OPERATORS_BY_LANGUAGE
+    );
+  });
+
+  test("operators の既定値が resolveOperatorsForLanguage のフォールバックと一致する", () => {
+    const props = configProperties();
+    assert.deepStrictEqual(props["ghostAlign.operators"]?.default, ["="]);
+  });
+
+  test("ghostCharacter の既定値が DEFAULT_GHOST_CHAR と一致する", () => {
+    const props = configProperties();
+    assert.strictEqual(
+      props["ghostAlign.ghostCharacter"]?.default,
+      DEFAULT_GHOST_CHAR
+    );
+  });
+
+  test("ghostColor の既定値が DEFAULT_GHOST_COLOR と一致する", () => {
+    const props = configProperties();
+    assert.strictEqual(
+      props["ghostAlign.ghostColor"]?.default,
+      DEFAULT_GHOST_COLOR
+    );
   });
 });
