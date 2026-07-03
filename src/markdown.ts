@@ -1,6 +1,6 @@
 // ── Markdown table alignment ──────────────────────────────────────────────
 
-import { visualColumn } from "./paddings";
+import { Placement, visualColumn } from "./paddings";
 
 /**
  * Char ranges `[start, end)` inside inline code spans (CommonMark: opened by
@@ -216,8 +216,8 @@ export function computeMarkdownTablePaddings(
   lines: string[],
   tabSize: number,
   initialState: FenceState = NO_FENCE
-): { lineIndex: number; character: number; padding: number }[] {
-  const placements: { lineIndex: number; character: number; padding: number }[] = [];
+): Placement[] {
+  const placements: Placement[] = [];
 
   for (const block of findMarkdownTables(lines, initialState)) {
     const rows = block.map((lineIndex) => {

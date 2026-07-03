@@ -3,6 +3,7 @@
 import {
   AlignmentColumn,
   AlignmentEntry,
+  Placement,
   computePaddings,
   visualColumn,
 } from "./paddings";
@@ -91,7 +92,7 @@ export function computeJsdocParamPaddings(
   lines: string[],
   tabSize: number,
   maxPadding: number = 0
-): { lineIndex: number; character: number; padding: number }[] {
+): Placement[] {
   const groups: AlignmentEntry[][] = [];
   let current: AlignmentEntry[] = [];
   const flush = () => {

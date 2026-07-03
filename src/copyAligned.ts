@@ -2,12 +2,11 @@
 //
 // Turns ghost padding into real ASCII spaces so the aligned look survives a
 // copy-paste outside the editor (chat, review comments, docs). Pure text
-// transform: given the same lineIndex/character/padding placements used for
-// decoration, inserts spaces at those positions instead of rendering them as
-// ghost text, then trims the result to the requested range.
+// transform: given the same Placement values used for decoration, inserts
+// spaces at those positions instead of rendering them as ghost text, then
+// trims the result to the requested range.
 
-/** One ghost-padding placement, matching the shape returned by paddings/markdown/csv/jsdoc. */
-export type Placement = { lineIndex: number; character: number; padding: number };
+import { Placement } from "./paddings";
 
 /** A character range spanning one or more lines, e.g. an editor selection. */
 export type TextRange = {
