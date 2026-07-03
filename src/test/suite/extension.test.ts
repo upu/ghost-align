@@ -4,16 +4,24 @@ import {
   findOperatorColumn,
   findOperatorTarget,
   findOperatorTargets,
+  initialQuoteState,
+  advanceQuoteState,
+} from "../../finders";
+import {
   findAlignmentGroups,
   visualColumn,
   computePaddings,
+  computeSliceBounds,
+} from "../../paddings";
+import {
   findPipePositions,
   isDelimiterRow,
   findMarkdownTables,
   computeMarkdownTablePaddings,
-  findCsvDelimiterPositions,
-  computeCsvPaddings,
-  computeJsdocParamPaddings,
+} from "../../markdown";
+import { findCsvDelimiterPositions, computeCsvPaddings } from "../../csv";
+import { computeJsdocParamPaddings } from "../../jsdoc";
+import {
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   isLanguageDisabled,
@@ -21,12 +29,9 @@ import {
   resolveInitialEnabled,
   statusBarText,
   isAlignableScheme,
-  computeSliceBounds,
   debounce,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
-  initialQuoteState,
-  advanceQuoteState,
 } from "../../extension";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

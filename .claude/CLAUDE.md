@@ -19,7 +19,12 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 
 ## プロジェクト構成
 
-- `src/extension.ts` — メインロジック（唯一のソースファイル）
+- `src/extension.ts` — VS Code 配線のみ（activate/deactivate、設定解決、ステータスバー、decorateEditor のオーケストレーション）
+- `src/finders.ts` — 演算子検出（`=`/`:`/`=>`/コメントマーカー）とクォート状態機械
+- `src/paddings.ts` — アライメントグループ化・パディング計算・視覚幅計算・大ファイルの可視範囲スライス
+- `src/markdown.ts` — Markdown テーブルのパイプ整列
+- `src/csv.ts` — CSV/TSV の区切り文字整列
+- `src/jsdoc.ts` — JSDoc `@param` 行の整列
 - `package.json` — 拡張機能の定義、コマンド、設定項目
 - `scripts/esbuild.js` — 本番バンドルのビルドスクリプト
 - `.vscode/launch.json` — デバッグ設定
