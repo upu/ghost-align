@@ -18,6 +18,7 @@ import {
   isDelimiterRow,
   findMarkdownTables,
   computeMarkdownTablePaddings,
+  computeFenceStateBefore,
 } from "../../markdown";
 import { findCsvDelimiterPositions, computeCsvPaddings } from "../../csv";
 import { computeJsdocParamPaddings } from "../../jsdoc";
@@ -65,7 +66,11 @@ function mockState(values: Record<string, unknown>) {
 }
 
 // vscode.TextEditor の最小限モック（setDecorations 呼び出しを記録する）
-function mockEditor(languageId: string, lines: string[] = []) {
+function mockEditor(
+  languageId: string,
+  lines: string[] = [],
+  visibleRanges: { start: number; end: number }[] = []
+) {
   const calls: vscode.DecorationOptions[][] = [];
   const editor = {
     document: {
@@ -75,7 +80,10 @@ function mockEditor(languageId: string, lines: string[] = []) {
         return { text: lines[i] };
       },
     },
-    visibleRanges: [],
+    visibleRanges: visibleRanges.map((r) => ({
+      start: { line: r.start },
+      end: { line: r.end },
+    })),
     options: { tabSize: 2 },
     setDecorations(_type: unknown, decorations: vscode.DecorationOptions[]) {
       calls.push(decorations);
@@ -1660,6 +1668,56 @@ suite("findMarkdownTables", () => {
     ]);
     assert.deepStrictEqual(tables, [[5, 6, 7]]);
   });
+
+  test("初期フェンス状態が開いていれば、閉じフェンスが来るまでテーブル検出しない", () => {
+    const tables = findMarkdownTables(
+      ["| not | a | real table |", "|-----|---|------------|", "```", "", "| h |", "|---|", "| d |"],
+      { char: "`", len: 3 }
+    );
+    assert.deepStrictEqual(tables, [[4, 5, 6]]);
+  });
+
+  test("初期フェンス状態が閉じていれば通常どおりテーブル検出する", () => {
+    const tables = findMarkdownTables(
+      ["| h |", "|---|", "| d |"],
+      { char: null, len: 0 }
+    );
+    assert.deepStrictEqual(tables, [[0, 1, 2]]);
+  });
+});
+
+suite("computeFenceStateBefore", () => {
+  test("フェンスが開いたまま閉じていなければ開いた状態を返す", () => {
+    const lines = ["text", "```", "in fence"];
+    assert.deepStrictEqual(
+      computeFenceStateBefore(lines.length, (i) => lines[i]),
+      { char: "`", len: 3 }
+    );
+  });
+
+  test("フェンスが閉じていれば非フェンス状態を返す", () => {
+    const lines = ["```", "in fence", "```", "text"];
+    assert.deepStrictEqual(
+      computeFenceStateBefore(lines.length, (i) => lines[i]),
+      { char: null, len: 0 }
+    );
+  });
+
+  test("フェンスが一度もなければ非フェンス状態を返す", () => {
+    const lines = ["a", "b"];
+    assert.deepStrictEqual(
+      computeFenceStateBefore(lines.length, (i) => lines[i]),
+      { char: null, len: 0 }
+    );
+  });
+
+  test("`~~~` フェンスが開いたままなら `~` の開いた状態を返す", () => {
+    const lines = ["~~~~", "in fence"];
+    assert.deepStrictEqual(
+      computeFenceStateBefore(lines.length, (i) => lines[i]),
+      { char: "~", len: 4 }
+    );
+  });
 });
 
 suite("computeMarkdownTablePaddings", () => {
@@ -1736,6 +1794,15 @@ suite("computeMarkdownTablePaddings", () => {
       { lineIndex: 2, character: 4, padding: 4 },
       { lineIndex: 2, character: 9, padding: 1 },
     ]);
+  });
+
+  test("初期フェンス状態が開いていれば、渡したスライスだけを見てもテーブル風行を整列しない", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| not | a | table |", "|-----|---|-------|"],
+      4,
+      { char: "`", len: 3 }
+    );
+    assert.deepStrictEqual(placements, []);
   });
 });
 
@@ -2282,6 +2349,46 @@ suite("decorateEditor と disabledLanguages", () => {
       "gray"
     );
     assert.strictEqual(calls.length, 1);
+    assert.ok(calls[0].length > 0);
+  });
+});
+
+suite("decorateEditor と可視範囲モード（大きい Markdown）", () => {
+  test("可視範囲より上で開いたフェンス内のテーブル風行は整列されない", () => {
+    const lineCount = 10001;
+    const lines = new Array<string>(lineCount).fill("filler");
+    lines[0] = "```";
+    lines[9990] = "| not | a | table |";
+    lines[9991] = "|-----|---|-------|";
+    const { editor, calls } = mockEditor("markdown", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("可視範囲より上のフェンスが閉じていればテーブル風行は通常どおり整列される", () => {
+    const lineCount = 10001;
+    const lines = new Array<string>(lineCount).fill("filler");
+    lines[0] = "```";
+    lines[1] = "```";
+    lines[9990] = "| h | hh |";
+    lines[9991] = "|---|----|";
+    lines[9992] = "| dddd | d |";
+    const { editor, calls } = mockEditor("markdown", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
     assert.ok(calls[0].length > 0);
   });
 });
