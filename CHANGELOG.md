@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-03
+
 ### Added
 
 - コマンド `Ghost Align: Copy with Alignment`（`ghostAlign.copyAligned`）を追加。選択範囲（未選択ならドキュメント全体）に現在表示されているゴーストパディングを実際の ASCII スペースとして挿入し、クリップボードにコピーする。Markdown テーブル / CSV・TSV / JSDoc `@param` の各整列パスでも機能し、コピー先での互換性のためゴースト文字設定に関わらず常に ASCII スペースを使う。ドキュメント自体は変更しない。
@@ -123,7 +125,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/upu/ghost-align/releases/tag/v0.5.0
 [0.4.0]: https://github.com/upu/ghost-align/releases/tag/v0.4.0
 [0.3.0]: https://github.com/upu/ghost-align/releases/tag/v0.3.0
 [0.2.0]: https://github.com/upu/ghost-align/releases/tag/v0.2.0
