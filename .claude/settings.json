@@ -13,7 +13,11 @@
       "Bash(git ls-files *)",
       "Bash(git check-ignore *)",
       "Bash(gh label list*)",
-      "Bash(gh run watch *)"
+      "Bash(gh run watch *)",
+      "Bash(git worktree remove .claude/worktrees/*)",
+      "Bash(git worktree prune*)",
+      "Bash(git branch -D worktree-agent-*)",
+      "Bash(rm -rf .claude/worktrees/*)"
     ]
   },
   "hooks": {
