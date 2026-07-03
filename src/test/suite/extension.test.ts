@@ -6,6 +6,7 @@ import {
   findOperatorTargets,
   initialQuoteState,
   advanceQuoteState,
+  advanceCommentState,
 } from "../../finders";
 import {
   findAlignmentGroups,
@@ -131,6 +132,68 @@ suite("advanceQuoteState", () => {
     assert.strictEqual(state.quote, "'");
     assert.strictEqual(advanceQuoteState(state, "'", quoteChars), true);
     assert.strictEqual(state.quote, false);
+  });
+});
+
+suite("advanceCommentState", () => {
+  test("コメントでない文字は false を返す", () => {
+    const line = "const x = 1;";
+    assert.strictEqual(
+      advanceCommentState(line, 0, line[0], { cStyle: true }),
+      false
+    );
+  });
+
+  test("markers に一致する行頭コメントは break を返す", () => {
+    const line = "# comment";
+    assert.strictEqual(
+      advanceCommentState(line, 0, line[0], { markers: ["#"] }),
+      "break"
+    );
+  });
+
+  test("markers は空白の後でのみコメント開始として扱う", () => {
+    const line = "value#x";
+    assert.strictEqual(
+      advanceCommentState(line, 5, line[5], { markers: ["#"] }),
+      false
+    );
+  });
+
+  test("cStyle: // は break を返す", () => {
+    const line = "a // comment";
+    assert.strictEqual(
+      advanceCommentState(line, 2, line[2], { cStyle: true }),
+      "break"
+    );
+  });
+
+  test("cStyleLineComment: false なら // はコメントとして扱わない", () => {
+    const line = "url(http://example.com)";
+    assert.strictEqual(
+      advanceCommentState(line, 9, line[9], {
+        cStyle: true,
+        cStyleLineComment: false,
+      }),
+      false
+    );
+  });
+
+  test("閉じた /* */ は閉じ位置の次のインデックスを返す", () => {
+    const line = "a /* c */ b";
+    const close = line.indexOf("*/");
+    assert.strictEqual(
+      advanceCommentState(line, 2, line[2], { cStyle: true }),
+      close + 1
+    );
+  });
+
+  test("閉じていない /* は break を返す", () => {
+    const line = "a /* unterminated";
+    assert.strictEqual(
+      advanceCommentState(line, 2, line[2], { cStyle: true }),
+      "break"
+    );
   });
 });
 
