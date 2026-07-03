@@ -116,6 +116,60 @@ function rustCharLiteralEnd(lineText: string, i: number): number {
   return lineText[j] === "'" ? j + 1 : -1;
 }
 
+/**
+ * Result of {@link advanceCommentState} at one character position:
+ *   - `false` — `ch` does not start a comment here
+ *   - `"break"` — a comment runs from here to the end of the line; the caller
+ *     should stop scanning
+ *   - a number — `ch` opened a single-line-closed block comment; the caller
+ *     should set its loop index to this value (the loop's own `i++` then
+ *     advances past the closing `/`) and `continue`
+ */
+export type CommentAdvance = false | "break" | number;
+
+/**
+ * Shared comment-skipping step used by findColonOutsideString / findTsColon /
+ * findCssColon / findAssignmentEquals / findArrow. Recognizes, in order:
+ *   - a marker-based line comment (`opts.markers`, e.g. YAML's `#`), via
+ *     {@link startsLineComment} — line start or after whitespace
+ *   - C-style comments (`opts.cStyle`): `//` running to the end of the line
+ *     (unless `opts.cStyleLineComment` is `false`, e.g. plain CSS which has no
+ *     `//` syntax) and `/* ... *​/`, closed on the same line or else treated as
+ *     running to the end of it
+ *
+ * Callers gate the whole check on whether a comment style even applies to the
+ * current language, so this makes no language decisions itself beyond the
+ * options passed in.
+ */
+export function advanceCommentState(
+  lineText: string,
+  i: number,
+  ch: string,
+  opts: {
+    markers?: readonly string[];
+    cStyle?: boolean;
+    cStyleLineComment?: boolean;
+  }
+): CommentAdvance {
+  if (opts.markers && startsLineComment(lineText, i, opts.markers)) {
+    return "break";
+  }
+  if (opts.cStyle) {
+    if (
+      (opts.cStyleLineComment ?? true) &&
+      ch === "/" &&
+      lineText[i + 1] === "/"
+    ) {
+      return "break";
+    }
+    if (ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      return close === -1 ? "break" : close + 1;
+    }
+  }
+  return false;
+}
+
 /** Language IDs whose `:` finder must skip C-style `//` / `/* ... *​/` comments. */
 const C_COMMENT_COLON_LANGUAGES = new Set(["jsonc"]);
 
@@ -144,21 +198,16 @@ function findColonOutsideString(
     if (advanceQuoteState(state, ch, QUOTE_CHARS)) {
       continue;
     }
-    if (markers && startsLineComment(lineText, i, markers)) {
+    const comment = advanceCommentState(lineText, i, ch, {
+      markers,
+      cStyle: cStyleComments,
+    });
+    if (comment === "break") {
       break; // comment to the end of the line
     }
-    if (cStyleComments) {
-      if (ch === "/" && lineText[i + 1] === "/") {
-        break; // line comment: nothing after this is a key
-      }
-      if (ch === "/" && lineText[i + 1] === "*") {
-        const close = lineText.indexOf("*/", i + 2);
-        if (close === -1) {
-          break; // unterminated block comment: rest of the line is a comment
-        }
-        i = close + 1; // loop's i++ advances past the closing `/`
-        continue;
-      }
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
     }
     if (ch === ":") {
       results.push(i);
@@ -205,15 +254,12 @@ function findTsColon(lineText: string): number[] {
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
-    if (ch === "/" && lineText[i + 1] === "/") {
-      break; // line comment: nothing after this is code
+    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
+    if (comment === "break") {
+      break; // comment to the end of the line
     }
-    if (ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        break; // unterminated block comment: rest of the line is a comment
-      }
-      i = close + 1; // loop's i++ advances past the closing `/`
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
       continue;
     }
     if (ch === "(" || ch === "[" || ch === "{") {
@@ -315,20 +361,16 @@ function findCssColon(lineText: string, languageId: string): number[] {
     if (parenDepth !== 0) {
       continue;
     }
-    if (ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        break; // unterminated block comment: rest of the line is a comment
-      }
-      i = close + 1; // loop's i++ advances past the closing `/`
-      continue;
+    const comment = advanceCommentState(lineText, i, ch, {
+      cStyle: true,
+      cStyleLineComment: SCSS_LESS_LANGUAGES.has(languageId),
+    });
+    if (comment === "break") {
+      break; // comment to the end of the line
     }
-    if (
-      SCSS_LESS_LANGUAGES.has(languageId) &&
-      ch === "/" &&
-      lineText[i + 1] === "/"
-    ) {
-      break; // SCSS/LESS line comment: nothing after this is a declaration
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
     }
     if (ch === ":") {
       if (lineText[i + 1] === ":") {
@@ -500,24 +542,14 @@ export function findAssignmentEquals(
     if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
     }
-    if (markers && startsLineComment(lineText, i, markers)) {
+    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
+    if (comment === "break") {
       // Comment to the end of the line: no assignment can follow.
       break;
     }
-    if (cStyle) {
-      if (ch === "/" && lineText[i + 1] === "/") {
-        // Line comment: nothing after this can be an assignment.
-        break;
-      }
-      if (ch === "/" && lineText[i + 1] === "*") {
-        const close = lineText.indexOf("*/", i + 2);
-        if (close === -1) {
-          // Unterminated block comment: treat the rest of the line as comment.
-          break;
-        }
-        i = close + 1; // loop's i++ advances past the closing `/`
-        continue;
-      }
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
     }
     if (ch === "(" || ch === "[") {
       depth++;
@@ -606,15 +638,12 @@ function findArrow(lineText: string, languageId?: string): number[] {
     if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
     }
-    if (ch === "/" && lineText[i + 1] === "/") {
-      break; // line comment: nothing after this is code
+    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
+    if (comment === "break") {
+      break; // comment to the end of the line
     }
-    if (ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        break; // unterminated block comment: rest of the line is a comment
-      }
-      i = close + 1; // loop's i++ advances past the closing `/`
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
       continue;
     }
     if (ch === "=" && lineText[i + 1] === ">" && lineText[i - 1] !== "<") {
