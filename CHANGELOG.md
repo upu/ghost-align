@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-03
+
 ### Added
 
 - 既定の整列対象言語に Swift / Kotlin / Dart / Zig を追加。`=` の代入がグループ間で揃うようになり、Swift/Dart の `??=`、Kotlin の `===` / `!==` も誤検出されない。
@@ -106,7 +108,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/upu/ghost-align/releases/tag/v0.4.0
 [0.3.0]: https://github.com/upu/ghost-align/releases/tag/v0.3.0
 [0.2.0]: https://github.com/upu/ghost-align/releases/tag/v0.2.0
 [0.1.0]: https://github.com/upu/ghost-align/releases/tag/v0.1.0
