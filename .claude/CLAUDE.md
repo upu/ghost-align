@@ -25,9 +25,12 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 - `src/markdown.ts` — Markdown テーブルのパイプ整列
 - `src/csv.ts` — CSV/TSV の区切り文字整列
 - `src/jsdoc.ts` — JSDoc `@param` 行の整列
+- `src/copyAligned.ts` — ゴーストパディングを実スペースとして具現化するテキスト構築（Copy with Alignment コマンド用）
 - `package.json` — 拡張機能の定義、コマンド、設定項目
 - `scripts/esbuild.js` — 本番バンドルのビルドスクリプト
 - `.vscode/launch.json` — デバッグ設定
+
+テストは `src/test/suite/` 配下にソースモジュール対応で分割（`finders.test.ts` / `paddings.test.ts` / `markdown.test.ts` / `csv.test.ts` / `jsdoc.test.ts` / `copyAligned.test.ts` / `extension.test.ts` は配線まわり）。共有モック類は `testHelpers.ts`。
 
 ## アーキテクチャ
 
