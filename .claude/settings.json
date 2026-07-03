@@ -12,7 +12,8 @@
       "Bash(git diff *)",
       "Bash(git ls-files *)",
       "Bash(git check-ignore *)",
-      "Bash(gh label list*)"
+      "Bash(gh label list*)",
+      "Bash(gh run watch *)"
     ]
   },
   "hooks": {
