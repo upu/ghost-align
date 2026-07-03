@@ -20,7 +20,12 @@ import {
   computeFenceStateBefore,
   findPipePositions,
 } from "./markdown";
-import { computeCsvPaddings } from "./csv";
+import {
+  CsvLineMetrics,
+  CsvWidthCache,
+  computeCsvPaddings,
+  computeCsvPaddingsFromMax,
+} from "./csv";
 import { TextRange, buildAlignedText } from "./copyAligned";
 
 // Decoration type: the base style is empty; per-instance renderOptions inject
@@ -119,6 +124,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
+      notifyCsvDocumentChange(e.document, e.contentChanges);
       const shown = vscode.window.visibleTextEditors.some(
         (editor) => editor.document === e.document
       );
@@ -359,6 +365,34 @@ export function computeDocumentPlacements(
 /** Files with at least this many lines are decorated per visible range. */
 const LARGE_FILE_LINE_THRESHOLD = 10000;
 
+// Per-document CSV/TSV width caches for large files, so the column max is
+// global (scroll-stable alignment) while an edit re-scans only the changed
+// lines. WeakMap keying by document identity frees an entry when its
+// document goes away.
+const csvWidthCaches = new WeakMap<vscode.TextDocument, CsvWidthCache>();
+
+/**
+ * Keep a document's CSV width cache in step with an edit by marking the
+ * changed lines dirty (re-scanned on the next decoration pass). No-op for
+ * documents that have no cache yet — one is built on first decoration.
+ */
+export function notifyCsvDocumentChange(
+  document: vscode.TextDocument,
+  changes: readonly { range: vscode.Range; text: string }[]
+) {
+  const cache = csvWidthCaches.get(document);
+  if (!cache) {
+    return;
+  }
+  for (const change of changes) {
+    cache.applyEdit(
+      change.range.start.line,
+      change.range.end.line - change.range.start.line + 1,
+      change.text.split("\n").length
+    );
+  }
+}
+
 /** Apply ghost-align decorations to a single editor. */
 export function decorateEditor(
   editor: vscode.TextEditor,
@@ -391,13 +425,16 @@ export function decorateEditor(
   // Large files are computed per visible range instead of whole-file, and
   // re-decorated on scroll. The slice is expanded to group boundaries so a
   // group straddling the visible edge still aligns against all its members.
-  // Known limit of the slice view: a CSV/TSV table aligns to the widest cell
-  // within the slice (the whole file is one table, so no boundary to expand
-  // to). Markdown fence state opened above the slice is tracked separately
-  // below via computeFenceStateBefore.
+  // CSV/TSV has no group boundary (the whole file is one table); it instead
+  // aligns against per-column max widths cached over the whole document, so
+  // scrolling cannot change the alignment position. Markdown fence state
+  // opened above the slice is tracked separately below via
+  // computeFenceStateBefore.
   let sliceStart = 0;
   let sliceEnd = lineCount - 1;
-  if (lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0) {
+  const useVisibleRange =
+    lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0;
+  if (useVisibleRange) {
     const visibleStart = Math.min(
       ...editor.visibleRanges.map((r) => r.start.line)
     );
@@ -424,54 +461,80 @@ export function decorateEditor(
     );
   }
 
-  const sliceLines = (): string[] => {
-    const lines: string[] = [];
-    for (let i = sliceStart; i <= sliceEnd; i++) {
-      lines.push(document.lineAt(i).text);
+  let placements: Placement[];
+  if (csvDelimiter !== undefined && useVisibleRange) {
+    // Whole-file column widths come from the cache — built once, then only
+    // the lines an edit touched are re-scanned (see notifyCsvDocumentChange)
+    // — so only the decoration generation is limited to the slice.
+    let cache = csvWidthCaches.get(document);
+    if (!cache || cache.delimiter !== csvDelimiter) {
+      cache = new CsvWidthCache(csvDelimiter);
+      csvWidthCaches.set(document, cache);
     }
-    return lines;
-  };
+    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize);
+    const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
+    for (let i = sliceStart; i <= sliceEnd; i++) {
+      const metrics = cache.metricsAt(i);
+      if (metrics) {
+        rows.push({ lineIndex: i, metrics });
+      }
+    }
+    placements = computeCsvPaddingsFromMax(
+      rows,
+      cache.maxWidths(),
+      csvDelimiter,
+      tabSize
+    );
+  } else {
+    const sliceLines = (): string[] => {
+      const lines: string[] = [];
+      for (let i = sliceStart; i <= sliceEnd; i++) {
+        lines.push(document.lineAt(i).text);
+      }
+      return lines;
+    };
 
-  // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
-  // fence opened above sliceStart would otherwise look unfenced at the top of the
-  // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
-  // so it's fine to run over every line above the slice even for a huge file.
-  const fenceState =
-    isMarkdown && sliceStart > 0
-      ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
-      : undefined;
-  // A block comment or template literal opened above sliceStart would
-  // otherwise look like plain code at the top of the slice; seed the scan
-  // with whatever state it left behind (mirrors the fence-state pre-scan above).
-  const initialDocState =
-    isOperatorPath && sliceStart > 0
-      ? computeLineStateBefore(
-          sliceStart,
-          (i) => document.lineAt(i).text,
-          languageId
-        )
-      : undefined;
-  const source: LineSource =
-    sliceStart === 0 && sliceEnd === lineCount - 1
-      ? document
-      : {
-          lineCount: sliceEnd - sliceStart + 1,
-          lineAt: (i: number) => document.lineAt(sliceStart + i),
-        };
-  let placements = computeDocumentPlacements(
-    sliceLines(),
-    source,
-    languageId,
-    config,
-    tabSize,
-    fenceState,
-    initialDocState
-  );
-  if (sliceStart > 0) {
-    placements = placements.map((p) => ({
-      ...p,
-      lineIndex: p.lineIndex + sliceStart,
-    }));
+    // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
+    // fence opened above sliceStart would otherwise look unfenced at the top of the
+    // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
+    // so it's fine to run over every line above the slice even for a huge file.
+    const fenceState =
+      isMarkdown && sliceStart > 0
+        ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
+        : undefined;
+    // A block comment or template literal opened above sliceStart would
+    // otherwise look like plain code at the top of the slice; seed the scan
+    // with whatever state it left behind (mirrors the fence-state pre-scan above).
+    const initialDocState =
+      isOperatorPath && sliceStart > 0
+        ? computeLineStateBefore(
+            sliceStart,
+            (i) => document.lineAt(i).text,
+            languageId
+          )
+        : undefined;
+    const source: LineSource =
+      sliceStart === 0 && sliceEnd === lineCount - 1
+        ? document
+        : {
+            lineCount: sliceEnd - sliceStart + 1,
+            lineAt: (i: number) => document.lineAt(sliceStart + i),
+          };
+    placements = computeDocumentPlacements(
+      sliceLines(),
+      source,
+      languageId,
+      config,
+      tabSize,
+      fenceState,
+      initialDocState
+    );
+    if (sliceStart > 0) {
+      placements = placements.map((p) => ({
+        ...p,
+        lineIndex: p.lineIndex + sliceStart,
+      }));
+    }
   }
 
   const decorations: vscode.DecorationOptions[] = placements.map(
