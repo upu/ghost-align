@@ -966,32 +966,3 @@ export function findOperatorTargets(
   }
   return columns;
 }
-
-/**
- * First alignment-target operator on a line, as the pair of insertion index
- * (where padding goes) and alignment index (the column that lines up across
- * the group). The two differ only for compound assignments such as `+=` —
- * see {@link OperatorTarget}.
- */
-export function findOperatorTarget(
-  lineText: string,
-  operators: string[],
-  languageId?: string,
-  initialState: DocScanState = "code"
-): OperatorTarget | null {
-  const columns = findOperatorTargets(lineText, operators, languageId, initialState);
-  return columns.length > 0
-    ? { insert: columns[0].insert, align: columns[0].align }
-    : null;
-}
-
-/** Column of the first alignment-target operator on a line (its `align` index). */
-export function findOperatorColumn(
-  lineText: string,
-  operators: string[],
-  languageId?: string,
-  initialState: DocScanState = "code"
-): number | null {
-  const target = findOperatorTarget(lineText, operators, languageId, initialState);
-  return target ? target.align : null;
-}
