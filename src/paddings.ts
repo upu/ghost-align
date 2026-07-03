@@ -81,6 +81,18 @@ export function visualColumn(
   return col;
 }
 
+/**
+ * One ghost-padding placement: insert `padding` ghost characters before
+ * `character` on `lineIndex`. The shared return shape of every alignment
+ * path (operator groups, Markdown tables, CSV/TSV, JSDoc `@param`), so a
+ * caller can combine or transform placements from any path uniformly.
+ */
+export type Placement = {
+  lineIndex: number;
+  character: number;
+  padding: number;
+};
+
 /** One alignment column of a group entry, in rendered coordinates. */
 export type AlignmentColumn = {
   opIndex: number;
@@ -205,8 +217,8 @@ export function findAlignmentGroups(
 export function computePaddings(
   groups: AlignmentEntry[][],
   maxPadding: number = 0
-): { lineIndex: number; character: number; padding: number }[] {
-  const placements: { lineIndex: number; character: number; padding: number }[] = [];
+): Placement[] {
+  const placements: Placement[] = [];
   for (const group of groups) {
     const rows = group.map((entry) => ({
       lineIndex: entry.lineIndex,

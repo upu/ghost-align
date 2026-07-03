@@ -1,6 +1,6 @@
 // ── CSV / TSV column alignment ────────────────────────────────────────────
 
-import { visualColumn } from "./paddings";
+import { Placement, visualColumn } from "./paddings";
 
 /**
  * Char indices of the field delimiters in one CSV/TSV line. Follows RFC 4180
@@ -44,8 +44,8 @@ export function computeCsvPaddings(
   lines: string[],
   delimiter: string,
   tabSize: number
-): { lineIndex: number; character: number; padding: number }[] {
-  const placements: { lineIndex: number; character: number; padding: number }[] = [];
+): Placement[] {
+  const placements: Placement[] = [];
   const rows: { lineIndex: number; delims: number[]; widths: number[] }[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
     const text = lines[lineIndex];

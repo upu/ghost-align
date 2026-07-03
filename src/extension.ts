@@ -8,6 +8,7 @@ import {
 import {
   DEFAULT_TAB_SIZE,
   LineSource,
+  Placement,
   computePaddings,
   computeSliceBounds,
   findAlignmentGroups,
@@ -311,7 +312,7 @@ export function computeDocumentPlacements(
   tabSize: number,
   markdownFenceState?: FenceState,
   initialDocState?: DocScanState
-): { lineIndex: number; character: number; padding: number }[] {
+): Placement[] {
   const csvDelimiter = CSV_DELIMITERS.get(languageId);
   const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
   const isOperatorPath = !isMarkdown && csvDelimiter === undefined;
