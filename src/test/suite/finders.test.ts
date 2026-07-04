@@ -1152,3 +1152,65 @@ suite("YAML ブロックスカラー継続状態", () => {
     );
   });
 });
+
+suite("findOperatorTargets: 行末の継続マーカー `\\`", () => {
+  test("行末の `\\` を検出する", () => {
+    const line = "CFLAGS = -Wall -Wextra \\";
+    assert.deepStrictEqual(findOperatorTargets(line, ["\\"]), [
+      { opIndex: 0, insert: line.length - 1, align: line.length - 1 },
+    ]);
+  });
+
+  test("`\\` の後ろに空白があっても最後の非空白文字なら検出する", () => {
+    const line = "SOURCES = foo.c \\   ";
+    assert.deepStrictEqual(findOperatorTargets(line, ["\\"]), [
+      { opIndex: 0, insert: 16, align: 16 },
+    ]);
+  });
+
+  test("`\\` がない行は空配列", () => {
+    assert.deepStrictEqual(findOperatorTargets("echo done", ["\\"]), []);
+  });
+
+  test("行の途中の `\\`（末尾ではない）は検出しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("echo \\ foo", ["\\"]),
+      []
+    );
+  });
+
+  test("未終端の文字列内で終わる `\\` はエスケープとして扱い検出しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets('const s = "abc\\', ["\\"]),
+      []
+    );
+  });
+
+  test("行全体がコメントの `\\` は検出しない（shellscript の `#` コメント）", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("# comment continues \\", ["\\"], "shellscript"),
+      []
+    );
+  });
+
+  test("C/C++ の `#define` 継続行は `#` をコメントとして扱わず検出する", () => {
+    const line = "#define ADD(a, b) \\";
+    assert.deepStrictEqual(findOperatorTargets(line, ["\\"], "c"), [
+      { opIndex: 0, insert: line.length - 1, align: line.length - 1 },
+    ]);
+  });
+
+  test("Makefile の継続行を検出する", () => {
+    const line = "SOURCES = foo.c \\";
+    assert.deepStrictEqual(findOperatorTargets(line, ["\\"], "makefile"), [
+      { opIndex: 0, insert: line.length - 1, align: line.length - 1 },
+    ]);
+  });
+
+  test("C++14 の桁区切り `'`（例: 1'000、奇数個の `'`）があっても文字列開始と誤認せず継続行として検出する", () => {
+    const line = "#define BIG 1'000 \\";
+    assert.deepStrictEqual(findOperatorTargets(line, ["\\"], "cpp"), [
+      { opIndex: 0, insert: line.length - 1, align: line.length - 1 },
+    ]);
+  });
+});

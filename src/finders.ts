@@ -978,6 +978,78 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
   return -1;
 }
 
+/**
+ * The literal operator token for the line-continuation marker (a trailing
+ * `\`, as used by shell/Makefile/C-preprocessor line-splicing). Exported so
+ * callers outside findOccurrences (e.g. findAlignmentGroups's indent-based
+ * group-splitting) can recognize this operator without duplicating the
+ * string literal.
+ */
+export const LINE_CONTINUATION_OPERATOR = "\\";
+
+/**
+ * Index of a trailing line-continuation marker `\` — the last non-whitespace
+ * character on the line — or -1. Distinguishes a real continuation marker
+ * from a `\` that merely appears at the end of a string/escape sequence on
+ * the same line: the trailing `\` counts only if it is reached while
+ * scanning outside any open quote (an unterminated string swallows it as an
+ * escape char, not a continuation) and before any comment that runs to the
+ * end of the line (a commented-out line's trailing `\` has no continuation
+ * meaning either). Mirrors the quote/comment/digit-separator handling
+ * findAssignmentEquals already does per language, so e.g. C/C++'s `#define`
+ * continuations are unaffected by a `'` digit separator (`1'000`) and are
+ * not mistaken for a comment (C/C++ are not in LINE_COMMENT_MARKERS_BY_LANGUAGE,
+ * so `#` there is left to cStyle handling, i.e. not a comment marker at all).
+ * A `\` that is not the line's last non-whitespace character never reaches
+ * this far — it's excluded up front, so mid-line escapes (`echo \ foo`) are
+ * never candidates.
+ */
+function findLineContinuationMarker(
+  lineText: string,
+  languageId?: string
+): number {
+  let end = lineText.length;
+  while (end > 0 && (lineText[end - 1] === " " || lineText[end - 1] === "\t")) {
+    end--;
+  }
+  if (end === 0 || lineText[end - 1] !== "\\") {
+    return -1;
+  }
+  const idx = end - 1;
+  const markers = lineCommentMarkers(languageId);
+  const cStyle =
+    markers === undefined ||
+    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
+  const digitSeparators =
+    languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId);
+  const quoteChars = assignmentQuoteChars(languageId);
+  const state = initialQuoteState();
+  for (let i = 0; i < idx; i++) {
+    const ch = lineText[i];
+    if (
+      ch === "'" &&
+      !state.quote &&
+      digitSeparators &&
+      isDigitSeparatorNeighbor(lineText[i - 1]) &&
+      isDigitSeparatorNeighbor(lineText[i + 1])
+    ) {
+      continue; // C++14 digit separator (1'000'000), not a quote
+    }
+    if (advanceQuoteState(state, ch, quoteChars)) {
+      continue;
+    }
+    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
+    if (comment === "break") {
+      return -1; // trailing `\` is inside a comment, not a real continuation
+    }
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
+    }
+  }
+  return state.quote ? -1 : idx; // -1: trailing `\` inside an unterminated string
+}
+
 /** All occurrences of a single operator token on a line, in order. */
 function findOccurrences(
   lineText: string,
@@ -1005,6 +1077,10 @@ function findOccurrences(
   }
   if (op === "=>") {
     return findArrow(lineText, languageId).map((i) => ({ insert: i, align: i }));
+  }
+  if (op === LINE_CONTINUATION_OPERATOR) {
+    const idx = findLineContinuationMarker(lineText, languageId);
+    return idx === -1 ? [] : [{ insert: idx, align: idx }];
   }
   const results: OperatorTarget[] = [];
   let from = 0;

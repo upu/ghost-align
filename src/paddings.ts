@@ -10,6 +10,7 @@ import {
   DocScanState,
   findOperatorTargets,
   isYamlBlockScalarContent,
+  LINE_CONTINUATION_OPERATOR,
   nextCssBlockDepth,
   nextDocScanState,
   nextYamlBlockScalarState,
@@ -135,6 +136,13 @@ export type LineSource = {
  * Group consecutive lines that contain at least one operator.
  * A group is also split when the leading indent width changes — this keeps
  * nested blocks (e.g. JSON objects) from being aligned across indent levels.
+ * Exception: a line whose target includes LINE_CONTINUATION_OPERATOR (`\`),
+ * or that belongs to a group already containing one, never splits on indent —
+ * continuation lines (shell/Makefile/C-preprocessor line-splicing) are
+ * routinely indented differently line-to-line specifically because they
+ * aren't yet aligned, which is the whole point of this operator. The group
+ * still ends the normal way once a line has no continuation target (see the
+ * `targets.length === 0` flush below).
  *
  * Each column's `insert` is the character index where padding is inserted
  * (the operator's first character, so compound assignments like `+=` are
@@ -178,6 +186,7 @@ export function findAlignmentGroups(
   const groups: AlignmentEntry[][] = [];
   let currentGroup: AlignmentEntry[] = [];
   let currentIndent: number | null = null;
+  let currentGroupHasContinuation = false;
   let docState: DocScanState = initialDocState;
   const isCssLang = languageId !== undefined && CSS_LANGUAGES.has(languageId);
   let cssBlockDepth = initialCssBlockDepth;
@@ -190,6 +199,7 @@ export function findAlignmentGroups(
     }
     currentGroup = [];
     currentIndent = null;
+    currentGroupHasContinuation = false;
   };
 
   for (let i = 0; i < document.lineCount; i++) {
@@ -221,8 +231,16 @@ export function findAlignmentGroups(
       continue;
     }
 
+    const hasContinuation = targets.some(
+      (t) => operators[t.opIndex] === LINE_CONTINUATION_OPERATOR
+    );
     const indent = visualColumn(lineText, leadingIndent(lineText), tabSize);
-    if (currentIndent !== null && indent !== currentIndent) {
+    if (
+      currentIndent !== null &&
+      indent !== currentIndent &&
+      !hasContinuation &&
+      !currentGroupHasContinuation
+    ) {
       flush();
     }
     const columns = targets.map((t) => ({
@@ -235,6 +253,9 @@ export function findAlignmentGroups(
       columns,
     });
     currentIndent = indent;
+    if (hasContinuation) {
+      currentGroupHasContinuation = true;
+    }
   }
   flush();
 
