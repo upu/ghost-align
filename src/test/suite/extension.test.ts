@@ -581,6 +581,41 @@ suite("computeDocumentPlacements", () => {
     ]);
   });
 
+  test("markdown 言語でも maxPadding が渡り、外れ値セルのある列は揃えない", () => {
+    const lines = [
+      "|a|cccccccccccccccccccc|",
+      "|-|--------------------|",
+      "|xxxxxxxxxxxxxxxxxxxx||",
+    ];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "markdown",
+      mockConfig({ maxPadding: 10 }) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 2, character: 22, padding: 1 },
+    ]);
+  });
+
+  test("csv 言語でも maxPadding が渡り、外れ値セルのある列は揃えない", () => {
+    const lines = [
+      "a,bbbbbbbbbbbbbbb,c",
+      "aaaaaaaaaaaaaaaaaaaa,ddddd,c",
+    ];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "csv",
+      mockConfig({ maxPadding: 10 }) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 17, padding: 9 },
+    ]);
+  });
+
   test("TS/JS では JSDoc @param の整列も合成される", () => {
     const lines = [" * @param {number} count x", " * @param {string} s 説明"];
     const placements = computeDocumentPlacements(

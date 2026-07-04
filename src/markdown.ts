@@ -1,6 +1,6 @@
 // ── Markdown table alignment ──────────────────────────────────────────────
 
-import { Placement, visualColumn } from "./paddings";
+import { Placement, computeColumnPlan, visualColumn } from "./paddings";
 
 /**
  * Char ranges `[start, end)` inside inline code spans (CommonMark: opened by
@@ -256,43 +256,67 @@ function computeTableRowMetrics(
   });
 }
 
-/** Per-column max cell width across `rows`. */
-function computeMaxSegWidths(rows: readonly Pick<TableRowMetrics, "segWidths">[]): number[] {
-  const maxSeg: number[] = [];
-  for (const row of rows) {
-    row.segWidths.forEach((w, k) => {
-      maxSeg[k] = Math.max(maxSeg[k] ?? 0, w);
-    });
-  }
-  return maxSeg;
+/**
+ * Per-column alignment plan for one table's rows — see computeColumnPlan.
+ * `maxPadding` <= 0 means unlimited, so every column always aligns to its
+ * widest cell (matching the pre-#178 behavior); otherwise a column whose
+ * required spread exceeds `maxPadding` is left unaligned (`null`) rather
+ * than forcing huge ghost padding onto every other row because of one
+ * outlier cell. The `|` delimiter is always a single character, so the
+ * running position simply advances by 1 past each column.
+ */
+function computeTableColumnPlan(
+  rows: readonly Pick<TableRowMetrics, "segWidths">[],
+  maxPadding: number
+): (number | null)[] {
+  return computeColumnPlan(
+    rows.map((r) => r.segWidths),
+    maxPadding,
+    (after) => after + 1
+  );
 }
 
-/** Placements that pad every row in `rows` to `maxSeg`'s per-column widths. */
+/**
+ * Placements that align `rows` against a per-column plan (see
+ * computeTableColumnPlan). Walks each row's own columns in order, tracking
+ * its own running position: a `null` plan entry (column left unaligned)
+ * adds no padding and the row's position continues from its own actual
+ * width instead of a shared target, so a skipped column doesn't stop later
+ * columns from aligning — it just makes them align relative to each row's
+ * real position rather than one inherited from the skipped column.
+ */
 function placementsForTableRows(
   lines: string[],
   rows: readonly TableRowMetrics[],
-  maxSeg: readonly number[]
+  plan: readonly (number | null)[]
 ): Placement[] {
   const placements: Placement[] = [];
   for (const row of rows) {
     const text = lines[row.lineIndex];
     const isDelimiter = isDelimiterRow(text);
+    let pos = 0;
     row.pipes.forEach((pipe, k) => {
-      const padding = maxSeg[k] - row.segWidths[k];
-      if (padding <= 0) {
+      const raw = pos + row.segWidths[k];
+      const target = plan[k];
+      if (target === null || target === undefined) {
+        pos = raw + 1;
         return;
       }
-      if (isDelimiter && k > 0) {
-        const segStart = row.pipes[k - 1] + 1;
-        placements.push({
-          lineIndex: row.lineIndex,
-          character: delimiterCellInsertPos(text, segStart, pipe),
-          padding,
-          padChar: "-",
-        });
-      } else {
-        placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
+      const padding = target - raw;
+      if (padding > 0) {
+        if (isDelimiter && k > 0) {
+          const segStart = row.pipes[k - 1] + 1;
+          placements.push({
+            lineIndex: row.lineIndex,
+            character: delimiterCellInsertPos(text, segStart, pipe),
+            padding,
+            padChar: "-",
+          });
+        } else {
+          placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
+        }
       }
+      pos = target + 1;
     });
   }
   return placements;
@@ -318,17 +342,22 @@ function placementsForTableRows(
  * computeSliceBounds}'s group-boundary expansion) is only aligned against
  * its in-slice rows. {@link MarkdownTableWidthCache} solves this for large
  * files by computing widths from the whole document once instead.
+ *
+ * `maxPadding` caps how many ghost characters a single column may insert on
+ * any one line (see computeTableColumnPlan); 0 (the default) means
+ * unlimited, aligning every column regardless of outlier cells.
  */
 export function computeMarkdownTablePaddings(
   lines: string[],
   tabSize: number,
-  initialState: FenceState = NO_FENCE
+  initialState: FenceState = NO_FENCE,
+  maxPadding: number = 0
 ): Placement[] {
   const placements: Placement[] = [];
   for (const block of findMarkdownTables(lines, initialState)) {
     const rows = computeTableRowMetrics(lines, block, tabSize);
-    const maxSeg = computeMaxSegWidths(rows);
-    placements.push(...placementsForTableRows(lines, rows, maxSeg));
+    const plan = computeTableColumnPlan(rows, maxPadding);
+    placements.push(...placementsForTableRows(lines, rows, plan));
   }
   return placements;
 }
@@ -353,9 +382,10 @@ export class MarkdownTableWidthCache {
   private tables: number[][] = [];
   private rowMetrics = new Map<number, TableRowMetrics & { text: string }>();
   private tableIndexByLine = new Map<number, number>();
-  private maxByTable: number[][] = [];
+  private planByTable: (number | null)[][] = [];
   private lineCount = -1;
   private tabSize = 0;
+  private maxPadding = 0;
   private dirty = true;
 
   /** Mark the cache stale so the next {@link sync} rebuilds it from scratch. */
@@ -363,17 +393,33 @@ export class MarkdownTableWidthCache {
     this.dirty = true;
   }
 
-  /** Bring the cache in line with the document. Rebuilds fully when dirty. */
-  sync(lineCount: number, lineAt: (line: number) => string, tabSize: number): void {
-    if (!this.dirty && lineCount === this.lineCount && tabSize === this.tabSize) {
+  /**
+   * Bring the cache in line with the document. Rebuilds fully when dirty, or
+   * when `tabSize`/`maxPadding` changed (both affect the per-table plan, and
+   * `maxPadding` can change from a settings edit with no document edit at
+   * all, so it can't rely on {@link markDirty}).
+   */
+  sync(
+    lineCount: number,
+    lineAt: (line: number) => string,
+    tabSize: number,
+    maxPadding: number = 0
+  ): void {
+    if (
+      !this.dirty &&
+      lineCount === this.lineCount &&
+      tabSize === this.tabSize &&
+      maxPadding === this.maxPadding
+    ) {
       return;
     }
     this.lineCount = lineCount;
     this.tabSize = tabSize;
+    this.maxPadding = maxPadding;
     this.dirty = false;
     this.rowMetrics.clear();
     this.tableIndexByLine.clear();
-    this.maxByTable = [];
+    this.planByTable = [];
 
     const lines: string[] = [];
     for (let i = 0; i < lineCount; i++) {
@@ -386,14 +432,14 @@ export class MarkdownTableWidthCache {
         this.rowMetrics.set(row.lineIndex, { ...row, text: lines[row.lineIndex] });
         this.tableIndexByLine.set(row.lineIndex, tableIndex);
       }
-      this.maxByTable.push(computeMaxSegWidths(rows));
+      this.planByTable.push(computeTableColumnPlan(rows, maxPadding));
     });
   }
 
   /** Placements for the table rows in `[sliceStart, sliceEnd]`. Call sync() first. */
   placementsForRange(sliceStart: number, sliceEnd: number): Placement[] {
     const rows: (TableRowMetrics & { text: string })[] = [];
-    const maxSegByRow = new Map<number, readonly number[]>();
+    const planByRow = new Map<number, readonly (number | null)[]>();
     for (let lineIndex = sliceStart; lineIndex <= sliceEnd; lineIndex++) {
       const row = this.rowMetrics.get(lineIndex);
       const tableIndex = this.tableIndexByLine.get(lineIndex);
@@ -401,14 +447,14 @@ export class MarkdownTableWidthCache {
         continue;
       }
       rows.push(row);
-      maxSegByRow.set(lineIndex, this.maxByTable[tableIndex]);
+      planByRow.set(lineIndex, this.planByTable[tableIndex]);
     }
     const placements: Placement[] = [];
     const lines: string[] = [];
     for (const row of rows) {
       lines[row.lineIndex] = row.text;
       placements.push(
-        ...placementsForTableRows(lines, [row], maxSegByRow.get(row.lineIndex) ?? [])
+        ...placementsForTableRows(lines, [row], planByRow.get(row.lineIndex) ?? [])
       );
     }
     return placements;

@@ -314,6 +314,63 @@ export function computePaddings(
   return placements;
 }
 
+/**
+ * Per-column alignment plan for tabular data (Markdown tables, CSV/TSV):
+ * for each column index, either the common position every participating
+ * row's column should be padded to, or `null` when that column is left
+ * unaligned because doing so would need more than `maxPadding` ghost
+ * characters on some row.
+ *
+ * Unlike the operator path (see computePaddings), excluding a single
+ * outlier *row* from a tabular column would leave that row's later columns
+ * unaligned with everything before them, breaking the table shape (see
+ * issue #178's 設計メモ). So the unit excluded here is a whole *column*
+ * instead: `rowWidths[i]` is row `i`'s per-column content widths (its own
+ * length may be shorter than others', e.g. a ragged CSV row), and `advance`
+ * computes the running position just past a column's content plus its
+ * delimiter (`+1` for a single-char delimiter, tab-stop snapping for TSV).
+ *
+ * Each row tracks its own running position rather than a single shared one,
+ * because once a column is skipped, rows no longer share a common position
+ * entering the next column (each kept its own natural width for the skipped
+ * column) — exactly the "以降の列は各行の実位置基準で継続" behavior the
+ * issue describes. When no column has been skipped yet, every row's running
+ * position is identical after each aligned column (the padding cancels out
+ * exactly), so this matches simple whole-column-max alignment until the
+ * first skip.
+ */
+export function computeColumnPlan(
+  rowWidths: readonly (readonly number[])[],
+  maxPadding: number,
+  advance: (afterPosition: number) => number
+): (number | null)[] {
+  const columnCount = rowWidths.reduce((max, w) => Math.max(max, w.length), 0);
+  const pos = new Array(rowWidths.length).fill(0);
+  const plan: (number | null)[] = [];
+  for (let k = 0; k < columnCount; k++) {
+    const activeIdx: number[] = [];
+    const raw: number[] = [];
+    rowWidths.forEach((widths, i) => {
+      if (widths.length > k) {
+        activeIdx.push(i);
+        raw.push(pos[i] + widths[k]);
+      }
+    });
+    if (activeIdx.length === 0) {
+      plan.push(null);
+      continue;
+    }
+    const max = Math.max(...raw);
+    const min = Math.min(...raw);
+    const skip = maxPadding > 0 && max - min > maxPadding;
+    activeIdx.forEach((i, idx) => {
+      pos[i] = advance(skip ? raw[idx] : max);
+    });
+    plan.push(skip ? null : max);
+  }
+  return plan;
+}
+
 /** Extra lines scanned above/below the visible range before boundary expansion. */
 const VISIBLE_RANGE_BUFFER = 100;
 

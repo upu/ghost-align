@@ -194,7 +194,7 @@
           "type": "number",
           "default": 0,
           "minimum": 0,
-          "description": "Maximum number of ghost characters inserted per alignment column on a single line. When aligning a group would require more, the extremely long outlier lines are excluded and the remaining lines are aligned without them. 0 means unlimited (default). Does not apply to Markdown table alignment."
+          "description": "Maximum number of ghost characters inserted per alignment column on a single line. For operator and JSDoc @param alignment, when aligning a group would require more, the extremely long outlier lines are excluded and the remaining lines are aligned without them. For Markdown table and CSV/TSV alignment, an outlier cell instead makes its whole column skip alignment (later columns keep aligning from each row's actual position), since excluding a row would leave the table shape broken. 0 means unlimited (default)."
         },
         "ghostAlign.ghostCharacter": {
           "type": "string",
