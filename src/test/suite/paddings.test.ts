@@ -100,6 +100,40 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[1][0].lineIndex, 2);
   });
 
+  test("継続マーカー `\\`: インデント幅が違っても継続行はグループを分断しない", () => {
+    // 継続行は視覚的に揃えるためインデントが行ごとに異なるのが普通なので、
+    // 通常の「インデントが変わったら別グループ」ルールを適用してはいけない。
+    const doc = mockDocument([
+      "CFLAGS = -Wall -Wextra \\",
+      "         -O2 \\",
+      "         -g \\",
+    ]);
+    const groups = findAlignmentGroups(doc, ["\\"]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 3);
+    const placements = computePaddings(groups);
+    const aligned = groups[0].map((g) => {
+      const p = placements.find((q) => q.lineIndex === g.lineIndex);
+      return g.columns[0].visualColumn + (p ? p.padding : 0);
+    });
+    assert.strictEqual(aligned[0], aligned[1]);
+    assert.strictEqual(aligned[1], aligned[2]);
+  });
+
+  test("継続マーカー `\\`: 継続が途切れた行でグループが終わる", () => {
+    const doc = mockDocument([
+      "CFLAGS = -Wall -Wextra \\",
+      "         -O2",
+      "LDFLAGS = -lm \\",
+      "          -lpthread \\",
+    ]);
+    const groups = findAlignmentGroups(doc, ["\\"], "makefile");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 2);
+    assert.strictEqual(groups[0][1].lineIndex, 3);
+  });
+
   test("for 文の行は通常の代入とアライメントグループを共有しない", () => {
     const doc = mockDocument([
       "  let inString = false;",
