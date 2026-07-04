@@ -127,6 +127,40 @@ function rustCharLiteralEnd(lineText: string, i: number): number {
 }
 
 /**
+ * If `lineText[i]` (an `r`) opens a Rust raw string literal — `r"..."`,
+ * `r#"..."#`, `r##"..."##`, ... — returns the index just past its closing
+ * `"` + matching number of `#`. Otherwise returns -1: `i` is not preceded by
+ * an identifier character check failing (e.g. the `r` in `bar"..."` is the
+ * tail of a longer identifier, not a raw-string prefix), the `r` isn't
+ * followed by `#`*N + `"`, or the raw string doesn't close on this line
+ * (multi-line raw strings are out of scope, matching the other finders'
+ * single-line-only limitation).
+ *
+ * The number of `#` in the closing delimiter must exactly match the opening
+ * one, so a raw string's content can safely contain a run of fewer `#` after
+ * a `"` (e.g. `r##"a="#b"##`'s content has a literal `"#`) without closing
+ * the string early — mirroring Rust's own delimiter-matching grammar.
+ */
+function rustRawStringEnd(lineText: string, i: number): number {
+  const prev = lineText[i - 1];
+  if (prev !== undefined && /[A-Za-z0-9_]/.test(prev)) {
+    return -1; // `r` is the tail of a longer identifier, not a prefix
+  }
+  let j = i + 1;
+  let hashes = 0;
+  while (lineText[j] === "#") {
+    hashes++;
+    j++;
+  }
+  if (lineText[j] !== '"') {
+    return -1;
+  }
+  const closeDelimiter = '"' + "#".repeat(hashes);
+  const close = lineText.indexOf(closeDelimiter, j + 1);
+  return close === -1 ? -1 : close + closeDelimiter.length;
+}
+
+/**
  * Result of {@link advanceCommentState} at one character position:
  *   - `false` — `ch` does not start a comment here
  *   - `"break"` — a comment runs from here to the end of the line; the caller
@@ -734,6 +768,13 @@ export function findAssignmentEquals(
       }
       // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
     }
+    if (isLifetimeLang && state.quote === false && ch === "r") {
+      const end = rustRawStringEnd(lineText, i);
+      if (end !== -1) {
+        i = end - 1; // loop's i++ advances past the closing `"`/`#`s
+        continue;
+      }
+    }
     if (
       ch === "'" &&
       !state.quote &&
@@ -856,6 +897,13 @@ function findArrow(lineText: string, languageId?: string): number[] {
         continue;
       }
       // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+    }
+    if (isLifetimeLang && state.quote === false && ch === "r") {
+      const end = rustRawStringEnd(lineText, i);
+      if (end !== -1) {
+        i = end - 1; // loop's i++ advances past the closing `"`/`#`s
+        continue;
+      }
     }
     if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
