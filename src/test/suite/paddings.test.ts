@@ -140,6 +140,22 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].columns[0].insert, 12);
   });
 
+  test("CSS: 複数行にまたがるセレクタの疑似クラス `:` を宣言コロンとして誤って揃えない", () => {
+    // `{` が同じ行にない継続セレクタ行（`.foo:hover,` / `.barbaz:focus,`）は、
+    // まだ宣言ブロックに入っていない（ブレース深さ0）ので `:` は対象外になるべき。
+    // 修正前はどちらの行も宣言コロンとして誤検出し、同じインデントの2行として
+    // グループ化されてしまっていた。
+    const doc = mockDocument([
+      ".foo:hover,",
+      ".barbaz:focus,",
+      ".baz {",
+      "  color: red;",
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "css");
+    assert.strictEqual(groups.length, 0);
+  });
+
   test("インデント減少でも別グループになる", () => {
     const doc = mockDocument([
       '    "a": 1,',  // indent 4

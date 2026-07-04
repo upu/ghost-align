@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import {
+  CSS_LANGUAGES,
   DocScanState,
   TS_JS_LANGUAGES,
+  computeCssBlockDepthBefore,
   computeLineStateBefore,
   findOperatorTargets,
 } from "./finders";
@@ -305,10 +307,11 @@ function resolveTabSize(editor: vscode.TextEditor): number {
  * alignment path `languageId` uses (Markdown table / CSV-TSV / operators +
  * JSDoc). `source` backs the operator path's group scan and must present the
  * same lines as `lines` (index-for-index); `markdownFenceState` is only
- * consulted on the Markdown path, and `initialDocState` only on the operator
- * path — both for when `lines` is a slice that starts mid-file (see
- * decorateEditor's large-file mode), seeding the state a fence / block
- * comment / template literal opened above the slice left behind.
+ * consulted on the Markdown path, and `initialDocState` / `initialCssBlockDepth`
+ * only on the operator path — all for when `lines` is a slice that starts
+ * mid-file (see decorateEditor's large-file mode), seeding the state a fence /
+ * block comment / template literal / CSS rule block opened above the slice
+ * left behind.
  */
 export function computeDocumentPlacements(
   lines: string[],
@@ -317,7 +320,8 @@ export function computeDocumentPlacements(
   config: vscode.WorkspaceConfiguration,
   tabSize: number,
   markdownFenceState?: FenceState,
-  initialDocState?: DocScanState
+  initialDocState?: DocScanState,
+  initialCssBlockDepth?: number
 ): Placement[] {
   const csvDelimiter = CSV_DELIMITERS.get(languageId);
   const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
@@ -349,7 +353,8 @@ export function computeDocumentPlacements(
     operators,
     languageId,
     tabSize,
-    initialDocState
+    initialDocState,
+    initialCssBlockDepth
   );
   let placements = computePaddings(groups, maxPadding);
   if (alignJsdoc) {
@@ -513,6 +518,18 @@ export function decorateEditor(
             languageId
           )
         : undefined;
+    // A rule block opened above sliceStart would otherwise look like
+    // unopened selector text at the top of the slice (see findCssColon's
+    // `insideBlock`); seed the scan with the depth it left behind (mirrors
+    // the fence/doc-state pre-scans above).
+    const initialCssBlockDepth =
+      isOperatorPath && CSS_LANGUAGES.has(languageId) && sliceStart > 0
+        ? computeCssBlockDepthBefore(
+            sliceStart,
+            (i) => document.lineAt(i).text,
+            languageId
+          )
+        : undefined;
     const source: LineSource =
       sliceStart === 0 && sliceEnd === lineCount - 1
         ? document
@@ -527,7 +544,8 @@ export function decorateEditor(
       config,
       tabSize,
       fenceState,
-      initialDocState
+      initialDocState,
+      initialCssBlockDepth
     );
     if (sliceStart > 0) {
       placements = placements.map((p) => ({
