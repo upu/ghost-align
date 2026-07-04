@@ -18,6 +18,7 @@ import {
 import { computeJsdocParamPaddings, parseJsdocParamLine } from "./jsdoc";
 import {
   FenceState,
+  MarkdownTableWidthCache,
   computeMarkdownTablePaddings,
   computeFenceStateBefore,
   findPipePositions,
@@ -127,6 +128,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       notifyCsvDocumentChange(e.document, e.contentChanges);
+      notifyMarkdownDocumentChange(e.document);
       const shown = vscode.window.visibleTextEditors.some(
         (editor) => editor.document === e.document
       );
@@ -398,6 +400,23 @@ export function notifyCsvDocumentChange(
   }
 }
 
+// Per-document Markdown table width caches for large files, mirroring
+// csvWidthCaches above — see MarkdownTableWidthCache for why an edit
+// invalidates the whole cache instead of just the changed lines.
+const markdownTableWidthCaches = new WeakMap<
+  vscode.TextDocument,
+  MarkdownTableWidthCache
+>();
+
+/**
+ * Mark a document's Markdown table width cache stale so the next decoration
+ * pass rebuilds it. No-op for documents that have no cache yet — one is built
+ * on first decoration.
+ */
+export function notifyMarkdownDocumentChange(document: vscode.TextDocument) {
+  markdownTableWidthCaches.get(document)?.markDirty();
+}
+
 /** Apply ghost-align decorations to a single editor. */
 export function decorateEditor(
   editor: vscode.TextEditor,
@@ -467,7 +486,18 @@ export function decorateEditor(
   }
 
   let placements: Placement[];
-  if (csvDelimiter !== undefined && useVisibleRange) {
+  if (isMarkdown && useVisibleRange) {
+    // Whole-document table widths come from the cache — rebuilt in full only
+    // on an edit (see notifyMarkdownDocumentChange) — so scrolling alone
+    // reads the cached widths and never shifts alignment.
+    let cache = markdownTableWidthCaches.get(document);
+    if (!cache) {
+      cache = new MarkdownTableWidthCache();
+      markdownTableWidthCaches.set(document, cache);
+    }
+    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize);
+    placements = cache.placementsForRange(sliceStart, sliceEnd);
+  } else if (csvDelimiter !== undefined && useVisibleRange) {
     // Whole-file column widths come from the cache — built once, then only
     // the lines an edit touched are re-scanned (see notifyCsvDocumentChange)
     // — so only the decoration generation is limited to the slice.
