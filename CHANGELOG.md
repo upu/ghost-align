@@ -7,6 +7,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- コマンド `Ghost Align: Disable/Enable for Current Language`（`ghostAlign.toggleLanguage`）を追加。実行するとアクティブエディタの言語を `ghostAlign.disabledLanguages` にワンタッチで追加/削除し、結果を通知する。languageId を手入力して設定を編集する必要がなくなる。
+
 ### Fixed
 
 - CSS/SCSS/LESS で、複数行にまたがるカンマ区切りセレクタ（`.foo:hover,` のように `{` が同じ行にない行）の疑似クラス/疑似要素の `:` を宣言コロンと誤検出し、整列対象に紛れ込む問題を修正。`{`/`}` のブロック深さを行をまたいで追跡し、まだルールブロックが開いていない行の `:` は除外するようにした。

@@ -7,6 +7,7 @@ import {
   resolveGhostSettings,
   resolveOperatorsForLanguage,
   isLanguageDisabled,
+  toggleDisabledLanguage,
   decorateEditor,
   computeDocumentPlacements,
   buildCopyAlignedText,
@@ -399,6 +400,26 @@ suite("isLanguageDisabled", () => {
   });
 });
 
+suite("toggleDisabledLanguage", () => {
+  test("まだ無効化されていない言語は追加され disabled: true を返す", () => {
+    const result = toggleDisabledLanguage(["yaml"], "shellscript");
+    assert.deepStrictEqual(result.next, ["yaml", "shellscript"]);
+    assert.strictEqual(result.disabled, true);
+  });
+
+  test("既に無効化されている言語は除かれ disabled: false を返す", () => {
+    const result = toggleDisabledLanguage(["yaml", "shellscript"], "yaml");
+    assert.deepStrictEqual(result.next, ["shellscript"]);
+    assert.strictEqual(result.disabled, false);
+  });
+
+  test("元の配列を変更しない", () => {
+    const original = ["yaml"];
+    toggleDisabledLanguage(original, "shellscript");
+    assert.deepStrictEqual(original, ["yaml"]);
+  });
+});
+
 suite("decorateEditor と disabledLanguages", () => {
   test("disabledLanguages に載った言語では装飾が一切適用されない", () => {
     const { editor, calls } = mockEditor("yaml", ["a = 1", "bb = 2"]);
@@ -665,6 +686,19 @@ suite("ghostAlign.copyAligned コマンド", () => {
     assert.ok(
       commands.some((c) => c.command === "ghostAlign.copyAligned"),
       "ghostAlign.copyAligned コマンドが package.json に存在すること"
+    );
+  });
+});
+
+suite("ghostAlign.toggleLanguage コマンド", () => {
+  test("package.json にコマンドパレット用のコマンドが登録されている", () => {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const commands: { command: string; title: string }[] =
+      ext!.packageJSON?.contributes?.commands ?? [];
+    assert.ok(
+      commands.some((c) => c.command === "ghostAlign.toggleLanguage"),
+      "ghostAlign.toggleLanguage コマンドが package.json に存在すること"
     );
   });
 });
