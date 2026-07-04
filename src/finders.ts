@@ -476,6 +476,118 @@ export function computeCssBlockDepthBefore(
   return depth;
 }
 
+// ── YAML block-scalar continuation tracking ───────────────────────────────
+//
+// A YAML block scalar (`key: |` / `key: >`, optionally chomped `|-`/`|+`/
+// `>-`/`>+`) is closed by indentation decreasing back to (or below) the key's
+// own level, not by a delimiter character — unlike the CSS block-depth or
+// Markdown fence tracking above/in markdown.ts. Its content is arbitrary text
+// (a shell script in a GitHub Actions `run: |`, for instance), so any `:` in
+// it must never be treated as a YAML mapping colon.
+
+/** Leading whitespace character count — the raw indent YAML's own grammar compares, not a tab-aware visual column (paddings.ts's concern for on-screen alignment, not for this indent-based termination rule). */
+function yamlLeadingWhitespace(lineText: string): number {
+  let i = 0;
+  while (i < lineText.length && (lineText[i] === " " || lineText[i] === "\t")) {
+    i++;
+  }
+  return i;
+}
+
+/**
+ * Trailing chunk after a YAML mapping colon that opens a block scalar: `|`/`>`
+ * optionally followed by a chomping indicator (`-` strip / `+` keep), then
+ * nothing but whitespace or a trailing `#` comment to the end of the line.
+ */
+const YAML_BLOCK_SCALAR_TAIL = /^\s*[|>][+-]?\s*(#.*)?$/;
+
+/**
+ * Leading-whitespace indent of `lineText` if it opens a YAML block scalar, or
+ * null if it doesn't. Reuses findColonOutsideString so a `#` inside a comment
+ * (`  # key: |`) or a `:` inside a quoted value (`key: ">"`) is never mistaken
+ * for the mapping colon that introduces a scalar — findColonOutsideString
+ * already excludes both from its results.
+ */
+function yamlBlockScalarHeaderIndent(lineText: string): number | null {
+  const colons = findColonOutsideString(lineText, "yaml");
+  if (colons.length === 0) {
+    return null;
+  }
+  const rest = lineText.slice(colons[colons.length - 1] + 1);
+  return YAML_BLOCK_SCALAR_TAIL.test(rest)
+    ? yamlLeadingWhitespace(lineText)
+    : null;
+}
+
+/**
+ * YAML block-scalar continuation state: `null` when the current line starts
+ * as plain YAML, otherwise the leading-whitespace indent of the `key: |` /
+ * `key: >` line that opened the scalar. Every following line indented deeper
+ * than that (or blank) is opaque block-scalar content, until indentation
+ * returns to that level or shallower, or EOF — mirrors CSS block depth
+ * (nextCssBlockDepth) and Markdown fence state (computeFenceStateBefore in
+ * markdown.ts) for the same "state doesn't reset every line" problem, but
+ * keyed on indentation instead of a delimiter, since that's how a block
+ * scalar actually ends.
+ */
+export type YamlBlockScalarState = number | null;
+
+/**
+ * Whether `lineText` is itself opaque block-scalar content, given the state
+ * as of the line *before* it. Blank/whitespace-only lines stay inside the
+ * scalar unconditionally — a blank line never decides termination. Any other
+ * line is content only while indented deeper than `state`; a line whose
+ * indentation has dropped back to or below it is not content — it's either
+ * the scalar's terminator or an unrelated YAML line, and either way is
+ * scanned normally rather than treated as opaque.
+ */
+export function isYamlBlockScalarContent(
+  lineText: string,
+  state: YamlBlockScalarState
+): boolean {
+  if (state === null) {
+    return false;
+  }
+  const indent = yamlLeadingWhitespace(lineText);
+  return indent === lineText.length || indent > state;
+}
+
+/**
+ * The {@link YamlBlockScalarState} that follows `lineText`, given the state
+ * it started in. A line already inside a scalar (per
+ * {@link isYamlBlockScalarContent}) leaves the state unchanged; otherwise
+ * checks whether `lineText` itself opens a new block scalar — including the
+ * case where the same line both ends a previous scalar (indentation back to
+ * the key's level) and immediately opens another one.
+ */
+export function nextYamlBlockScalarState(
+  lineText: string,
+  state: YamlBlockScalarState
+): YamlBlockScalarState {
+  if (isYamlBlockScalarContent(lineText, state)) {
+    return state;
+  }
+  return yamlBlockScalarHeaderIndent(lineText);
+}
+
+/**
+ * {@link YamlBlockScalarState} as of `lineCount` lines scanned via `lineAt`,
+ * without computing per-line alignment targets. Seeds a visible-range slice's
+ * starting state with whatever block scalar opened above it left behind —
+ * mirrors {@link computeCssBlockDepthBefore} / computeFenceStateBefore in
+ * markdown.ts, which solve the same "a slice doesn't start at line 0" problem.
+ */
+export function computeYamlBlockScalarStateBefore(
+  lineCount: number,
+  lineAt: (index: number) => string
+): YamlBlockScalarState {
+  let state: YamlBlockScalarState = null;
+  for (let i = 0; i < lineCount; i++) {
+    state = nextYamlBlockScalarState(lineAt(i), state);
+  }
+  return state;
+}
+
 /**
  * A found alignment target on a line: `insert` is the character index where
  * ghost padding is inserted (the operator's first character, so a compound

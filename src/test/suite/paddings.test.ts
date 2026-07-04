@@ -316,6 +316,28 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].columns[0].insert, 4);
     assert.strictEqual(groups[0][1].columns[0].visualColumn, 7);
   });
+
+  test("YAML: ブロックスカラー(`|`)の中身にある `:` はアライメント対象にならず、終了後は通常どおり整列される", () => {
+    const doc = mockDocument([
+      "a: 1",
+      "b: |",
+      "  make target: build",
+      "c: 2",
+      "dd: 3",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "yaml");
+    // ブロックスカラーの中身（行2）はどのグループにも含まれない
+    assert.strictEqual(groups.length, 2);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 1]);
+    assert.deepStrictEqual(groups[1].map((g) => g.lineIndex), [3, 4]);
+  });
+
+  test("YAML: `>` の折り畳みブロックスカラーの中身も同様に除外される", () => {
+    const doc = mockDocument(["a: 1", "b: >", "  folded: text", "c: 2"]);
+    const groups = findAlignmentGroups(doc, [":"], "yaml");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 1]);
+  });
 });
 
 suite("findAlignmentGroups（複数行ブロックコメント / テンプレートリテラル）", () => {
