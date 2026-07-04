@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-05
+
 ### Added
 
 - Jupyter などノートブックのセルエディタ（URI スキーム `vscode-notebook-cell`）を整列対象に追加。Python セルの `=` 整列や Markdown セルのテーブル整列が通常のファイルと同様に効くようになった。
@@ -151,7 +153,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
 [0.6.0]: https://github.com/upu/ghost-align/releases/tag/v0.6.0
 [0.5.0]: https://github.com/upu/ghost-align/releases/tag/v0.5.0
 [0.4.0]: https://github.com/upu/ghost-align/releases/tag/v0.4.0
