@@ -364,6 +364,42 @@ suite("findAlignmentGroups（複数行ブロックコメント / テンプレー
   });
 });
 
+suite("findAlignmentGroups（Python triple-quote docstring）", () => {
+  test('複数行にまたがる """ docstring 内の = はアライメント対象にならない', () => {
+    const doc = mockDocument([
+      "def f():",
+      '    """',
+      "    Example:",
+      "        x = 1",
+      "        longName = 2",
+      '    """',
+      "    return x",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "python");
+    assert.strictEqual(groups.length, 0);
+  });
+
+  test('同一行で閉じる """ は従来通り機能する（前後の代入は整列する）', () => {
+    const doc = mockDocument([
+      'x = """oneline"""',
+      "longName = 2",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "python");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+  });
+
+  test("通常のシングル/ダブルクォート文字列や既存の # コメント検出に影響しない", () => {
+    const doc = mockDocument([
+      's = "a = 1"  # comment',
+      "longName = 2",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "python");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+  });
+});
+
 /** Builds a single-column AlignmentEntry for computePaddings tests. */
 function entry(lineIndex: number, insert: number, visualColumn: number) {
   return { lineIndex, columns: [{ opIndex: 0, insert, visualColumn }] };

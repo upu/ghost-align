@@ -72,6 +72,16 @@ const TEMPLATE_QUOTE_CHARS = new Set<string>(['"', "'", "`"]);
  */
 const LIFETIME_LANGUAGES = new Set(["rust"]);
 
+/**
+ * Language IDs with Python-style triple-quoted strings (`"""..."""` /
+ * `'''...'''`) that can span multiple lines. Tracked by DocScanState's
+ * `pyTripleDouble`/`pyTripleSingle` states (see resolveDocScanOptions /
+ * advanceLineDocState) and by findAssignmentEquals's own single-line
+ * handling. Ruby/PHP heredocs share the same root cause — a multi-line
+ * string not carried across lines — but are deferred to a follow-up (#225).
+ */
+const TRIPLE_QUOTE_LANGUAGES = new Set(["python"]);
+
 /** {@link TEMPLATE_QUOTE_CHARS} without `'`, for {@link LIFETIME_LANGUAGES}. */
 const NON_LIFETIME_QUOTE_CHARS = new Set<string>(['"', "`"]);
 
@@ -597,6 +607,8 @@ export function findAssignmentEquals(
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
   const isLifetimeLang =
     languageId !== undefined && LIFETIME_LANGUAGES.has(languageId);
+  const pyTripleQuote =
+    languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId);
   const quoteChars = assignmentQuoteChars(languageId);
   const state = initialQuoteState();
   let depth = 0;
@@ -618,6 +630,24 @@ export function findAssignmentEquals(
       isDigitSeparatorNeighbor(lineText[i + 1])
     ) {
       continue; // C++14 digit separator (1'000'000), not a quote
+    }
+    if (
+      pyTripleQuote &&
+      !state.quote &&
+      (ch === '"' || ch === "'") &&
+      lineText[i + 1] === ch &&
+      lineText[i + 2] === ch
+    ) {
+      // Python triple-quote (""" or '''): recognized as one token so an
+      // odd number of embedded same-char quotes in its content (e.g.
+      // `x = """a "quote example = 1"""`) can't desync the naive
+      // single-char toggle below into treating the embedded `=` as real.
+      const close = scanClosingTripleQuote(lineText, i + 3, ch);
+      if (close === -1) {
+        break; // unterminated on this line: nothing after it is code
+      }
+      i = close; // loop's i++ advances past the closing quote char
+      continue;
     }
     if (advanceQuoteState(state, ch, quoteChars)) {
       continue;
@@ -829,20 +859,31 @@ function findOccurrences(
   return results;
 }
 
-// ── Multi-line block-comment / template-literal tracking ──────────────────
+// ── Multi-line block-comment / template-literal / triple-quote tracking ───
 //
-// Every finder above sees one line at a time, so a `/* ... */` block comment
-// or a `` `...` `` template literal spanning multiple lines cannot be
-// recognized as such from within a single line: each finder just treats an
-// unclosed comment-open or backtick as running to the end of that one line,
-// with nothing carried over to the next. The functions below compute, for a
-// document (or a slice of one), the state each line *starts* in — plain
-// code, inside a block comment, or inside a template literal — so callers
-// can seed findOperatorTargets with it instead of always assuming line 0
-// starts as plain code.
+// Every finder above sees one line at a time, so a `/* ... */` block comment,
+// a `` `...` `` template literal, or a Python `"""`/`'''` triple-quoted
+// string spanning multiple lines cannot be recognized as such from within a
+// single line: each finder just treats an unclosed comment-open, backtick, or
+// triple-quote as running to the end of that one line, with nothing carried
+// over to the next. The functions below compute, for a document (or a slice
+// of one), the state each line *starts* in — plain code, inside a block
+// comment, inside a template literal, or inside a Python triple-quoted string
+// — so callers can seed findOperatorTargets with it instead of always
+// assuming line 0 starts as plain code.
 
-/** State a line can start a scan in, once block comments/template literals may span lines. */
-export type DocScanState = "code" | "blockComment" | "template";
+/**
+ * State a line can start a scan in, once block comments/template
+ * literals/Python triple-quoted strings may span lines. `pyTripleDouble` /
+ * `pyTripleSingle` track which of `"""` / `'''` is open, since only the same
+ * kind of triple-quote closes it (Python does not let one close the other).
+ */
+export type DocScanState =
+  | "code"
+  | "blockComment"
+  | "template"
+  | "pyTripleDouble"
+  | "pyTripleSingle";
 
 /**
  * Which multi-line constructs apply to `languageId`, mirroring the same rules
@@ -850,11 +891,19 @@ export type DocScanState = "code" | "blockComment" | "template";
  * comment-support decision in findAssignmentEquals (marker-only languages,
  * e.g. Python/YAML, don't get it; PHP gets both; plain JSON has no comment
  * syntax at all, unlike JSONC). `template` is TS/JS-only — the languages
- * with real template-literal syntax.
+ * with real template-literal syntax. `pyTripleQuote` is
+ * {@link TRIPLE_QUOTE_LANGUAGES} (Python); `markers` is only resolved for
+ * those languages, so advanceLineDocState can tell a `#` line comment from a
+ * `"""` that starts a docstring instead of one appearing inside a comment.
  */
 function resolveDocScanOptions(
   languageId: string | undefined
-): { cStyle: boolean; template: boolean } {
+): {
+  cStyle: boolean;
+  template: boolean;
+  pyTripleQuote: boolean;
+  markers?: readonly string[];
+} {
   const isMarkerOnly =
     languageId !== undefined &&
     Object.prototype.hasOwnProperty.call(
@@ -864,7 +913,14 @@ function resolveDocScanOptions(
     !C_STYLE_COMMENT_ALSO.has(languageId);
   const cStyle = languageId !== "json" && !isMarkerOnly;
   const template = languageId !== undefined && TS_JS_LANGUAGES.has(languageId);
-  return { cStyle, template };
+  const pyTripleQuote =
+    languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId);
+  return {
+    cStyle,
+    template,
+    pyTripleQuote,
+    markers: pyTripleQuote ? lineCommentMarkers(languageId) : undefined,
+  };
 }
 
 /** Index of `quoteChar`'s matching close in `lineText` from `from` (respecting `\` escapes), or -1. */
@@ -884,10 +940,40 @@ function scanClosingQuote(
 }
 
 /**
+ * Index of the last character of a Python triple-quote's (`"""`/`'''`)
+ * matching close in `lineText` from `from` (respecting `\` escapes on the
+ * individual quote char), or -1. Used both by findAssignmentEquals (same-line
+ * open+close) and by advanceLineDocState/skipToCodeStart (cross-line carry).
+ */
+function scanClosingTripleQuote(
+  lineText: string,
+  from: number,
+  quoteChar: string
+): number {
+  let escaped = false;
+  for (let i = from; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === quoteChar && lineText[i + 1] === quoteChar && lineText[i + 2] === quoteChar) {
+      return i + 2;
+    }
+  }
+  return -1;
+}
+
+/**
  * The {@link DocScanState} that follows `lineText`, given the state it
  * started in. Mirrors the comment/quote handling the finders already do per
- * line, but carries an unterminated block comment or template literal into
- * the next line instead of resetting at the line boundary.
+ * line, but carries an unterminated block comment, template literal, or
+ * Python triple-quoted string into the next line instead of resetting at the
+ * line boundary.
  *
  * Does not model `${...}` interpolation inside a template literal (real code,
  * including its own strings/comments, can appear there) — a `` ` `` found
@@ -897,7 +983,12 @@ function scanClosingQuote(
 function advanceLineDocState(
   lineText: string,
   state: DocScanState,
-  opts: { cStyle: boolean; template: boolean }
+  opts: {
+    cStyle: boolean;
+    template: boolean;
+    pyTripleQuote: boolean;
+    markers?: readonly string[];
+  }
 ): DocScanState {
   let i = 0;
   if (state === "blockComment") {
@@ -912,11 +1003,39 @@ function advanceLineDocState(
       return "template";
     }
     i = close + 1;
+  } else if (state === "pyTripleDouble" || state === "pyTripleSingle") {
+    const quoteChar = state === "pyTripleDouble" ? '"' : "'";
+    const close = scanClosingTripleQuote(lineText, 0, quoteChar);
+    if (close === -1) {
+      return state;
+    }
+    i = close + 1;
   }
   const quote = initialQuoteState();
   const quoteChars = opts.template ? new Set<string>(['"', "'"]) : TEMPLATE_QUOTE_CHARS;
   for (; i < lineText.length; i++) {
     const ch = lineText[i];
+    if (
+      opts.markers &&
+      !quote.quote &&
+      startsLineComment(lineText, i, opts.markers)
+    ) {
+      return "code"; // rest of the line is a line comment; nothing carries over
+    }
+    if (
+      opts.pyTripleQuote &&
+      !quote.quote &&
+      (ch === '"' || ch === "'") &&
+      lineText[i + 1] === ch &&
+      lineText[i + 2] === ch
+    ) {
+      const close = scanClosingTripleQuote(lineText, i + 3, ch);
+      if (close === -1) {
+        return ch === '"' ? "pyTripleDouble" : "pyTripleSingle";
+      }
+      i = close;
+      continue;
+    }
     if (advanceQuoteState(quote, ch, quoteChars)) {
       continue;
     }
@@ -947,9 +1066,10 @@ function advanceLineDocState(
 
 /**
  * Advances {@link DocScanState} across `lineText` for `languageId`, applying
- * that language's cStyle/template rules. Exported so callers with their own
- * line loop (e.g. findAlignmentGroups) can track document state one line at
- * a time without needing {@link resolveDocScanOptions} / {@link advanceLineDocState}.
+ * that language's cStyle/template/pyTripleQuote rules. Exported so callers
+ * with their own line loop (e.g. findAlignmentGroups) can track document
+ * state one line at a time without needing {@link resolveDocScanOptions} /
+ * {@link advanceLineDocState}.
  */
 export function nextDocScanState(
   lineText: string,
@@ -957,8 +1077,8 @@ export function nextDocScanState(
   languageId?: string
 ): DocScanState {
   const opts = resolveDocScanOptions(languageId);
-  if (!opts.cStyle && !opts.template) {
-    return "code"; // language has neither construct; state never leaves "code"
+  if (!opts.cStyle && !opts.template && !opts.pyTripleQuote) {
+    return "code"; // language has none of these constructs; state never leaves "code"
   }
   return advanceLineDocState(lineText, state, opts);
 }
@@ -985,8 +1105,8 @@ export function computeLineStateBefore(
 
 /**
  * Char index in `lineText` where normal scanning resumes given `state`, or
- * null if the whole line is still inside a block comment/template literal
- * that doesn't close on it.
+ * null if the whole line is still inside a block comment/template
+ * literal/Python triple-quoted string that doesn't close on it.
  */
 function skipToCodeStart(lineText: string, state: DocScanState): number | null {
   if (state === "code") {
@@ -996,7 +1116,12 @@ function skipToCodeStart(lineText: string, state: DocScanState): number | null {
     const close = lineText.indexOf("*/");
     return close === -1 ? null : close + 2;
   }
-  const close = scanClosingQuote(lineText, 0, "`");
+  if (state === "template") {
+    const close = scanClosingQuote(lineText, 0, "`");
+    return close === -1 ? null : close + 1;
+  }
+  const quoteChar = state === "pyTripleDouble" ? '"' : "'";
+  const close = scanClosingTripleQuote(lineText, 0, quoteChar);
   return close === -1 ? null : close + 1;
 }
 
