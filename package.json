@@ -47,6 +47,10 @@
       {
         "command": "ghostAlign.copyAligned",
         "title": "Ghost Align: Copy with Alignment"
+      },
+      {
+        "command": "ghostAlign.toggleLanguage",
+        "title": "Ghost Align: Disable/Enable for Current Language"
       }
     ],
     "configuration": {

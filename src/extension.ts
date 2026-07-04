@@ -115,6 +115,32 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Disable/Enable for Current Language: one-touch toggle of the active
+  // editor's languageId in ghostAlign.disabledLanguages. Re-render is not
+  // needed here: the settings update fires onDidChangeConfiguration below.
+  context.subscriptions.push(
+    vscode.commands.registerCommand("ghostAlign.toggleLanguage", async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        return;
+      }
+      const config = vscode.workspace.getConfiguration("ghostAlign");
+      const languageId = editor.document.languageId;
+      const { next, disabled } = toggleDisabledLanguage(
+        config.get<string[]>("disabledLanguages", []),
+        languageId
+      );
+      await config.update(
+        "disabledLanguages",
+        next,
+        vscode.ConfigurationTarget.Global
+      );
+      vscode.window.showInformationMessage(
+        `Ghost Align: ${disabled ? "disabled" : "enabled"} for ${languageId}`
+      );
+    })
+  );
+
   // Update on editor / document / configuration changes
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
@@ -283,6 +309,26 @@ export function isLanguageDisabled(
   return (
     Array.isArray(disabledLanguages) && disabledLanguages.includes(languageId)
   );
+}
+
+/**
+ * Toggle `languageId`'s membership in a `disabledLanguages` list: adds it if
+ * absent, removes it if present. Pure — the command handler is responsible
+ * for reading/writing the actual setting; this just computes the next value
+ * and whether the toggle disabled or re-enabled the language, for the
+ * result message.
+ */
+export function toggleDisabledLanguage(
+  disabledLanguages: string[],
+  languageId: string
+): { next: string[]; disabled: boolean } {
+  if (disabledLanguages.includes(languageId)) {
+    return {
+      next: disabledLanguages.filter((l) => l !== languageId),
+      disabled: false,
+    };
+  }
+  return { next: [...disabledLanguages, languageId], disabled: true };
 }
 
 /** Language IDs that use the Markdown table alignment path instead of operators. */
