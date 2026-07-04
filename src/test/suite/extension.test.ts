@@ -995,11 +995,12 @@ suite("statusBarText", () => {
 });
 
 suite("isAlignableScheme", () => {
-  test("通常ファイル・未保存・リモート系のスキーマは整列対象", () => {
+  test("通常ファイル・未保存・リモート系・ノートブックセルのスキーマは整列対象", () => {
     assert.strictEqual(isAlignableScheme("file"), true);
     assert.strictEqual(isAlignableScheme("untitled"), true);
     assert.strictEqual(isAlignableScheme("vscode-remote"), true);
     assert.strictEqual(isAlignableScheme("vscode-vfs"), true);
+    assert.strictEqual(isAlignableScheme("vscode-notebook-cell"), true);
   });
 
   test("出力パネル・デバッグ・検索エディタなどは整列対象外", () => {
