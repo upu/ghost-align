@@ -725,6 +725,7 @@ const ALIGNABLE_SCHEMES = new Set([
   "untitled",
   "vscode-remote",
   "vscode-vfs",
+  "vscode-notebook-cell",
 ]);
 
 /** Whether documents with this URI scheme should be aligned. */
