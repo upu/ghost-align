@@ -229,6 +229,75 @@ function delimiterCellInsertPos(
   return pipe;
 }
 
+/** One table row's delimiter positions and per-column cell widths, in rendered columns. */
+interface TableRowMetrics {
+  lineIndex: number;
+  pipes: number[];
+  segWidths: number[];
+}
+
+/** Compute {@link TableRowMetrics} for each line index in `block`. */
+function computeTableRowMetrics(
+  lines: string[],
+  block: number[],
+  tabSize: number
+): TableRowMetrics[] {
+  return block.map((lineIndex) => {
+    const text = lines[lineIndex];
+    const pipes = findPipePositions(text);
+    const segWidths: number[] = [];
+    let prevVisual = 0;
+    for (const pipe of pipes) {
+      const pipeVisual = visualColumn(text, pipe, tabSize);
+      segWidths.push(pipeVisual - prevVisual);
+      prevVisual = pipeVisual + 1; // skip the pipe character (width 1)
+    }
+    return { lineIndex, pipes, segWidths };
+  });
+}
+
+/** Per-column max cell width across `rows`. */
+function computeMaxSegWidths(rows: readonly Pick<TableRowMetrics, "segWidths">[]): number[] {
+  const maxSeg: number[] = [];
+  for (const row of rows) {
+    row.segWidths.forEach((w, k) => {
+      maxSeg[k] = Math.max(maxSeg[k] ?? 0, w);
+    });
+  }
+  return maxSeg;
+}
+
+/** Placements that pad every row in `rows` to `maxSeg`'s per-column widths. */
+function placementsForTableRows(
+  lines: string[],
+  rows: readonly TableRowMetrics[],
+  maxSeg: readonly number[]
+): Placement[] {
+  const placements: Placement[] = [];
+  for (const row of rows) {
+    const text = lines[row.lineIndex];
+    const isDelimiter = isDelimiterRow(text);
+    row.pipes.forEach((pipe, k) => {
+      const padding = maxSeg[k] - row.segWidths[k];
+      if (padding <= 0) {
+        return;
+      }
+      if (isDelimiter && k > 0) {
+        const segStart = row.pipes[k - 1] + 1;
+        placements.push({
+          lineIndex: row.lineIndex,
+          character: delimiterCellInsertPos(text, segStart, pipe),
+          padding,
+          padChar: "-",
+        });
+      } else {
+        placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
+      }
+    });
+  }
+  return placements;
+}
+
 /**
  * Ghost-padding placements that align the `|` delimiters of every Markdown table
  * in `lines`. Each cell is padded to its column's widest cell by inserting ghost
@@ -241,6 +310,14 @@ function delimiterCellInsertPos(
  * ruled line keeps looking continuous and alignment markers stay at the cell
  * edge. The segment left of the table's first `|` is ordinary padding even on
  * a delimiter row, since the ruled line doesn't extend past the table edge.
+ *
+ * Column widths are computed only from `lines`, so a caller that passes a
+ * visible-range slice of a large file gets alignment based on that slice
+ * alone — for a table entirely within the slice this is exactly the whole
+ * table, but a table larger than the slice (plus {@link
+ * computeSliceBounds}'s group-boundary expansion) is only aligned against
+ * its in-slice rows. {@link MarkdownTableWidthCache} solves this for large
+ * files by computing widths from the whole document once instead.
  */
 export function computeMarkdownTablePaddings(
   lines: string[],
@@ -248,50 +325,92 @@ export function computeMarkdownTablePaddings(
   initialState: FenceState = NO_FENCE
 ): Placement[] {
   const placements: Placement[] = [];
-
   for (const block of findMarkdownTables(lines, initialState)) {
-    const rows = block.map((lineIndex) => {
-      const text = lines[lineIndex];
-      const pipes = findPipePositions(text);
-      const segWidths: number[] = [];
-      let prevVisual = 0;
-      for (const pipe of pipes) {
-        const pipeVisual = visualColumn(text, pipe, tabSize);
-        segWidths.push(pipeVisual - prevVisual);
-        prevVisual = pipeVisual + 1; // skip the pipe character (width 1)
-      }
-      return { lineIndex, pipes, segWidths };
-    });
+    const rows = computeTableRowMetrics(lines, block, tabSize);
+    const maxSeg = computeMaxSegWidths(rows);
+    placements.push(...placementsForTableRows(lines, rows, maxSeg));
+  }
+  return placements;
+}
 
-    const maxSeg: number[] = [];
-    for (const row of rows) {
-      row.segWidths.forEach((w, k) => {
-        maxSeg[k] = Math.max(maxSeg[k] ?? 0, w);
-      });
-    }
+/**
+ * Whole-document cache of Markdown table row metrics and per-table column
+ * widths, so alignment in a large file is based on every row of a table
+ * instead of just the currently visible slice — mirroring CsvWidthCache in
+ * csv.ts, which solves the same scroll-stability problem for CSV/TSV.
+ *
+ * Unlike a CSV row (whose delimiter positions depend only on that one line),
+ * a Markdown table row's very membership depends on cross-line context: fence
+ * state and header/delimiter-row pairing. So this cache cannot cheaply
+ * re-scan just the lines an edit touched the way CsvWidthCache does — any
+ * edit (see {@link markDirty}) invalidates the whole cache, rebuilt in full
+ * on the next {@link sync}. Full-document table detection is a single linear
+ * pass (the same order of cost as the fence-state prescan every large-file
+ * Markdown decoration already pays), so this only adds cost on edits, not on
+ * scrolling — which is what makes scrolling scroll-stable.
+ */
+export class MarkdownTableWidthCache {
+  private tables: number[][] = [];
+  private rowMetrics = new Map<number, TableRowMetrics & { text: string }>();
+  private tableIndexByLine = new Map<number, number>();
+  private maxByTable: number[][] = [];
+  private lineCount = -1;
+  private tabSize = 0;
+  private dirty = true;
 
-    for (const row of rows) {
-      const text = lines[row.lineIndex];
-      const isDelimiter = isDelimiterRow(text);
-      row.pipes.forEach((pipe, k) => {
-        const padding = maxSeg[k] - row.segWidths[k];
-        if (padding <= 0) {
-          return;
-        }
-        if (isDelimiter && k > 0) {
-          const segStart = row.pipes[k - 1] + 1;
-          placements.push({
-            lineIndex: row.lineIndex,
-            character: delimiterCellInsertPos(text, segStart, pipe),
-            padding,
-            padChar: "-",
-          });
-        } else {
-          placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
-        }
-      });
-    }
+  /** Mark the cache stale so the next {@link sync} rebuilds it from scratch. */
+  markDirty(): void {
+    this.dirty = true;
   }
 
-  return placements;
+  /** Bring the cache in line with the document. Rebuilds fully when dirty. */
+  sync(lineCount: number, lineAt: (line: number) => string, tabSize: number): void {
+    if (!this.dirty && lineCount === this.lineCount && tabSize === this.tabSize) {
+      return;
+    }
+    this.lineCount = lineCount;
+    this.tabSize = tabSize;
+    this.dirty = false;
+    this.rowMetrics.clear();
+    this.tableIndexByLine.clear();
+    this.maxByTable = [];
+
+    const lines: string[] = [];
+    for (let i = 0; i < lineCount; i++) {
+      lines.push(lineAt(i));
+    }
+    this.tables = findMarkdownTables(lines);
+    this.tables.forEach((block, tableIndex) => {
+      const rows = computeTableRowMetrics(lines, block, tabSize);
+      for (const row of rows) {
+        this.rowMetrics.set(row.lineIndex, { ...row, text: lines[row.lineIndex] });
+        this.tableIndexByLine.set(row.lineIndex, tableIndex);
+      }
+      this.maxByTable.push(computeMaxSegWidths(rows));
+    });
+  }
+
+  /** Placements for the table rows in `[sliceStart, sliceEnd]`. Call sync() first. */
+  placementsForRange(sliceStart: number, sliceEnd: number): Placement[] {
+    const rows: (TableRowMetrics & { text: string })[] = [];
+    const maxSegByRow = new Map<number, readonly number[]>();
+    for (let lineIndex = sliceStart; lineIndex <= sliceEnd; lineIndex++) {
+      const row = this.rowMetrics.get(lineIndex);
+      const tableIndex = this.tableIndexByLine.get(lineIndex);
+      if (!row || tableIndex === undefined) {
+        continue;
+      }
+      rows.push(row);
+      maxSegByRow.set(lineIndex, this.maxByTable[tableIndex]);
+    }
+    const placements: Placement[] = [];
+    const lines: string[] = [];
+    for (const row of rows) {
+      lines[row.lineIndex] = row.text;
+      placements.push(
+        ...placementsForTableRows(lines, [row], maxSegByRow.get(row.lineIndex) ?? [])
+      );
+    }
+    return placements;
+  }
 }

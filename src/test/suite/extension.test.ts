@@ -15,6 +15,7 @@ import {
   isAlignableScheme,
   debounce,
   notifyCsvDocumentChange,
+  notifyMarkdownDocumentChange,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
   DEFAULT_OPERATORS_BY_LANGUAGE,
@@ -812,6 +813,55 @@ suite("decorateEditor と可視範囲モード（大きい CSV/TSV）", () => {
     ]);
     decorateEditor(editor, config(), " ", "gray");
     assert.deepStrictEqual(calls[1], []);
+  });
+});
+
+suite("decorateEditor と可視範囲モード（大きい Markdown テーブル）", () => {
+  const config = () => mockConfig({}) as unknown as vscode.WorkspaceConfiguration;
+
+  test("可視範囲外の最長セルを基準に揃い、スクロールしても揃え位置が変わらない", () => {
+    const lines = new Array<string>(10001).fill("| x | y |");
+    lines[0] = "| a | b |";
+    lines[1] = "| --- | --- |";
+    lines[2] = "| xxxxxxxxxx | y |"; // 可視範囲から遠く離れた最長セル
+    const { editor, calls } = mockEditor("markdown", lines, [
+      { start: 9000, end: 9040 },
+    ]);
+    decorateEditor(editor, config(), " ", "gray");
+    assert.ok(calls[0].length > 0);
+    assert.ok(
+      calls[0].some((d) => d.renderOptions?.before?.contentText?.length === 9)
+    );
+    (editor as unknown as {
+      visibleRanges: { start: { line: number }; end: { line: number } }[];
+    }).visibleRanges = [{ start: { line: 9500 }, end: { line: 9540 } }];
+    decorateEditor(editor, config(), " ", "gray");
+    assert.ok(calls[1].length > 0);
+    assert.ok(
+      calls[1].some((d) => d.renderOptions?.before?.contentText?.length === 9)
+    );
+  });
+
+  test("編集でテーブル内容が変わったらキャッシュが無効化され揃え直される", () => {
+    const lines = new Array<string>(10001).fill("| x | y |");
+    lines[0] = "| a | b |";
+    lines[1] = "| --- | --- |";
+    lines[2] = "| xxxxxxxxxx | y |";
+    const { editor, calls } = mockEditor("markdown", lines, [
+      { start: 9000, end: 9040 },
+    ]);
+    decorateEditor(editor, config(), " ", "gray");
+    assert.ok(
+      calls[0].some((d) => d.renderOptions?.before?.contentText?.length === 9)
+    );
+
+    lines[2] = "| x | y |"; // 最長セルを解消（残る最大幅は区切り行の "---" = 3）
+    notifyMarkdownDocumentChange(editor.document);
+    decorateEditor(editor, config(), " ", "gray");
+    assert.ok(calls[1].length > 0);
+    for (const d of calls[1]) {
+      assert.strictEqual(d.renderOptions?.before?.contentText?.length, 2);
+    }
   });
 });
 
