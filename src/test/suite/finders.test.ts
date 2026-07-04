@@ -168,6 +168,38 @@ suite("computeLineStateBefore", () => {
       "blockComment"
     );
   });
+
+  test('Python の複数行 """ docstring が閉じないまま終わっていれば pyTripleDouble を返す', () => {
+    const lines = ["def f():", '    """', "    still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "python"),
+      "pyTripleDouble"
+    );
+  });
+
+  test("Python の複数行 ''' docstring が閉じないまま終わっていれば pyTripleSingle を返す", () => {
+    const lines = ["def f():", "    '''", "    still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "python"),
+      "pyTripleSingle"
+    );
+  });
+
+  test('Python の複数行 """ docstring が閉じていれば code を返す', () => {
+    const lines = ["def f():", '    """', "    x = 1", '    """', "    return x"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "python"),
+      "code"
+    );
+  });
+
+  test('Python の # コメント内の """ は docstring の開始として扱わない', () => {
+    const lines = ['x = 1  # """ not a docstring', "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "python"),
+      "code"
+    );
+  });
 });
 
 suite("findOperatorColumn", () => {
@@ -662,6 +694,13 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test('同一行で閉じる triple-quote は従来通り = を検出する（Python）', () => {
+    assert.strictEqual(
+      findOperatorColumn('x = """oneline"""', ["="], "python"),
+      2
+    );
+  });
+
   test("`#` コメント言語では `//` をコメント扱いしない（Python の切り捨て除算）", () => {
     assert.strictEqual(
       findOperatorColumn("y = a // b", ["="], "python"),
@@ -1010,6 +1049,34 @@ suite("findOperatorTargets", () => {
     assert.deepStrictEqual(
       findOperatorTargets("abc` x = 1", ["="], "typescript", "template"),
       [{ opIndex: 0, insert: 7, align: 7 }]
+    );
+  });
+
+  test("pyTripleDouble 状態から開始すると閉じるまでの内容は無視する", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets('still docstring """ x = 1', ["="], "python", "pyTripleDouble"),
+      [{ opIndex: 0, insert: 22, align: 22 }]
+    );
+  });
+
+  test("pyTripleDouble 状態のまま行内で閉じなければ演算子は検出しない", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets("still x = 1 docstring", ["="], "python", "pyTripleDouble"),
+      []
+    );
+  });
+
+  test('pyTripleSingle は """ では閉じない（引用符の種類を区別する）', () => {
+    assert.deepStrictEqual(
+      findOperatorTargets('still """ not closing x = 1', ["="], "python", "pyTripleSingle"),
+      []
+    );
+  });
+
+  test("同一行 triple-quote 内に奇数個の埋め込み引用符があっても誤検出しない（Python）", () => {
+    assert.deepStrictEqual(
+      findOperatorTargets('x = """a "quote example = 1"""', ["=", "="], "python"),
+      [{ opIndex: 0, insert: 2, align: 2 }]
     );
   });
 
