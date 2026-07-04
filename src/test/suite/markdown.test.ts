@@ -5,6 +5,7 @@ import {
   findMarkdownTables,
   computeMarkdownTablePaddings,
   computeFenceStateBefore,
+  MarkdownTableWidthCache,
 } from "../../markdown";
 
 suite("findPipePositions", () => {
@@ -327,5 +328,100 @@ suite("computeMarkdownTablePaddings", () => {
       { char: "`", len: 3 }
     );
     assert.deepStrictEqual(placements, []);
+  });
+
+  test("maxPadding: 0（無制限）だと幅の外れ値セル1つが以降の列にも巨大パディングを強制する", () => {
+    const lines = [
+      "|a|cccccccccccccccccccc|",
+      "|-|--------------------|",
+      "|xxxxxxxxxxxxxxxxxxxx||",
+    ];
+    const placements = computeMarkdownTablePaddings(lines, 4, undefined, 0);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 19 },
+      { lineIndex: 1, character: 2, padding: 19, padChar: "-" },
+      { lineIndex: 2, character: 22, padding: 20 },
+    ]);
+  });
+
+  test("maxPadding: 超過する列だけ揃えず、以降の列は各行の実位置基準で揃う", () => {
+    const lines = [
+      "|a|cccccccccccccccccccc|",
+      "|-|--------------------|",
+      "|xxxxxxxxxxxxxxxxxxxx||",
+    ];
+    // 列1(index1) は幅 1,1,20 で差19 > maxPadding(10) なので揃えない。
+    // 列2(index2) は各行の実際の終端(2,2,21いずれも+20/+20/+1)から
+    // 続けて計算すると3行とも23で自然に揃うが、行2だけ幅0なので1パディング必要。
+    const placements = computeMarkdownTablePaddings(lines, 4, undefined, 10);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 2, character: 22, padding: 1 },
+    ]);
+  });
+});
+
+suite("MarkdownTableWidthCache", () => {
+  const syncWithSpy = (
+    cache: MarkdownTableWidthCache,
+    lines: string[],
+    reads: number[],
+    tabSize = 4,
+    maxPadding = 0
+  ) =>
+    cache.sync(
+      lines.length,
+      (i) => {
+        reads.push(i);
+        return lines[i];
+      },
+      tabSize,
+      maxPadding
+    );
+
+  test("maxPadding 未指定は無制限で従来どおり全列を最大幅に揃える", () => {
+    const lines = ["| a | bb |", "| --- | --- |", "| ccc | d |"];
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.placementsForRange(0, 2), [
+      { lineIndex: 0, character: 4, padding: 2 },
+      { lineIndex: 0, character: 9, padding: 1 },
+      { lineIndex: 2, character: 10, padding: 2 },
+    ]);
+  });
+
+  test("maxPadding: 全行(可視範囲外含む)基準で外れ値列を判定し、可視範囲だけ取り出しても結果は変わらない", () => {
+    const lines = [
+      "|a|cccccccccccccccccccc|",
+      "|-|--------------------|",
+      "|xxxxxxxxxxxxxxxxxxxx||",
+    ];
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, [], 4, 10);
+    assert.deepStrictEqual(cache.placementsForRange(0, 2), [
+      { lineIndex: 2, character: 22, padding: 1 },
+    ]);
+    // 可視範囲を最終行だけに絞っても、外れ値判定は全行基準のまま変わらない。
+    assert.deepStrictEqual(cache.placementsForRange(2, 2), [
+      { lineIndex: 2, character: 22, padding: 1 },
+    ]);
+  });
+
+  test("maxPadding を変えると（編集がなくても）計画を再計算する", () => {
+    const lines = [
+      "|a|cccccccccccccccccccc|",
+      "|-|--------------------|",
+      "|xxxxxxxxxxxxxxxxxxxx||",
+    ];
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, [], 4, 10);
+    assert.deepStrictEqual(cache.placementsForRange(0, 2), [
+      { lineIndex: 2, character: 22, padding: 1 },
+    ]);
+    syncWithSpy(cache, lines, [], 4, 0);
+    assert.deepStrictEqual(cache.placementsForRange(0, 2), [
+      { lineIndex: 0, character: 2, padding: 19 },
+      { lineIndex: 1, character: 2, padding: 19, padChar: "-" },
+      { lineIndex: 2, character: 22, padding: 20 },
+    ]);
   });
 });

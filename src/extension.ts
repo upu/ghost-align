@@ -342,6 +342,18 @@ const CSV_DELIMITERS = new Map<string, string>([
   ["tsv", "\t"],
 ]);
 
+/**
+ * Resolve `ghostAlign.maxPadding` from settings: a non-negative integer, or
+ * 0 (unlimited) for any invalid or non-positive value. Shared by every
+ * alignment path (operators, JSDoc, Markdown tables, CSV/TSV).
+ */
+function resolveMaxPadding(config: vscode.WorkspaceConfiguration): number {
+  const raw = config.get<number>("maxPadding", 0);
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+    ? Math.floor(raw)
+    : 0;
+}
+
 /** Resolve the effective tab width of an editor, falling back to the default. */
 function resolveTabSize(editor: vscode.TextEditor): number {
   const t = editor.options.tabSize;
@@ -385,20 +397,15 @@ export function computeDocumentPlacements(
     TS_JS_LANGUAGES.has(languageId) &&
     config.get<boolean>("alignJsdocParams", true);
 
+  const maxPadding = resolveMaxPadding(config);
+
   if (isMarkdown) {
-    return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState);
+    return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState, maxPadding);
   }
   if (csvDelimiter !== undefined) {
-    return computeCsvPaddings(lines, csvDelimiter, tabSize);
+    return computeCsvPaddings(lines, csvDelimiter, tabSize, maxPadding);
   }
 
-  const rawMaxPadding = config.get<number>("maxPadding", 0);
-  const maxPadding =
-    typeof rawMaxPadding === "number" &&
-    Number.isFinite(rawMaxPadding) &&
-    rawMaxPadding > 0
-      ? Math.floor(rawMaxPadding)
-      : 0;
   const groups = findAlignmentGroups(
     source,
     operators,
@@ -495,6 +502,7 @@ export function decorateEditor(
     isOperatorPath &&
     TS_JS_LANGUAGES.has(languageId) &&
     config.get<boolean>("alignJsdocParams", true);
+  const maxPadding = resolveMaxPadding(config);
 
   // Large files are computed per visible range instead of whole-file, and
   // re-decorated on scroll. The slice is expanded to group boundaries so a
@@ -545,7 +553,7 @@ export function decorateEditor(
       cache = new MarkdownTableWidthCache();
       markdownTableWidthCaches.set(document, cache);
     }
-    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize);
+    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, maxPadding);
     placements = cache.placementsForRange(sliceStart, sliceEnd);
   } else if (csvDelimiter !== undefined && useVisibleRange) {
     // Whole-file column widths come from the cache — built once, then only
@@ -566,7 +574,7 @@ export function decorateEditor(
     }
     placements = computeCsvPaddingsFromMax(
       rows,
-      cache.maxWidths(),
+      cache.columnPlan(maxPadding),
       csvDelimiter,
       tabSize
     );

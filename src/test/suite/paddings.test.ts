@@ -3,6 +3,7 @@ import {
   findAlignmentGroups,
   visualColumn,
   computePaddings,
+  computeColumnPlan,
   computeSliceBounds,
 } from "../../paddings";
 import { findOperatorTargets } from "../../finders";
@@ -541,6 +542,84 @@ suite("computePaddings", () => {
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 60, padding: 2 },
     ]);
+  });
+});
+
+suite("computeColumnPlan", () => {
+  test("maxPadding 以内ならどの列も最大幅に揃える計画を返す", () => {
+    const plan = computeColumnPlan(
+      [
+        [1, 2],
+        [3, 1],
+      ],
+      10,
+      (after) => after + 1
+    );
+    assert.deepStrictEqual(plan, [3, 6]);
+  });
+
+  test("超過する列は null（未整列）にし、以降の列は各行の実位置基準で続く", () => {
+    // 列0: 幅1 と 幅20 で差19 > maxPadding(5) なので列0は揃えない(null)。
+    // 列1 は各行が列0の実際の終端(1+1=2 と 20+1=21)から続き、
+    // 幅3 と 幅1 で終端は 2+3=5 と 21+1=22、差17 > 5 なので列1も揃わない。
+    const plan = computeColumnPlan(
+      [
+        [1, 3],
+        [20, 1],
+      ],
+      5,
+      (after) => after + 1
+    );
+    assert.deepStrictEqual(plan, [null, null]);
+  });
+
+  test("超過した列の直後でも差が縮まっていれば以降の列は揃う", () => {
+    // 列0: 幅1 と 幅20 で差19 > maxPadding(5) なので列0は揃えない(null)。
+    // 列1 は列0の実際の終端(2 と 21)からそれぞれ幅19, 0 を足すと
+    // 21 と 21 で揃うので null にならず 21 に整列される。
+    const plan = computeColumnPlan(
+      [
+        [1, 19],
+        [20, 0],
+      ],
+      5,
+      (after) => after + 1
+    );
+    assert.deepStrictEqual(plan, [null, 21]);
+  });
+
+  test("maxPadding 0 は無制限で常に整列する", () => {
+    const plan = computeColumnPlan(
+      [
+        [1],
+        [100],
+      ],
+      0,
+      (after) => after + 1
+    );
+    assert.deepStrictEqual(plan, [100]);
+  });
+
+  test("列数が不揃いな行は自分の持つ列までしか参加しない", () => {
+    const plan = computeColumnPlan(
+      [
+        [1, 2],
+        [5],
+      ],
+      10,
+      (after) => after + 1
+    );
+    assert.deepStrictEqual(plan, [5, 8]);
+  });
+
+  test("advance コールバックでタブストップ吸着など進み方をカスタムできる", () => {
+    const plan = computeColumnPlan(
+      [[5], [1]],
+      10,
+      (after) => (Math.floor(after / 4) + 1) * 4
+    );
+    // 列0の最大は5。advance(5) はタブストップで8に吸着する。
+    assert.deepStrictEqual(plan, [5]);
   });
 });
 
