@@ -782,6 +782,48 @@ suite("decorateEditor と可視範囲モード（CSS ブロック深さ）", () 
   });
 });
 
+suite("decorateEditor と可視範囲モード（YAML ブロックスカラー）", () => {
+  test("可視範囲より上で開いたブロックスカラーが閉じていなければ、中身の `:` は整列されない", () => {
+    const lineCount = 10001;
+    // インデント2の filler で、キー行(indent 0)より深いままブロックスカラーが
+    // ファイル末尾近くまで閉じずに続いている状況を再現する。
+    const lines = new Array<string>(lineCount).fill("  filler");
+    lines[0] = "a: |";
+    lines[9990] = "  make target: build";
+    lines[9991] = "  another target: test";
+    const { editor, calls } = mockEditor("yaml", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("可視範囲より上でブロックスカラーがインデントの減少で終了していれば、通常どおり整列される", () => {
+    const lineCount = 10001;
+    const lines = new Array<string>(lineCount).fill("filler");
+    lines[0] = "a: |";
+    lines[1] = "  content";
+    lines[2] = "b: 2"; // インデント0に戻り、ブロックスカラーはここで終了
+    lines[9990] = "make target: build";
+    lines[9991] = "another target: test";
+    const { editor, calls } = mockEditor("yaml", lines, [
+      { start: 9990, end: 9995 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.ok(calls[0].length > 0);
+  });
+});
+
 suite("decorateEditor と Markdown 区切り行の `-` パディング", () => {
   test("区切り行は `-` で見える文字として描画され、データ行は ghostCharacter のまま", () => {
     const lines = ["| a | b |", "| --- | --- |", "| cccccc | d |"];

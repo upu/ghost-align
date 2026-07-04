@@ -3,8 +3,10 @@ import {
   CSS_LANGUAGES,
   DocScanState,
   TS_JS_LANGUAGES,
+  YamlBlockScalarState,
   computeCssBlockDepthBefore,
   computeLineStateBefore,
+  computeYamlBlockScalarStateBefore,
   findOperatorTargets,
 } from "./finders";
 import {
@@ -355,11 +357,11 @@ function resolveTabSize(editor: vscode.TextEditor): number {
  * alignment path `languageId` uses (Markdown table / CSV-TSV / operators +
  * JSDoc). `source` backs the operator path's group scan and must present the
  * same lines as `lines` (index-for-index); `markdownFenceState` is only
- * consulted on the Markdown path, and `initialDocState` / `initialCssBlockDepth`
- * only on the operator path — all for when `lines` is a slice that starts
- * mid-file (see decorateEditor's large-file mode), seeding the state a fence /
- * block comment / template literal / CSS rule block opened above the slice
- * left behind.
+ * consulted on the Markdown path, and `initialDocState` / `initialCssBlockDepth` /
+ * `initialYamlBlockScalarState` only on the operator path — all for when
+ * `lines` is a slice that starts mid-file (see decorateEditor's large-file
+ * mode), seeding the state a fence / block comment / template literal / CSS
+ * rule block / YAML block scalar opened above the slice left behind.
  */
 export function computeDocumentPlacements(
   lines: string[],
@@ -369,7 +371,8 @@ export function computeDocumentPlacements(
   tabSize: number,
   markdownFenceState?: FenceState,
   initialDocState?: DocScanState,
-  initialCssBlockDepth?: number
+  initialCssBlockDepth?: number,
+  initialYamlBlockScalarState?: YamlBlockScalarState
 ): Placement[] {
   const csvDelimiter = CSV_DELIMITERS.get(languageId);
   const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
@@ -402,7 +405,8 @@ export function computeDocumentPlacements(
     languageId,
     tabSize,
     initialDocState,
-    initialCssBlockDepth
+    initialCssBlockDepth,
+    initialYamlBlockScalarState
   );
   let placements = computePaddings(groups, maxPadding);
   if (alignJsdoc) {
@@ -606,6 +610,15 @@ export function decorateEditor(
             languageId
           )
         : undefined;
+    // A block scalar (`key: |` / `key: >`) opened above sliceStart would
+    // otherwise look like plain YAML at the top of the slice; seed the scan
+    // with the key indent it left behind (mirrors the pre-scans above).
+    const initialYamlBlockScalarState =
+      isOperatorPath && languageId === "yaml" && sliceStart > 0
+        ? computeYamlBlockScalarStateBefore(sliceStart, (i) =>
+            document.lineAt(i).text
+          )
+        : undefined;
     const source: LineSource =
       sliceStart === 0 && sliceEnd === lineCount - 1
         ? document
@@ -621,7 +634,8 @@ export function decorateEditor(
       tabSize,
       fenceState,
       initialDocState,
-      initialCssBlockDepth
+      initialCssBlockDepth,
+      initialYamlBlockScalarState
     );
     if (sliceStart > 0) {
       placements = placements.map((p) => ({

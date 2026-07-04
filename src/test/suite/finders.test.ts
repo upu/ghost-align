@@ -5,6 +5,9 @@ import {
   advanceQuoteState,
   advanceCommentState,
   computeLineStateBefore,
+  isYamlBlockScalarContent,
+  nextYamlBlockScalarState,
+  computeYamlBlockScalarStateBefore,
 } from "../../finders";
 import { findOperatorTarget, findOperatorColumn } from "./testHelpers";
 
@@ -1084,6 +1087,68 @@ suite("findOperatorTargets", () => {
     assert.deepStrictEqual(
       findOperatorTargets("still x = 1 template", ["="], "typescript", "template"),
       []
+    );
+  });
+});
+
+suite("YAML ブロックスカラー継続状態", () => {
+  test("`key: |` の次の行はインデントが深ければブロックスカラーの中身", () => {
+    const state = nextYamlBlockScalarState("b: |", null);
+    assert.strictEqual(state, 0);
+    assert.strictEqual(
+      isYamlBlockScalarContent("  make target: build", state),
+      true
+    );
+  });
+
+  test("`key: >` でも同様に扱う", () => {
+    const state = nextYamlBlockScalarState("b: >", null);
+    assert.strictEqual(isYamlBlockScalarContent("  folded: text", state), true);
+  });
+
+  test("chomping indicator（`|-` `|+` `>-` `>+`）つきでも認識する", () => {
+    for (const header of ["b: |-", "b: |+", "b: >-", "b: >+"]) {
+      assert.strictEqual(nextYamlBlockScalarState(header, null), 0, header);
+    }
+  });
+
+  test("インデントがキー行以下に戻った行はブロックスカラーの中身ではない", () => {
+    const opened = nextYamlBlockScalarState("b: |", null);
+    const afterContent = nextYamlBlockScalarState(
+      "  make target: build",
+      opened
+    );
+    assert.strictEqual(isYamlBlockScalarContent("c: 2", afterContent), false);
+  });
+
+  test("空行・空白のみの行はブロックスカラーの継続として扱う", () => {
+    const opened = nextYamlBlockScalarState("b: |", null);
+    assert.strictEqual(isYamlBlockScalarContent("", opened), true);
+    assert.strictEqual(isYamlBlockScalarContent("   ", opened), true);
+  });
+
+  test("クォートされた値やコメント行は誤ってブロックスカラーの開始と認識しない", () => {
+    assert.strictEqual(nextYamlBlockScalarState('b: ">"', null), null);
+    assert.strictEqual(nextYamlBlockScalarState("  # key: |", null), null);
+  });
+
+  test("通常の YAML 行（ブロックスカラーでない）は null のまま", () => {
+    assert.strictEqual(nextYamlBlockScalarState("a: 1", null), null);
+  });
+
+  test("computeYamlBlockScalarStateBefore はスライス開始行より前から続くブロックスカラーの基準インデントを返す", () => {
+    const lines = ["a: 1", "b: |", "  make target: build"];
+    assert.strictEqual(
+      computeYamlBlockScalarStateBefore(lines.length, (i) => lines[i]),
+      0
+    );
+  });
+
+  test("computeYamlBlockScalarStateBefore はブロックスカラーが閉じていれば null を返す", () => {
+    const lines = ["a: 1", "b: |", "  content", "c: 2"];
+    assert.strictEqual(
+      computeYamlBlockScalarStateBefore(lines.length, (i) => lines[i]),
+      null
     );
   });
 });

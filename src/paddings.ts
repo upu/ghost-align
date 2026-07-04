@@ -9,8 +9,11 @@ import {
   CSS_LANGUAGES,
   DocScanState,
   findOperatorTargets,
+  isYamlBlockScalarContent,
   nextCssBlockDepth,
   nextDocScanState,
+  nextYamlBlockScalarState,
+  YamlBlockScalarState,
 } from "./finders";
 
 /** Default tab width used when an editor's tabSize cannot be resolved. */
@@ -156,6 +159,12 @@ export type LineSource = {
  * 0 (not inside a block), the correct assumption for the top of a real file —
  * unlike findOperatorTargets's own default, which favors single-line callers
  * with no document context.
+ *
+ * `initialYamlBlockScalarState` is the YAML analog for a block scalar
+ * (`key: |` / `key: >`; see computeYamlBlockScalarStateBefore in finders.ts):
+ * whether line 0 starts already inside one opened above it, so its opaque
+ * content (arbitrary text, not YAML) is never scanned for `:` targets.
+ * Defaults to `null` (not inside a block scalar).
  */
 export function findAlignmentGroups(
   document: LineSource,
@@ -163,7 +172,8 @@ export function findAlignmentGroups(
   languageId?: string,
   tabSize: number = DEFAULT_TAB_SIZE,
   initialDocState: DocScanState = "code",
-  initialCssBlockDepth: number = 0
+  initialCssBlockDepth: number = 0,
+  initialYamlBlockScalarState: YamlBlockScalarState = null
 ): AlignmentEntry[][] {
   const groups: AlignmentEntry[][] = [];
   let currentGroup: AlignmentEntry[] = [];
@@ -171,6 +181,8 @@ export function findAlignmentGroups(
   let docState: DocScanState = initialDocState;
   const isCssLang = languageId !== undefined && CSS_LANGUAGES.has(languageId);
   let cssBlockDepth = initialCssBlockDepth;
+  const isYamlLang = languageId === "yaml";
+  let yamlBlockScalarState: YamlBlockScalarState = initialYamlBlockScalarState;
 
   const flush = () => {
     if (currentGroup.length >= 2) {
@@ -182,6 +194,13 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
+
+    if (isYamlLang && isYamlBlockScalarContent(lineText, yamlBlockScalarState)) {
+      yamlBlockScalarState = nextYamlBlockScalarState(lineText, yamlBlockScalarState);
+      flush();
+      continue;
+    }
+
     const targets = findOperatorTargets(
       lineText,
       operators,
@@ -192,6 +211,9 @@ export function findAlignmentGroups(
     docState = nextDocScanState(lineText, docState, languageId);
     if (isCssLang) {
       cssBlockDepth = nextCssBlockDepth(lineText, cssBlockDepth, languageId as string);
+    }
+    if (isYamlLang) {
+      yamlBlockScalarState = nextYamlBlockScalarState(lineText, yamlBlockScalarState);
     }
 
     if (targets.length === 0) {
