@@ -5,7 +5,13 @@
 // measurement (tabs, East Asian wide/fullwidth chars) shared by every
 // alignment path, and the visible-range slicing used for large files.
 
-import { DocScanState, findOperatorTargets, nextDocScanState } from "./finders";
+import {
+  CSS_LANGUAGES,
+  DocScanState,
+  findOperatorTargets,
+  nextCssBlockDepth,
+  nextDocScanState,
+} from "./finders";
 
 /** Default tab width used when an editor's tabSize cannot be resolved. */
 export const DEFAULT_TAB_SIZE = 4;
@@ -142,18 +148,29 @@ export type LineSource = {
  * relative to that state, which is then advanced across the loop via
  * nextDocScanState, so an operator inside an unclosed block comment or
  * template literal is never treated as an alignment target.
+ *
+ * `initialCssBlockDepth` is the CSS/SCSS/LESS analog for the `:` operator
+ * (see computeCssBlockDepthBefore in finders.ts): whether line 0 starts
+ * already inside a rule's declaration block, so a multi-line selector
+ * continuation (`.foo:hover,`) is not mistaken for a declaration. Defaults to
+ * 0 (not inside a block), the correct assumption for the top of a real file —
+ * unlike findOperatorTargets's own default, which favors single-line callers
+ * with no document context.
  */
 export function findAlignmentGroups(
   document: LineSource,
   operators: string[],
   languageId?: string,
   tabSize: number = DEFAULT_TAB_SIZE,
-  initialDocState: DocScanState = "code"
+  initialDocState: DocScanState = "code",
+  initialCssBlockDepth: number = 0
 ): AlignmentEntry[][] {
   const groups: AlignmentEntry[][] = [];
   let currentGroup: AlignmentEntry[] = [];
   let currentIndent: number | null = null;
   let docState: DocScanState = initialDocState;
+  const isCssLang = languageId !== undefined && CSS_LANGUAGES.has(languageId);
+  let cssBlockDepth = initialCssBlockDepth;
 
   const flush = () => {
     if (currentGroup.length >= 2) {
@@ -165,8 +182,17 @@ export function findAlignmentGroups(
 
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-    const targets = findOperatorTargets(lineText, operators, languageId, docState);
+    const targets = findOperatorTargets(
+      lineText,
+      operators,
+      languageId,
+      docState,
+      cssBlockDepth > 0
+    );
     docState = nextDocScanState(lineText, docState, languageId);
+    if (isCssLang) {
+      cssBlockDepth = nextCssBlockDepth(lineText, cssBlockDepth, languageId as string);
+    }
 
     if (targets.length === 0) {
       flush();

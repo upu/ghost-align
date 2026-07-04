@@ -217,7 +217,7 @@ function findColonOutsideString(
 }
 
 /** Language IDs whose `:` is a CSS declaration separator, not a JSON/YAML key. */
-const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
+export const CSS_LANGUAGES = new Set(["css", "scss", "less"]);
 
 /** Language IDs whose `:` is a TS/JS type annotation or object-literal separator. */
 export const TS_JS_LANGUAGES = new Set([
@@ -335,10 +335,17 @@ function indexOfTopLevelBrace(lineText: string): number {
  *
  * The rule block `{` separates selector from declarations: colons before the
  * first `{` on the line are treated as selectors and skipped. A line with no
- * `{` — the common multi-line declaration such as `  color: red;` — is treated
- * as a declaration, so its first qualifying `:` is returned.
+ * `{` of its own falls back to `insideBlock` (see {@link nextCssBlockDepth}):
+ * the common multi-line declaration such as `  color: red;` is inside a block
+ * left open by a previous line, so its first qualifying `:` is returned; a
+ * multi-line selector continuation such as `.foo:hover,` is not (no block has
+ * opened yet), so its `:` is excluded like any other selector pseudo-class.
  */
-function findCssColon(lineText: string, languageId: string): number[] {
+function findCssColon(
+  lineText: string,
+  languageId: string,
+  insideBlock: boolean = true
+): number[] {
   const results: number[] = [];
   const braceIndex = indexOfTopLevelBrace(lineText);
   const state = initialQuoteState();
@@ -377,13 +384,86 @@ function findCssColon(lineText: string, languageId: string): number[] {
         i++; // pseudo-element `::`
         continue;
       }
-      if (braceIndex !== -1 && i < braceIndex) {
-        continue; // selector pseudo-class, before the rule block
+      if (braceIndex !== -1) {
+        if (i < braceIndex) {
+          continue; // selector pseudo-class, before the rule block
+        }
+      } else if (!insideBlock) {
+        continue; // no `{` on this line and no block open yet: selector continuation
       }
       results.push(i);
     }
   }
   return results;
+}
+
+/**
+ * Net change in CSS/SCSS/LESS `{`/`}` block depth across `lineText`, outside
+ * strings and comments — the cross-line half of {@link findCssColon}'s
+ * `insideBlock` parameter, since a single line cannot tell a multi-line
+ * selector continuation from a multi-line declaration without knowing
+ * whether a block was already open when the line started. Nested at-rules
+ * (`@media { .a { ... } }`) are approximated with a single depth counter, so
+ * a selector continuation nested inside an at-rule is a known limitation.
+ */
+function cssBlockDepthDelta(lineText: string, languageId: string): number {
+  let delta = 0;
+  const state = initialQuoteState();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+      continue;
+    }
+    const comment = advanceCommentState(lineText, i, ch, {
+      cStyle: true,
+      cStyleLineComment: SCSS_LESS_LANGUAGES.has(languageId),
+    });
+    if (comment === "break") {
+      break; // comment to the end of the line
+    }
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
+    }
+    if (ch === "{") {
+      delta++;
+    } else if (ch === "}") {
+      delta--;
+    }
+  }
+  return delta;
+}
+
+/**
+ * CSS block depth after `lineText`, given the depth it started at (see
+ * {@link cssBlockDepthDelta}). Clamped to 0 so a stray unmatched `}` cannot
+ * push depth negative and desync `insideBlock` for the rest of the document.
+ */
+export function nextCssBlockDepth(
+  lineText: string,
+  depth: number,
+  languageId: string
+): number {
+  return Math.max(0, depth + cssBlockDepthDelta(lineText, languageId));
+}
+
+/**
+ * CSS block depth as of `lineCount` lines scanned via `lineAt`, without
+ * computing per-line targets. Seeds a visible-range slice's starting depth
+ * with whatever rule blocks opened above it left behind — mirrors
+ * {@link computeLineStateBefore} / computeFenceStateBefore in markdown.ts,
+ * which solve the same "a slice doesn't start at line 0" problem.
+ */
+export function computeCssBlockDepthBefore(
+  lineCount: number,
+  lineAt: (index: number) => string,
+  languageId: string
+): number {
+  let depth = 0;
+  for (let i = 0; i < lineCount; i++) {
+    depth = nextCssBlockDepth(lineAt(i), depth, languageId);
+  }
+  return depth;
 }
 
 /**
@@ -712,7 +792,8 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
 function findOccurrences(
   lineText: string,
   op: string,
-  languageId?: string
+  languageId?: string,
+  cssInsideBlock: boolean = true
 ): OperatorTarget[] {
   if (op === "=") {
     return findAssignmentEquals(lineText, languageId);
@@ -720,7 +801,7 @@ function findOccurrences(
   if (op === ":") {
     let indices: number[];
     if (languageId && CSS_LANGUAGES.has(languageId)) {
-      indices = findCssColon(lineText, languageId);
+      indices = findCssColon(lineText, languageId, cssInsideBlock);
     } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
       indices = findTsColon(lineText);
     } else {
@@ -932,12 +1013,20 @@ export type ColumnTarget = OperatorTarget & { opIndex: number };
  * order. An operator with no such occurrence is skipped (the line simply has
  * no column for it); listing the same operator twice claims its first and
  * second occurrences.
+ *
+ * `cssInsideBlock` (see {@link nextCssBlockDepth}) only affects the `:`
+ * operator on CSS/SCSS/LESS lines with no `{` of their own: it tells
+ * {@link findCssColon} whether the line continues a declaration block or a
+ * multi-line selector. Defaults to `true` (declaration context), matching
+ * this function's previous behavior for callers that scan a single line
+ * without surrounding document context.
  */
 export function findOperatorTargets(
   lineText: string,
   operators: string[],
   languageId?: string,
-  initialState: DocScanState = "code"
+  initialState: DocScanState = "code",
+  cssInsideBlock: boolean = true
 ): ColumnTarget[] {
   let text = lineText;
   let offset = 0;
@@ -952,7 +1041,7 @@ export function findOperatorTargets(
   const columns: ColumnTarget[] = [];
   let minIndex = 0;
   for (let opIndex = 0; opIndex < operators.length; opIndex++) {
-    const occurrences = findOccurrences(text, operators[opIndex], languageId);
+    const occurrences = findOccurrences(text, operators[opIndex], languageId, cssInsideBlock);
     const match = occurrences.find((t) => t.insert >= minIndex);
     if (!match) {
       continue;
