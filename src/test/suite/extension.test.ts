@@ -1,6 +1,6 @@
 import * as assert from "assert";
 import * as vscode from "vscode";
-import { findOperatorTargets } from "../../finders";
+import { findOperatorTargets, findAssignmentEquals } from "../../finders";
 import { findAlignmentGroups, computePaddings } from "../../paddings";
 import { buildAlignedText } from "../../copyAligned";
 import {
@@ -323,6 +323,35 @@ suite("resolveOperatorsForLanguage", () => {
     assert.deepStrictEqual(findOperatorTarget(line, ["=>"], "rust"), {
       insert: 11,
       align: 11,
+    });
+  });
+
+  test("Rust: raw string `r#\"...\"#` 内部の `\"` を跨いだ `=` を誤検出しない", () => {
+    const line = 'let s = r#"a="x=y"z"#;';
+    assert.deepStrictEqual(findAssignmentEquals(line, "rust"), [
+      { insert: 6, align: 6 },
+    ]);
+  });
+
+  test("Rust: 内部に `\"` を含まない単純な raw string `r\"...\"` は従来通り動作する", () => {
+    const line = 'let s = r"a=b";';
+    assert.deepStrictEqual(findAssignmentEquals(line, "rust"), [
+      { insert: 6, align: 6 },
+    ]);
+  });
+
+  test("Rust: 二重ハッシュの raw string `r##\"...\"##` は単一 `\"#` の偽終端で閉じない", () => {
+    const line = 'let s = r##"a="#b=c"##;';
+    assert.deepStrictEqual(findAssignmentEquals(line, "rust"), [
+      { insert: 6, align: 6 },
+    ]);
+  });
+
+  test("Rust: raw string 内の `=>` はアロー演算子として検出しない", () => {
+    const line = 'r#"a"x=>y"z"# => 1,';
+    assert.deepStrictEqual(findOperatorTarget(line, ["=>"], "rust"), {
+      insert: 14,
+      align: 14,
     });
   });
 
