@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-04
+
 ### Added
 
 - コマンド `Ghost Align: Disable/Enable for Current Language`（`ghostAlign.toggleLanguage`）を追加。実行するとアクティブエディタの言語を `ghostAlign.disabledLanguages` にワンタッチで追加/削除し、結果を通知する。languageId を手入力して設定を編集する必要がなくなる。
@@ -134,7 +136,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/upu/ghost-align/releases/tag/v0.6.0
 [0.5.0]: https://github.com/upu/ghost-align/releases/tag/v0.5.0
 [0.4.0]: https://github.com/upu/ghost-align/releases/tag/v0.4.0
 [0.3.0]: https://github.com/upu/ghost-align/releases/tag/v0.3.0
