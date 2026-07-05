@@ -27,7 +27,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npm run compile",
+            "command": "node scripts/compile-if-ts.js",
             "statusMessage": "Compiling TypeScript..."
           }
         ]
