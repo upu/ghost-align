@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-05
+
 ### Added
 
 - 整列パスごとに個別に ON/OFF できる機能スコープの設定を追加: `ghostAlign.jsdoc.enabled`（JSDoc `@param` 整列、`alignJsdocParams` の後継）、`ghostAlign.markdownTable.enabled`（Markdown テーブル整列）、`ghostAlign.csv.enabled`（CSV/TSV 整列）— いずれも既定 `true`。これまで Markdown テーブルと CSV/TSV は `ghostAlign.disabledLanguages` で言語ごと無効化するしかなかった。
@@ -180,7 +182,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
 [0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
 [0.6.0]: https://github.com/upu/ghost-align/releases/tag/v0.6.0
