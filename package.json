@@ -212,11 +212,6 @@
           "minimum": 0,
           "description": "Maximum number of ghost characters inserted per alignment column on a single line. For operator and JSDoc @param alignment, when aligning a group would require more, the extremely long outlier lines are excluded and the remaining lines are aligned without them. For Markdown table and CSV/TSV alignment, an outlier cell instead makes its whole column skip alignment (later columns keep aligning from each row's actual position), since excluding a row would leave the table shape broken. 0 means unlimited (default)."
         },
-        "ghostAlign.ghostCharacter": {
-          "type": "string",
-          "default": " ",
-          "description": "Character used for ghost padding. Defaults to a non-breaking space (U+00A0), which renders like a half-width space but is not collapsed by the editor's rendering. Plain ASCII spaces will be collapsed to one cell and break alignment — use NBSP or en-space (U+2002) if you customize this. Leaving this empty in the settings UI falls back to the default."
-        },
         "ghostAlign.ghostColor": {
           "type": "string",
           "default": "rgba(128, 128, 128, 0.25)",

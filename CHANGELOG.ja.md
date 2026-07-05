@@ -21,6 +21,10 @@
 
 - `ghostAlign.alignJsdocParams` を非推奨にし、`ghostAlign.jsdoc.enabled` を後継とした。新キーが未設定の間は旧キーも引き続き有効（新キーの明示値が優先）で、設定 UI では新キーへの誘導が表示される。削除は将来のメジャーバージョンを予定。
 
+### Removed
+
+- `ghostAlign.ghostCharacter` 設定を廃止（破壊的変更）。ゴーストパディングは常に NBSP（U+00A0）で描画される。設定自身の説明に「ASCII スペースを設定すると整列が壊れる」と書かれていた footgun で（VS Code は装飾内の連続 ASCII スペースを折り畳む）、見た目の調整は `ghostAlign.ghostColor` で足りる。設定に `ghostAlign.ghostCharacter` が残っていても単に無視される。Markdown 区切り行の `-` パディングと Copy with Alignment の ASCII スペース具現化は元々この設定と無関係で、影響なし。
+
 ## [0.7.1] - 2026-07-05
 
 ### Fixed

@@ -90,25 +90,21 @@ suite("resolveGhostSettings", () => {
     assert.strictEqual(s.ghostColor, DEFAULT_GHOST_COLOR);
   });
 
-  test("ghostCharacter が空文字列ならデフォルトにフォールバックする", () => {
-    const s = resolveGhostSettings(mockConfig({ ghostCharacter: "" }));
-    assert.strictEqual(s.ghostChar, DEFAULT_GHOST_CHAR);
-  });
-
   test("ghostColor が空文字列ならデフォルトにフォールバックする", () => {
     const s = resolveGhostSettings(mockConfig({ ghostColor: "" }));
     assert.strictEqual(s.ghostColor, DEFAULT_GHOST_COLOR);
   });
 
-  test("ユーザー設定値があればそれが使われる", () => {
-    const s = resolveGhostSettings(
-      mockConfig({
-        ghostCharacter: "·", // middle dot
-        ghostColor: "red",
-      })
-    );
-    assert.strictEqual(s.ghostChar, "·");
+  test("ghostColor のユーザー設定値があればそれが使われる", () => {
+    const s = resolveGhostSettings(mockConfig({ ghostColor: "red" }));
     assert.strictEqual(s.ghostColor, "red");
+  });
+
+  test("廃止された ghostCharacter 設定が残っていても無視され、常に NBSP でパディングする", () => {
+    const s = resolveGhostSettings(
+      mockConfig({ ghostCharacter: "·" }) // middle dot
+    );
+    assert.strictEqual(s.ghostChar, DEFAULT_GHOST_CHAR);
   });
 
   test('"transparent" は色を消す値として保持される（フォールバックしない）', () => {
@@ -1225,12 +1221,9 @@ suite("package.json との既定値同期", () => {
     assert.deepStrictEqual(props["ghostAlign.operators"]?.default, ["="]);
   });
 
-  test("ghostCharacter の既定値が DEFAULT_GHOST_CHAR と一致する", () => {
+  test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {
     const props = configProperties();
-    assert.strictEqual(
-      props["ghostAlign.ghostCharacter"]?.default,
-      DEFAULT_GHOST_CHAR
-    );
+    assert.strictEqual(props["ghostAlign.ghostCharacter"], undefined);
   });
 
   test("ghostColor の既定値が DEFAULT_GHOST_COLOR と一致する", () => {
