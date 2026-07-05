@@ -7,6 +7,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-05
+
 ### Fixed
 
 - `ghostAlign.operators`（または `operatorsByLanguage`）に組み込みトークン（`=`/`:`/`=>`/`//`/`#`/`\`）以外の文字列を指定したとき、文字列リテラルやコメント内の出現まで整列対象になっていた問題を修正。組み込みトークンと同様、文字列・コメントの外にある出現だけが整列対象になる。
@@ -158,7 +160,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
 [0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
 [0.6.0]: https://github.com/upu/ghost-align/releases/tag/v0.6.0
 [0.5.0]: https://github.com/upu/ghost-align/releases/tag/v0.5.0
