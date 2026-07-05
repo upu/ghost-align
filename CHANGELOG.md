@@ -1,164 +1,170 @@
 # Changelog
 
-このプロジェクトの主要な変更点を記録する。
+🇯🇵 [日本語](CHANGELOG.ja.md)
 
-フォーマットは [Keep a Changelog](https://keepachangelog.com/ja/1.1.0/) に準拠し、
-バージョニングは [Semantic Versioning](https://semver.org/lang/ja/) に従う。
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+### Changed
+
+- The changelog is now written in English, with a Japanese companion ([CHANGELOG.ja.md](CHANGELOG.ja.md)) — the same arrangement as the README. Entries for past releases have been translated.
 
 ## [0.7.1] - 2026-07-05
 
 ### Fixed
 
-- `ghostAlign.operators`（または `operatorsByLanguage`）に組み込みトークン（`=`/`:`/`=>`/`//`/`#`/`\`）以外の文字列を指定したとき、文字列リテラルやコメント内の出現まで整列対象になっていた問題を修正。組み込みトークンと同様、文字列・コメントの外にある出現だけが整列対象になる。
-- Ruby のヒアドキュメント（`<<~SQL` / `<<-SQL` / `<<SQL`、クォート付き識別子含む）と PHP の heredoc/nowdoc（`<<<EOT` / `<<<'EOT'`）の本文にある `=`/`=>` を、実際のコードと誤認して整列対象にしていた問題を修正。開始行から終端の識別子行までを行をまたいで追跡し、本文中は演算子検出をスキップするようにした。Ruby の左シフト演算子（`x << 2`）はヒアドキュメント開始と区別され、従来通り整列される。
+- Fixed custom tokens in `ghostAlign.operators` (or `operatorsByLanguage`) — strings other than the built-in tokens (`=`/`:`/`=>`/`//`/`#`/`\`) — also matching occurrences inside string literals and comments. Like the built-in tokens, only occurrences outside strings and comments are now aligned.
+- Fixed `=`/`=>` inside the body of Ruby heredocs (`<<~SQL` / `<<-SQL` / `<<SQL`, including quoted identifiers) and PHP heredocs/nowdocs (`<<<EOT` / `<<<'EOT'`) being mistaken for real code and aligned. The body is now tracked across lines from the opening line to the terminating identifier line, and operator detection is skipped inside it. Ruby's left-shift operator (`x << 2`) is distinguished from a heredoc opener and keeps aligning as before.
 
 ## [0.7.0] - 2026-07-05
 
 ### Added
 
-- Jupyter などノートブックのセルエディタ（URI スキーム `vscode-notebook-cell`）を整列対象に追加。Python セルの `=` 整列や Markdown セルのテーブル整列が通常のファイルと同様に効くようになった。
-- 行末の継続マーカー `\`（バックスラッシュ）を新しい整列トークンとして追加。`ghostAlign.operators`（または `operatorsByLanguage`）に `"\\"` を指定すると、シェルスクリプトや Makefile、C プリプロセッサの `#define` 継続行のように複数行にまたがる末尾の `\` を縦に揃えられる。対象になるのは行の最後の非空白文字である `\` のみで、文字列やエスケープシーケンス内の `\` は対象外。どの言語の既定オペレーターにも追加していないオプトイン機能。
+- Notebook cell editors (URI scheme `vscode-notebook-cell`), such as Jupyter, are now aligned. `=` alignment in Python cells and table alignment in Markdown cells work the same as in regular files.
+- Added the line-continuation marker `\` (backslash) as a new alignment token. Specify `"\\"` in `ghostAlign.operators` (or `operatorsByLanguage`) to vertically align the trailing `\` of lines that continue onto the next one, as in shell scripts, Makefiles, or C preprocessor `#define` continuations. Only a `\` that is the last non-whitespace character on the line is aligned; `\` inside strings or escape sequences is not. Opt-in — it is not added to any language's default operators.
 
 ### Changed
 
-- `ghostAlign.maxPadding` が Markdown テーブル / CSV・TSV のアライメントにも適用されるようになった。幅が極端に広いセルが1つあっても、そのセルを含む列だけアライメントをスキップし（表としての形は保つ）、以降の列は各行の実位置を基準に整列を続ける。これまでは演算子アライメントと JSDoc `@param` のみが対象だった。
+- `ghostAlign.maxPadding` now also applies to Markdown table and CSV/TSV alignment. When a single cell is extremely wide, only the column containing it skips alignment (the table keeps its shape), and later columns keep aligning based on each row's actual positions. Previously only operator alignment and JSDoc `@param` respected the limit.
 
 ### Fixed
 
-- Python の複数行にまたがる triple-quote 文字列（`"""..."""` / `'''...'''`）内にある `=` などの演算子が、docstring 内のサンプルコード（`x = 1` のような記述）を実際の代入と誤認して整列対象になっていた問題を修正。`/* ... */` ブロックコメントや TS/JS のテンプレートリテラル（v0.5.0）と同様、triple-quote の開閉状態を行をまたいで追跡するようにした。同一行で閉じる triple-quote は従来通り機能する。
-- YAML のブロックスカラー（`key: |` / `key: >`、`|-`/`|+`/`>-`/`>+` などのチョンピング指定子を含む）の中身にある `:` を、YAML のマッピングコロンと誤認して整列対象にしていた問題を修正。ブロックスカラーはインデントの減少で終わる構文（デリミタで閉じるCSSのブロックやMarkdownのフェンスとは異なる）のため、キー行のインデント幅を基準に行をまたいで継続状態を追跡するようにした。GitHub Actions の `run: |` に続くシェルスクリプトなどで起きやすいケース。
-- Rust の raw string リテラル（`r"..."` / `r#"..."#` / `r##"..."##` など）の中身にリテラルの `"` が含まれる場合、単純なクォート・トグルではその内部の `=`/`=>` を実際のコードと誤認して整列対象になっていた問題を修正。`#` の数に対応した開閉デリミタ（`r` + `#`*N + `"` … `"` + `#`*N）を一つのトークンとして認識するようにした。単一行で閉じない raw string（複数行）は他の構文と同様に対象外。
+- Fixed operators like `=` inside Python multi-line triple-quoted strings (`"""..."""` / `'''...'''`) being aligned — sample code in a docstring (like `x = 1`) was mistaken for a real assignment. The open/close state of triple quotes is now tracked across lines, as for `/* ... */` block comments and TS/JS template literals (v0.5.0). Triple quotes that close on the same line keep working as before.
+- Fixed `:` inside YAML block scalars (`key: |` / `key: >`, including chomping indicators such as `|-`/`|+`/`>-`/`>+`) being mistaken for YAML mapping colons and aligned. Block scalars end with a decrease in indentation (unlike CSS blocks or Markdown fences, which close with a delimiter), so the continuation state is now tracked across lines relative to the key line's indentation. A common case is shell scripts following `run: |` in GitHub Actions.
+- Fixed `=`/`=>` inside Rust raw string literals (`r"..."` / `r#"..."#` / `r##"..."##`, and so on) being mistaken for real code when the literal contains a literal `"` — a plain quote toggle broke there. The opening and closing delimiters matching the number of `#`s (`r` + `#`\*N + `"` … `"` + `#`\*N) are now recognized as a single token. Raw strings that do not close on a single line (multi-line) remain out of scope, like other constructs.
 
 ## [0.6.0] - 2026-07-04
 
 ### Added
 
-- コマンド `Ghost Align: Disable/Enable for Current Language`（`ghostAlign.toggleLanguage`）を追加。実行するとアクティブエディタの言語を `ghostAlign.disabledLanguages` にワンタッチで追加/削除し、結果を通知する。languageId を手入力して設定を編集する必要がなくなる。
+- Added the command `Ghost Align: Disable/Enable for Current Language` (`ghostAlign.toggleLanguage`). It adds or removes the active editor's language in `ghostAlign.disabledLanguages` in one step and reports the result in a notification — no more editing settings by typing the languageId by hand.
 
 ### Fixed
 
-- CSS/SCSS/LESS で、複数行にまたがるカンマ区切りセレクタ（`.foo:hover,` のように `{` が同じ行にない行）の疑似クラス/疑似要素の `:` を宣言コロンと誤検出し、整列対象に紛れ込む問題を修正。`{`/`}` のブロック深さを行をまたいで追跡し、まだルールブロックが開いていない行の `:` は除外するようにした。
-- 10,000 行以上の巨大な Markdown ファイルで、単一のテーブルが可視範囲＋拡張上限（1000行）を超える場合に、スクロール位置によって列の揃え位置が変わることがあった問題を修正。CSV/TSV（v0.5.0 で解消済み）と同様、テーブルの列幅をドキュメント全体から一度キャッシュして使うようにした（編集時のみ全体を再計算し、スクロールでは再計算しない）。
+- Fixed pseudo-class/pseudo-element `:` in CSS/SCSS/LESS comma-separated selectors spanning multiple lines (lines like `.foo:hover,` with no `{` on the same line) being misdetected as declaration colons and mixed into alignment. The `{`/`}` block depth is now tracked across lines, and `:` on lines where no rule block is open yet is excluded.
+- Fixed column alignment positions changing with the scroll position in huge Markdown files of 10,000+ lines when a single table exceeded the visible range plus its extension limit (1,000 lines). As with CSV/TSV (fixed in v0.5.0), table column widths are now computed once from the whole document and cached (recomputed on edits only, not on scroll).
 
 ## [0.5.0] - 2026-07-03
 
 ### Added
 
-- コマンド `Ghost Align: Copy with Alignment`（`ghostAlign.copyAligned`）を追加。選択範囲（未選択ならドキュメント全体）に現在表示されているゴーストパディングを実際の ASCII スペースとして挿入し、クリップボードにコピーする。Markdown テーブル / CSV・TSV / JSDoc `@param` の各整列パスでも機能し、コピー先での互換性のためゴースト文字設定に関わらず常に ASCII スペースを使う。ドキュメント自体は変更しない。
+- Added the command `Ghost Align: Copy with Alignment` (`ghostAlign.copyAligned`). It copies the selection (or the whole document when nothing is selected) to the clipboard with the currently displayed ghost padding inserted as real ASCII spaces. It also works with the Markdown table / CSV・TSV / JSDoc `@param` alignment paths, and always uses ASCII spaces regardless of the ghost character setting for compatibility at the destination. The document itself is not modified.
 
 ### Changed
 
-- Markdown テーブルの区切り行（`|---|:--:|`）のパディングを、`ghostCharacter` 設定ではなく `-` で描画するようにした。罫線が途切れずに連続して見え、挿入位置もダッシュ列の末尾（右寄せ `---:` / 中央寄せ `:---:` では末尾の `:` の直前）になるため、整列マーカーの `:` はセルの端に残る。Copy with Alignment でも区切り行は `-` で実体化されるので、コピーした表は GFM として妥当なまま。データ行は従来どおり `ghostCharacter` 設定に従う。
+- Markdown table separator rows (`|---|:--:|`) are now padded with `-` instead of the `ghostCharacter` setting. The rule line looks continuous, and the padding is inserted at the end of the dash run (right before the trailing `:` for right-aligned `---:` / centered `:---:`), so the alignment marker `:` stays at the cell edge. Copy with Alignment also materializes separator rows with `-`, so copied tables stay valid GFM. Data rows keep following the `ghostCharacter` setting.
 
 ### Fixed
 
-- 複数行にまたがる `/* ... */` ブロックコメントや、TypeScript/JavaScript の複数行テンプレートリテラル（バッククォート）の内部にある `=` などの演算子が、コメント/リテラルの外にある通常のコードと誤って整列対象になっていた問題を修正。行単位ではなくドキュメント（可視範囲モードではスライス）レベルで各行の開始状態を追跡するようにした。
-- 10,000 行以上の大きい Markdown ファイルで、可視範囲より上で開いたコードフェンス（` ``` ` / `~~~`）の状態を追跡していなかった問題を修正。可視範囲の直前まで軽量にフェンス開閉だけを事前走査し、フェンス内で開始した可視範囲では、その中のテーブル風の行を整列対象外にする。全行スキャンする通常サイズのファイルの挙動に変化はない。
-- `ghostAlign.ghostCharacter` を設定 UI で空文字列にクリアした際のフォールバック既定値が、コード側では ASCII スペースになっており、意図していた NBSP（U+00A0）と食い違っていた問題を修正。ASCII スペースは VS Code の装飾でエディタに1文字に折り畳まれるため、この経路を通ると整列が静かに壊れていた。
-- 10,000 行以上の CSV/TSV で、スクロール位置によって列の揃え位置が変わることがあった既知の制約（v0.3.0 で明記）を解消。列ごとの最大幅を全行から事前計算してキャッシュするようにし、可視範囲に限定するのは装飾の生成だけになった。編集時は変更された行だけを再走査するため、大きなファイルでも入力のたびに全行を読み直すことはない。
+- Fixed operators like `=` inside multi-line `/* ... */` block comments and multi-line TypeScript/JavaScript template literals (backticks) being aligned together with regular code outside the comment/literal. Each line's starting state is now tracked at the document level (or slice level in visible-range mode) instead of per line.
+- Fixed code fences (` ``` ` / `~~~`) opened above the visible range not being tracked in large Markdown files of 10,000+ lines. Fence opens/closes are now cheaply pre-scanned up to the start of the visible range, and when the visible range starts inside a fence, table-like lines within it are excluded from alignment. Normal-size files, which scan every line, behave the same as before.
+- Fixed the fallback default used when `ghostAlign.ghostCharacter` is cleared to an empty string in the settings UI: the code fell back to an ASCII space instead of the intended NBSP (U+00A0). VS Code collapses consecutive ASCII spaces in decorations to a single character, so alignment silently broke through this path.
+- Resolved the known limitation (documented in v0.3.0) where column alignment in CSV/TSV files of 10,000+ lines could shift with the scroll position. Per-column maximum widths are now precomputed from all lines and cached; only decoration generation is limited to the visible range. On edits, only the changed lines are rescanned, so large files are not re-read on every keystroke.
 
 ## [0.4.0] - 2026-07-03
 
 ### Added
 
-- 既定の整列対象言語に Swift / Kotlin / Dart / Zig を追加。`=` の代入がグループ間で揃うようになり、Swift/Dart の `??=`、Kotlin の `===` / `!==` も誤検出されない。
-- `ghostAlign.disabledLanguages` 設定を追加。languageId を列挙すると、その言語のドキュメントでは Markdown テーブル / CSV / JSDoc を含む整列を丸ごと無効化できる。`ghostAlign.operatorsByLanguage` より優先される。
+- Added Swift / Kotlin / Dart / Zig to the default alignment languages. `=` assignments now align across groups, without misdetecting Swift/Dart's `??=` or Kotlin's `===` / `!==`.
+- Added the `ghostAlign.disabledLanguages` setting. List languageIds to disable alignment entirely — including Markdown tables / CSV / JSDoc — for documents in those languages. It takes precedence over `ghostAlign.operatorsByLanguage`.
 
 ### Changed
 
-- TypeScript / TypeScriptReact / JavaScript / JavaScriptReact の既定の整列対象を `=` のみから `:` と `=` に変更。型注釈やオブジェクトリテラルの `:`（三項演算子・文字列・コメント内は除外）が、代入の `=` と同じ2カラムで既定で揃うようになった。`case` ラベルの `:` も同じ判定に含まれるため、連続する `case` ラベルは意図した挙動として既定で揃う。
+- Changed the default alignment targets for TypeScript / TypeScriptReact / JavaScript / JavaScriptReact from `=` only to `:` and `=`. The `:` of type annotations and object literals (ternaries, strings, and comments excluded) now aligns by default as a second column alongside assignment `=`. `case` label `:` falls under the same detection, so consecutive `case` labels aligning by default is intended behavior.
 
 ### Fixed
 
-- PHP の複合代入 `.=`（`$s .= "x";`）が代入として認識されず、パディングが `.` と `=` の間に挿入されて演算子が視覚的に分断される問題を修正。`+=` などと同様、`insert` が `.` の位置、`align` が `=` の位置になる。あわせて Rust の閉区間レンジ `0..=n` の `=` を代入として誤検出し、アライメントグループを汚す問題も修正した。
-- 宇宙船演算子 `<=>`（Ruby / PHP、`a <=> b` など）の `=>` 部分をアロー/ハッシュロケットとして誤検出し、整列対象になってしまう問題を修正。
-- Rust のライフタイム（`&'static str`、`'a` など）を含む行で `'` を文字列開始と誤認し、行末までの `=` / `=>` 検出が壊れる問題を修正。Rust では `'` を汎用の引用符として扱わず、char リテラル（`'x'` `'\n'` など）だけを個別にスキップするようにした。他言語の `'...'` 文字列の扱いは変更なし。
-- C / C++ の数値桁区切り `'`（`1'000'000`）を文字列開始のクォートと誤認し、行内に奇数個あると行末までの `=` を見落とす問題を修正。`'` の前後が16進数字（`0-9a-fA-F`）であれば桁区切りとしてスキップするようにした。`char c = '=';` のような char リテラルは引き続き文字列として除外される。
+- Fixed PHP's compound assignment `.=` (`$s .= "x";`) not being recognized as an assignment, so padding was inserted between `.` and `=`, visually splitting the operator. As with `+=`, the insert position is now at `.` and the alignment position at `=`. Also fixed Rust's inclusive range `0..=n` having its `=` misdetected as an assignment and polluting alignment groups.
+- Fixed the `=>` part of the spaceship operator `<=>` (Ruby / PHP, e.g. `a <=> b`) being misdetected as an arrow/hash rocket and aligned.
+- Fixed lines containing Rust lifetimes (`&'static str`, `'a`, and so on) treating `'` as the start of a string, breaking `=` / `=>` detection through the end of the line. In Rust, `'` is no longer treated as a general quote; only char literals (`'x'`, `'\n'`, and so on) are individually skipped. Handling of `'...'` strings in other languages is unchanged.
+- Fixed C / C++ digit separators `'` (`1'000'000`) being mistaken for an opening quote — an odd count on a line hid every `=` through the end of the line. A `'` surrounded by hex digits (`0-9a-fA-F`) is now skipped as a digit separator. Char literals like `char c = '=';` are still excluded as strings.
 
 ## [0.3.0] - 2026-07-02
 
 ### Added
 
-- 既定の整列対象言語を拡充。Go / Lua / C / C++ / C# / Java を `=` の整列対象に追加し、Ruby / PHP / Rust は `=` に加えて `=>`（ハッシュロケット・連想配列・match アーム）も既定で揃うようにした。Lua の `--` コメントと比較演算子 `~=`、PHP の `#` コメントも正しく除外される。
-- CSV / TSV の列整列に対応。言語 ID が `csv` / `tsv` のドキュメント（Rainbow CSV などの拡張機能が提供）で、カンマ（TSV はタブ）区切りの各列を非破壊で揃え、区切り文字が縦に揃って見えるようにした。ダブルクォート内のカンマ（RFC 4180、`""` エスケープを含む）は区切りとして扱わない。
-- `ghostAlign.maxPadding` 設定を追加。1行・1カラムあたりに挿入するゴースト文字数の上限を指定でき、1行だけ極端に長い行があるグループでは外れ値の行を除外して残りの行だけで揃える。`0`（既定）は無制限で従来どおりの挙動。
-- JavaScript / TypeScript で、連続する JSDoc の `@param` 行を整列する機能を追加。`{型}` の後のパラメータ名カラムと、その後の説明文カラムがそれぞれ縦に揃う（`[name=default]` のような省略可能パラメータの角括弧記法にも対応）。既定で有効、`ghostAlign.alignJsdocParams` で無効化できる。
-- 1行内の複数オペレーターを同時に整列するマルチカラム整列に対応。`ghostAlign.operators`（および `operatorsByLanguage`）のリスト順が「優先度」かつ「左から右へのカラム順」になり、例えば `["=", "#"]` を設定すると連続行の代入 `=` を揃えたうえで行末コメント `#` も揃う。後段のオペレーターは前段のカラムより後方の出現だけを対象とし、同じオペレーターを2回並べると1つ目・2つ目の出現がそれぞれのカラムになる。
+- Expanded the default alignment languages. Go / Lua / C / C++ / C# / Java are now aligned on `=`, and Ruby / PHP / Rust align `=>` (hash rockets, associative arrays, match arms) by default in addition to `=`. Lua's `--` comments and its `~=` comparison operator, and PHP's `#` comments, are correctly excluded.
+- Added CSV / TSV column alignment. Documents with language ID `csv` / `tsv` (provided by extensions such as Rainbow CSV) get non-destructive alignment of comma-separated (tab-separated for TSV) columns so the separators appear vertically aligned. Commas inside double quotes (RFC 4180, including `""` escapes) are not treated as separators.
+- Added the `ghostAlign.maxPadding` setting. It caps the number of ghost characters inserted per line and column; in a group where a single line is extremely long, the outlier is excluded and the remaining lines align among themselves. `0` (default) means unlimited — the previous behavior.
+- Added alignment of consecutive JSDoc `@param` lines in JavaScript / TypeScript. The parameter name column after the `{type}` and the following description column each align vertically (bracket notation for optional parameters like `[name=default]` is supported). Enabled by default; can be disabled with `ghostAlign.alignJsdocParams`.
+- Added multi-column alignment of several operators on one line. The list order of `ghostAlign.operators` (and `operatorsByLanguage`) now serves as both priority and left-to-right column order; for example, `["=", "#"]` aligns assignment `=` across consecutive lines and then also aligns trailing `#` comments. A later operator only matches occurrences after the previous column, and listing the same operator twice makes its first and second occurrences separate columns.
 
 ### Changed
 
-- 10,000 行以上の大きいファイルでは、整列の再計算を可視範囲（±100 行のバッファ＋グループ境界までの拡張）に限定し、スクロールに追従して再描画するようにした。編集時の計算量がファイル全体でなく可視範囲に比例する。可視範囲の境界をまたぐグループも境界まで拡張して正しく揃う。既知の制約: 巨大な CSV/TSV では列揃えが可視範囲内の最大幅基準になり、巨大な Markdown では可視範囲より上で開いたコードフェンスの状態を追跡しない。通常サイズのファイルの挙動は変わらない。
+- In large files of 10,000+ lines, alignment recomputation is now limited to the visible range (a ±100-line buffer, extended to group boundaries) and follows scrolling. Editing cost is proportional to the visible range instead of the whole file. Groups straddling the visible-range boundary are extended to the boundary and align correctly. Known limitations: in huge CSV/TSV files, column alignment is based on the maximum width within the visible range, and in huge Markdown files, code fences opened above the visible range are not tracked. Normal-size files behave the same.
 
 ### Removed
 
-- `ghostAlign.enabled` 設定を廃止（破壊的変更）。有効/無効はトグルコマンド（`Ghost Align: Toggle`、ウィンドウをまたいで保持）に一本化した。従来は設定とトグル状態の二重管理になっており、設定で無効にしていてもステータスバーや通知が「ON」と表示される不整合があった。設定に `ghostAlign.enabled` が残っていても単に無視される。
+- Removed the `ghostAlign.enabled` setting (breaking change). Enabling/disabling is unified into the toggle command (`Ghost Align: Toggle`, persisted across windows). Previously the state was duplicated between the setting and the toggle, and the status bar and notifications could show "ON" even when the setting had the extension disabled. A leftover `ghostAlign.enabled` in settings is simply ignored.
 
 ### Fixed
 
-- Ruby の正規表現マッチ演算子 `=~`（`a =~ /x/`）の `=` を代入として誤検出し、整列対象になってしまう問題を修正。
-- BMP 外（サロゲートペア）の文字を含む行で整列が視覚的にずれる問題を修正。文字幅の計算をコードポイント単位に変更し、絵文字（U+1F300 以降）や CJK 統合漢字拡張 B 以降は幅 2、数学用英数字などの幅 1 の文字は幅 1 として数えるようにした（異体字セレクタや ZWJ 絵文字シーケンスは既知の制約として対象外）。
-- 出力パネル・デバッグコンソール・検索エディタなどの非ファイルエディタにも整列装飾が適用され、ログ表示などが歪む可能性があった問題を修正。整列対象を通常のファイル（`file` / `untitled` / `vscode-remote` / `vscode-vfs` スキーマ）に限定した。
-- YAML の丸ごとコメント行（`# key: value`）の `:` をキー区切りとして誤検出し、周囲の整列グループが結合されたり列が押し上げられたりする問題を修正。JSONC の `//` 行コメント・単一行 `/* ... */` ブロックコメント内の `:` も対象外にした（JSON はコメント構文がないため挙動変更なし）。
-- Python / シェルスクリプト / Ruby / Makefile / TOML / dotenv / properties / INI で、`# x = 1` のような丸ごとコメント行（INI は `;` コメントも）の `=` を代入として誤検出し、周囲の整列グループが結合されたり列が押し上げられたりする問題を修正。これらの言語では `//` をコメントとして扱わなくなり、Python の切り捨て除算（`a // b`）や `//=` も正しく扱われる。
-- 複合代入演算子（`+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `**=` `||=` `&&=` `??=` や Makefile/Go の `:=` `?=`、シフト代入 `<<=` `>>=`）でゴーストパディングが演算子の途中（`+` と `=` の間など）に挿入され、表示が壊れる問題を修正。パディングは演算子の手前に入り、グループ内では `=` の列で揃うようにした。
+- Fixed Ruby's regex match operator `=~` (`a =~ /x/`) having its `=` misdetected as an assignment and aligned.
+- Fixed visual misalignment on lines containing characters outside the BMP (surrogate pairs). Character width is now computed per code point: emoji (U+1F300 and later) and CJK Unified Ideographs Extension B and later count as width 2, while width-1 characters such as mathematical alphanumerics count as 1 (variation selectors and ZWJ emoji sequences remain a known limitation).
+- Fixed alignment decorations being applied to non-file editors — the output panel, debug console, search editor — potentially distorting log views. Alignment is now limited to regular files (`file` / `untitled` / `vscode-remote` / `vscode-vfs` schemes).
+- Fixed the `:` in fully commented-out YAML lines (`# key: value`) being misdetected as a key separator, which merged surrounding alignment groups or pushed columns out. `:` inside JSONC `//` line comments and single-line `/* ... */` block comments is now excluded too (JSON has no comment syntax, so its behavior is unchanged).
+- Fixed the `=` in fully commented-out lines like `# x = 1` (and `;` comments for INI) being misdetected as an assignment in Python / shell scripts / Ruby / Makefile / TOML / dotenv / properties / INI, which merged surrounding alignment groups or pushed columns out. These languages no longer treat `//` as a comment, so Python's floor division (`a // b`) and `//=` are handled correctly.
+- Fixed ghost padding being inserted in the middle of compound assignment operators (`+=` `-=` `*=` `/=` `%=` `&=` `|=` `^=` `**=` `||=` `&&=` `??=`, Makefile/Go `:=` `?=`, and shift assignments `<<=` `>>=`) — for example between `+` and `=` — breaking the display. Padding now goes before the operator, and groups align on the `=` column.
 
 ## [0.2.0] - 2026-07-01
 
 ### Added
 
-- Python / シェルスクリプト / Ruby / INI / Makefile を既定で代入 `=` の整列対象に追加。`dotenv` / `properties` / `toml` と同様に、`ghostAlign.operatorsByLanguage` の既定値へ `python` / `shellscript` / `ruby` / `ini` / `makefile` を `["="]` として追加した（設定なしでこれらの言語の連続する代入行が揃う）。
-- アロー関数（`=>`）の整列に対応。`ghostAlign.operators` / `ghostAlign.operatorsByLanguage` に `"=>"` を指定すると、連続する行のアロー関数の `=>` の位置を揃える（例: `const onClick = (e) => ...` のような行が並ぶとき）。文字列・コメント内の `=>` は対象外。
-- TypeScript / JavaScript の型注釈コロン（`:`）の整列に対応。`ghostAlign.operatorsByLanguage` に `"typescript": [":"]` のように指定すると、変数宣言・関数引数・interface/type のプロパティなどの型注釈やオブジェクトリテラルの `key: value` の `:` を連続行で揃える。三項演算子（`cond ? a : b`）の `:` や、文字列・コメント内の `:` は対象外。
+- Added Python / shell scripts / Ruby / INI / Makefile to the default `=` alignment targets. As with `dotenv` / `properties` / `toml`, the defaults of `ghostAlign.operatorsByLanguage` now include `python` / `shellscript` / `ruby` / `ini` / `makefile` as `["="]` (consecutive assignment lines in these languages align without any configuration).
+- Added arrow function (`=>`) alignment. Specify `"=>"` in `ghostAlign.operators` / `ghostAlign.operatorsByLanguage` to align the position of `=>` across consecutive lines (for example, runs of lines like `const onClick = (e) => ...`). `=>` inside strings and comments is excluded.
+- Added TypeScript / JavaScript type annotation colon (`:`) alignment. Configure `ghostAlign.operatorsByLanguage` with e.g. `"typescript": [":"]` to align the `:` of type annotations on variable declarations, function parameters, interface/type properties, and object literal `key: value` across consecutive lines. Ternary `:` (`cond ? a : b`) and `:` inside strings and comments are excluded.
 
 ### Fixed
 
-- Markdown テーブルのセル内インラインコード（`` `a|b` ``）に含まれる `|` を列区切りと誤認して該当行の列がずれる問題を修正。バックティックで囲まれたコードスパン内の `|` は区切りとして扱わないようにした。
-- フェンスドコードブロック（` ``` ` / `~~~`）内に書いたテーブル風の行（コード例など）が誤って整列対象になる問題を修正。フェンスの開閉を追跡し、フェンス内の行はテーブル検出の対象外にした。
-- SCSS / LESS の `//` 行コメント内の `:` をアライメント対象から誤検出しないよう修正（CSS には `//` コメント構文がないため、この除外は SCSS/LESS のみに適用）。
-- CSS / SCSS / LESS のブロックコメント `/* ... */` 内の `:` をアライメント対象から誤検出しないよう修正。単一行内で閉じるブロックコメントのみ対象（複数行にまたがるブロックコメントは既知の制約として対象外）。
-- YAML のシングルクォートキー（`'a:b': 1`）内の `:` を区切りとして誤検出しないよう修正。JSON/JSONC と共有する `findColonOutsideString` にシングルクォートの追跡を追加した（JSON はシングルクォート文字列を使わないため既存挙動に影響なし）。
-- テンプレートリテラル（バッククォート）内の `=`/`:`/`//`/`#` をアライメント対象から誤検出しないよう修正。単一行内で閉じるテンプレートリテラルのみ対象（複数行にまたがるものは既知の制約として対象外）。JSON/YAML の `:` 判定（`findColonOutsideString`）はバッククォートに構文上の意味がないため対象外のまま。
-- 全角文字（日本語などの East Asian Width が Wide/Fullwidth の文字）を含む行で整列が視覚的にずれる問題を修正。全角文字を幅 2 として数えるようにし、Markdown テーブルの列区切りや演算子の整列が全角セルを含む場合でも見た目どおりに揃うようにした（絵文字などのサロゲートペア文字は既知の制約として対象外）。
+- Fixed columns shifting on Markdown table rows whose cells contain inline code with a `|` (`` `a|b` ``) — the `|` was mistaken for a column separator. `|` inside backtick code spans is no longer treated as a separator.
+- Fixed table-like lines written inside fenced code blocks (` ``` ` / `~~~`) — such as code samples — being aligned. Fence opens/closes are tracked and lines inside fences are excluded from table detection.
+- Fixed `:` inside SCSS / LESS `//` line comments being misdetected as an alignment target (CSS has no `//` comment syntax, so this exclusion applies to SCSS/LESS only).
+- Fixed `:` inside CSS / SCSS / LESS block comments (`/* ... */`) being misdetected as an alignment target. Applies to block comments closed within a single line only (block comments spanning multiple lines remain a known limitation).
+- Fixed `:` inside YAML single-quoted keys (`'a:b': 1`) being misdetected as a separator. Single-quote tracking was added to `findColonOutsideString`, which is shared with JSON/JSONC (JSON does not use single-quoted strings, so its existing behavior is unaffected).
+- Fixed `=`/`:`/`//`/`#` inside template literals (backticks) being misdetected as alignment targets. Applies to template literals closed within a single line only (ones spanning multiple lines remain a known limitation). The JSON/YAML `:` detection (`findColonOutsideString`) is left untouched, as backticks have no syntactic meaning there.
+- Fixed visual misalignment on lines containing full-width characters (East Asian Width Wide/Fullwidth, such as Japanese). Full-width characters now count as width 2, so Markdown table separators and operator alignment line up as displayed even when cells contain full-width text (surrogate-pair characters such as emoji remain a known limitation).
 
 ## [0.1.0] - 2026-06-30
 
 ### Added
 
-- Markdown テーブルの列の表示整列に対応。ソースを変えずに、各列の `|` 区切りが縦に揃って見えるようゴーストパディングを挿入する（ヘッダ行・区切り行・データ行を含むテーブルを検出。セル内のエスケープ `\|` も考慮）。
-- 行末コメント（`//` / `#`）の整列に対応。`ghostAlign.operators` / `ghostAlign.operatorsByLanguage` に `"//"` または `"#"` を指定すると、連続する行のコメント開始位置を揃える（例: TypeScript で `"typescript": ["//"]`）。文字列内・`http://` などの URL・行全体がコメントの行は対象外。整列は 1 行 1 カラムで、`operators` の並び順が優先度になる。
+- Added visual alignment of Markdown table columns. Ghost padding makes each column's `|` separators appear vertically aligned without changing the source (tables with a header row, separator row, and data rows are detected; escaped `\|` inside cells is handled).
+- Added trailing comment (`//` / `#`) alignment. Specify `"//"` or `"#"` in `ghostAlign.operators` / `ghostAlign.operatorsByLanguage` to align where comments start across consecutive lines (for example, `"typescript": ["//"]`). Occurrences inside strings, URLs such as `http://`, and whole-line comments are excluded. Alignment is one column per line, with the order of `operators` as priority.
 
 ### Changed
 
-- Marketplace のカテゴリを `Formatters` から `Visualization` に変更。Ghost Align はソースをフォーマットせず表示のみ整える拡張のため、フォーマッタを期待した誤認を避ける。
+- Changed the Marketplace category from `Formatters` to `Visualization`. Ghost Align never formats the source — it only adjusts the display — so this avoids being mistaken for a formatter.
 
 ### Fixed
 
-- CSS / SCSS / LESS で、擬似クラス（`a:hover`）・擬似要素（`::before`）・`url(http://...)` 内の `:` をアライメント対象から誤検出しないよう修正。プロパティ宣言の `:`（例: `color: red`）のみを揃える。
-- タブを含む行・タブインデントで桁がずれる問題を修正。アライメントとグループ分割を文字数ではなく視覚カラム（`editor.tabSize` を反映）で計算するようにした。スペースとタブで見た目が同じインデントの行も同じグループにまとまる。
-- エディタを分割（split）したとき、非アクティブ側の可視エディタが整列されない問題を修正。可視なすべてのエディタに整列を適用し、可視構成の変更でも再描画するようにした。
+- Fixed `:` in CSS / SCSS / LESS pseudo-classes (`a:hover`), pseudo-elements (`::before`), and `url(http://...)` being misdetected as alignment targets. Only the property declaration `:` (for example `color: red`) is aligned.
+- Fixed misaligned columns on lines containing tabs or tab indentation. Alignment and group splitting are now computed in visual columns (respecting `editor.tabSize`) instead of character counts. Lines whose indentation looks the same with spaces and with tabs now group together.
+- Fixed the inactive visible editor not being aligned when the editor is split. Alignment is applied to every visible editor and redrawn when the visible editor set changes.
 
 ## [0.0.1] - 2026-06-28
 
 ### Added
 
-- 初回リリース。
-- Decoration API による `=` のゴーストアライメント。ソースコードを変更せず、連続する行のオペレーター位置を表示上で揃える。
-- `Ghost Align: Toggle` コマンド（`ghostAlign.toggle`）で有効・無効を切り替え。
-- 設定項目:
-  - `ghostAlign.enabled` — 視覚的アライメントの有効・無効。
-  - `ghostAlign.operators` — 揃えるオペレーターの一覧（デフォルト `["="]`）。
-  - `ghostAlign.operatorsByLanguage` — 言語 ID 別のオペレーター上書き。既定で `json` / `jsonc` / `yaml` / `css` / `scss` / `less` は `:`、`dotenv` / `properties` / `toml` は `=` を揃える。
-  - `ghostAlign.showStatusBar` — Ghost Align の ON/OFF を示すステータスバー項目の表示（既定 `false`、クリックでトグル）。
-  - `ghostAlign.ghostCharacter` — ゴーストパディングに使う文字（デフォルトは NBSP）。
-  - `ghostAlign.ghostColor` — ゴーストパディングの色付け。実際の空白と区別できるよう前景・背景に適用。
-- 設定変更時にデコレーションを再描画。
+- Initial release.
+- Ghost alignment of `=` via the Decoration API. Operator positions across consecutive lines are aligned visually without modifying the source code.
+- `Ghost Align: Toggle` command (`ghostAlign.toggle`) to enable and disable the extension.
+- Settings:
+  - `ghostAlign.enabled` — enable or disable the visual alignment.
+  - `ghostAlign.operators` — list of operators to align (default `["="]`).
+  - `ghostAlign.operatorsByLanguage` — per-language-ID operator overrides. By default `json` / `jsonc` / `yaml` / `css` / `scss` / `less` align `:`, and `dotenv` / `properties` / `toml` align `=`.
+  - `ghostAlign.showStatusBar` — show a status bar item indicating whether Ghost Align is ON or OFF (default `false`; click to toggle).
+  - `ghostAlign.ghostCharacter` — character used for ghost padding (defaults to NBSP).
+  - `ghostAlign.ghostColor` — color for ghost padding, applied to both foreground and background so it can be told apart from real whitespace.
+- Redraw decorations when the configuration changes.
 
 ### Changed
 
-- ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
-- 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
+- Colored ghost padding so it is visually distinguishable from real whitespace.
+- Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
 [Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.1...HEAD
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1

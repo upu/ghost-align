@@ -37,6 +37,15 @@ const EMPTY_UNRELEASED_CHANGELOG = SAMPLE_CHANGELOG.replace(
   ""
 );
 
+const SAMPLE_CHANGELOG_EN = SAMPLE_CHANGELOG.replace("新機能を追加", "Added a feature");
+
+function changelogs(en, ja) {
+  return [
+    { label: "CHANGELOG.md", text: en },
+    { label: "CHANGELOG.ja.md", text: ja },
+  ];
+}
+
 test("compareSemver: 大小関係を返す", () => {
   assert.ok(compareSemver("0.8.0", "0.7.0") > 0);
   assert.equal(compareSemver("0.7.0", "0.7.0"), 0);
@@ -48,22 +57,41 @@ test("todayIso: ローカル日付を YYYY-MM-DD で返す", () => {
 });
 
 test("validate: 不正なバージョン形式はエラー文字列を返す", () => {
-  assert.match(validate("not-a-version", "0.7.0", SAMPLE_CHANGELOG) ?? "", /x\.y\.z/);
-  assert.match(validate("", "0.7.0", SAMPLE_CHANGELOG) ?? "", /x\.y\.z/);
-  assert.match(validate("0.8", "0.7.0", SAMPLE_CHANGELOG) ?? "", /x\.y\.z/);
+  const both = changelogs(SAMPLE_CHANGELOG_EN, SAMPLE_CHANGELOG);
+  assert.match(validate("not-a-version", "0.7.0", both) ?? "", /x\.y\.z/);
+  assert.match(validate("", "0.7.0", both) ?? "", /x\.y\.z/);
+  assert.match(validate("0.8", "0.7.0", both) ?? "", /x\.y\.z/);
 });
 
 test("validate: 現行バージョン以下はエラーを返す", () => {
-  assert.ok(validate("0.7.0", "0.7.0", SAMPLE_CHANGELOG));
-  assert.ok(validate("0.6.0", "0.7.0", SAMPLE_CHANGELOG));
+  const both = changelogs(SAMPLE_CHANGELOG_EN, SAMPLE_CHANGELOG);
+  assert.ok(validate("0.7.0", "0.7.0", both));
+  assert.ok(validate("0.6.0", "0.7.0", both));
 });
 
-test("validate: [Unreleased] が空ならエラーを返す", () => {
-  assert.ok(validate("0.8.0", "0.7.0", EMPTY_UNRELEASED_CHANGELOG));
+test("validate: [Unreleased] が空ならファイル名入りのエラーを返す", () => {
+  const error = validate(
+    "0.8.0",
+    "0.7.0",
+    changelogs(EMPTY_UNRELEASED_CHANGELOG, SAMPLE_CHANGELOG)
+  );
+  assert.match(error ?? "", /CHANGELOG\.md/);
 });
 
-test("validate: 妥当な入力では null を返す", () => {
-  assert.equal(validate("0.8.0", "0.7.0", SAMPLE_CHANGELOG), null);
+test("validate: ja 側だけ [Unreleased] が空でもエラーを返す（desync 検出）", () => {
+  const error = validate(
+    "0.8.0",
+    "0.7.0",
+    changelogs(SAMPLE_CHANGELOG_EN, EMPTY_UNRELEASED_CHANGELOG)
+  );
+  assert.match(error ?? "", /CHANGELOG\.ja\.md/);
+});
+
+test("validate: 両ファイルにエントリがあれば null を返す", () => {
+  assert.equal(
+    validate("0.8.0", "0.7.0", changelogs(SAMPLE_CHANGELOG_EN, SAMPLE_CHANGELOG)),
+    null
+  );
 });
 
 test("finalizeChangelog: 見出しの確定・空の Unreleased の再挿入・リンク参照の更新", () => {
@@ -104,6 +132,20 @@ test("finalizeChangelog: 大部分が CRLF で一部だけ LF という混在入
 
 test("finalizeChangelog: Unreleased 見出しが無ければ例外を投げる", () => {
   assert.throws(() => finalizeChangelog("# Changelog\n", "0.8.0", "2026-07-10"));
+});
+
+test("finalizeChangelog: label 指定時は例外メッセージにそのファイル名が入る", () => {
+  assert.throws(
+    () => finalizeChangelog("# Changelog\n", "0.8.0", "2026-07-10", "CHANGELOG.ja.md"),
+    /CHANGELOG\.ja\.md/
+  );
+});
+
+test("finalizeChangelog: ja の本文でも同じ確定処理がそのまま適用できる", () => {
+  const result = finalizeChangelog(SAMPLE_CHANGELOG, "0.8.0", "2026-07-10", "CHANGELOG.ja.md");
+  assert.ok(result.includes("## [0.8.0] - 2026-07-10"));
+  assert.ok(result.includes("- 新機能を追加。"));
+  assert.ok(result.includes("[Unreleased]: https://github.com/upu/ghost-align/compare/v0.8.0...HEAD"));
 });
 
 test("bumpPackageJsonVersion: version フィールドだけを書き換える", () => {
