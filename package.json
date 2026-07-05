@@ -233,7 +233,7 @@
     "check-types": "tsc --noEmit",
     "check:package": "npm run build && node scripts/check-package-contents.js",
     "test": "vscode-test",
-    "test:prepare-release": "node --test scripts/prepare-release.test.js",
+    "test:scripts": "node --test \"scripts/*.test.js\"",
     "prepare-release": "node scripts/prepare-release.js",
     "package": "node -e \"require('fs').mkdirSync('dist',{recursive:true})\" && vsce package --out dist/ghost-align.vsix",
     "install:vsix": "code --install-extension dist/ghost-align.vsix --force",
