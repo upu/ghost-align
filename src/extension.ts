@@ -338,8 +338,79 @@ const CSV_DELIMITERS = new Map<string, string>([
   ["tsv", "\t"],
 ]);
 
+/**
+ * The slice of vscode.WorkspaceConfiguration the resolvers need. `inspect`
+ * is optional so plain `{ get }` mocks keep working; without it,
+ * explicit-vs-default detection falls back to `get` with an undefined
+ * default.
+ */
+export type GhostAlignConfig = {
+  get<T>(key: string, defaultValue: T): T;
+  inspect?<T>(key: string):
+    | {
+        globalValue?: T;
+        workspaceValue?: T;
+        workspaceFolderValue?: T;
+        globalLanguageValue?: T;
+        workspaceLanguageValue?: T;
+        workspaceFolderLanguageValue?: T;
+      }
+    | undefined;
+};
+
+/**
+ * The value the user explicitly set for `key` at any scope (most specific
+ * wins, mirroring VS Code's own precedence), or undefined when the key is
+ * untouched. `get` can't tell "explicitly set to the default" from "unset",
+ * which is exactly the distinction the migration fallback below needs.
+ */
+function explicitSetting<T>(
+  config: GhostAlignConfig,
+  key: string
+): T | undefined {
+  if (!config.inspect) {
+    return config.get<T | undefined>(key, undefined);
+  }
+  const inspected = config.inspect<T>(key);
+  if (!inspected) {
+    return undefined;
+  }
+  return (
+    inspected.workspaceFolderLanguageValue ??
+    inspected.workspaceLanguageValue ??
+    inspected.globalLanguageValue ??
+    inspected.workspaceFolderValue ??
+    inspected.workspaceValue ??
+    inspected.globalValue
+  );
+}
+
+/**
+ * Resolve a feature-scoped `<feature>.enabled` toggle. An explicit value on
+ * the new key wins; otherwise an explicit value on the deprecated legacy key
+ * is honored (migration fallback, see #259); otherwise the feature is on.
+ */
+export function resolveFeatureEnabled(
+  config: GhostAlignConfig,
+  key: string,
+  legacyKey?: string
+): boolean {
+  const explicit = explicitSetting<boolean>(config, key);
+  if (typeof explicit === "boolean") {
+    return explicit;
+  }
+  if (legacyKey !== undefined) {
+    const legacy = explicitSetting<boolean>(config, legacyKey);
+    if (typeof legacy === "boolean") {
+      return legacy;
+    }
+  }
+  return true;
+}
+
 /** Which alignment path a language uses, with the settings that path needs. */
 export type AlignmentPath =
+  | { kind: "none" }
   | { kind: "markdown" }
   | { kind: "csv"; delimiter: string }
   | { kind: "operators"; operators: string[]; alignJsdoc: boolean };
@@ -347,25 +418,31 @@ export type AlignmentPath =
 /**
  * Resolve the alignment path for `languageId` in one place, so the dispatch
  * cannot drift between the decoration pass and Copy with Alignment (they
- * used to duplicate this resolution).
+ * used to duplicate this resolution). A path whose feature toggle is off
+ * resolves to `none` — the language keeps its dedicated path rather than
+ * falling back to operator alignment it never had.
  */
 export function resolveAlignmentPath(
   languageId: string,
-  config: { get<T>(key: string, defaultValue: T): T }
+  config: GhostAlignConfig
 ): AlignmentPath {
   if (MARKDOWN_LANGUAGES.has(languageId)) {
-    return { kind: "markdown" };
+    return resolveFeatureEnabled(config, "markdownTable.enabled")
+      ? { kind: "markdown" }
+      : { kind: "none" };
   }
   const delimiter = CSV_DELIMITERS.get(languageId);
   if (delimiter !== undefined) {
-    return { kind: "csv", delimiter };
+    return resolveFeatureEnabled(config, "csv.enabled")
+      ? { kind: "csv", delimiter }
+      : { kind: "none" };
   }
   return {
     kind: "operators",
     operators: resolveOperatorsForLanguage(config, languageId),
     alignJsdoc:
       TS_JS_LANGUAGES.has(languageId) &&
-      config.get<boolean>("alignJsdocParams", true),
+      resolveFeatureEnabled(config, "jsdoc.enabled", "alignJsdocParams"),
   };
 }
 
@@ -414,6 +491,9 @@ export function computeDocumentPlacements(
   const path = resolveAlignmentPath(languageId, config);
   const maxPadding = resolveMaxPadding(config);
 
+  if (path.kind === "none") {
+    return [];
+  }
   if (path.kind === "markdown") {
     return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState, maxPadding);
   }
@@ -506,6 +586,10 @@ export function decorateEditor(
   const lineCount = document.lineCount;
 
   const path = resolveAlignmentPath(languageId, config);
+  if (path.kind === "none") {
+    editor.setDecorations(alignDecorationType, []);
+    return;
+  }
   const maxPadding = resolveMaxPadding(config);
 
   // Large files are computed per visible range instead of whole-file, and

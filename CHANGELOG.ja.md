@@ -9,9 +9,17 @@
 
 ## [Unreleased]
 
+### Added
+
+- 整列パスごとに個別に ON/OFF できる機能スコープの設定を追加: `ghostAlign.jsdoc.enabled`（JSDoc `@param` 整列、`alignJsdocParams` の後継）、`ghostAlign.markdownTable.enabled`（Markdown テーブル整列）、`ghostAlign.csv.enabled`（CSV/TSV 整列）— いずれも既定 `true`。これまで Markdown テーブルと CSV/TSV は `ghostAlign.disabledLanguages` で言語ごと無効化するしかなかった。
+
 ### Changed
 
 - 変更履歴を英語（[CHANGELOG.md](CHANGELOG.md)）が主・日本語（このファイル）併記の構成に変更。README と同じ体制で、過去リリースのエントリも英訳した。
+
+### Deprecated
+
+- `ghostAlign.alignJsdocParams` を非推奨にし、`ghostAlign.jsdoc.enabled` を後継とした。新キーが未設定の間は旧キーも引き続き有効（新キーの明示値が優先）で、設定 UI では新キーへの誘導が表示される。削除は将来のメジャーバージョンを予定。
 
 ## [0.7.1] - 2026-07-05
 

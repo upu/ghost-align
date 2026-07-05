@@ -185,9 +185,25 @@
           },
           "description": "Language IDs (e.g. \"markdown\", \"yaml\") for which Ghost Align decoration is fully disabled, including Markdown table / CSV / JSDoc alignment. Takes priority over ghostAlign.operatorsByLanguage: listing a language here disables it even if it also has an entry there. Equivalent to setting \"<languageId>\": [] in ghostAlign.operatorsByLanguage, but discoverable as its own setting."
         },
+        "ghostAlign.jsdoc.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align the parameter-name and description columns of consecutive JSDoc @param lines in JavaScript/TypeScript. Replaces the deprecated ghostAlign.alignJsdocParams, which is still honored while this key is left unset."
+        },
+        "ghostAlign.markdownTable.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align Markdown table columns so the | separators line up. Set to false to turn off only the Markdown table alignment; to disable Ghost Align for Markdown entirely, use ghostAlign.disabledLanguages."
+        },
+        "ghostAlign.csv.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align CSV/TSV columns so the delimiters line up. Set to false to turn off only the CSV/TSV alignment; to disable Ghost Align for those languages entirely, use ghostAlign.disabledLanguages."
+        },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
           "default": true,
+          "markdownDeprecationMessage": "**Deprecated**: use `#ghostAlign.jsdoc.enabled#` instead. This key is still honored while `ghostAlign.jsdoc.enabled` is left unset.",
           "description": "Align the parameter-name and description columns of consecutive JSDoc @param lines in JavaScript/TypeScript."
         },
         "ghostAlign.maxPadding": {
