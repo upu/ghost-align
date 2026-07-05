@@ -78,7 +78,9 @@ const LIFETIME_LANGUAGES = new Set(["rust"]);
  * `pyTripleDouble`/`pyTripleSingle` states (see resolveDocScanOptions /
  * advanceLineDocState) and by findAssignmentEquals's own single-line
  * handling. Ruby/PHP heredocs share the same root cause — a multi-line
- * string not carried across lines — but are deferred to a follow-up (#225).
+ * string not carried across lines — but need a terminator identifier
+ * carried alongside the state, so they get their own `{ kind: "heredoc" }`
+ * DocScanState variant instead of reusing this one (see HEREDOC_LANGUAGES).
  */
 const TRIPLE_QUOTE_LANGUAGES = new Set(["python"]);
 
@@ -1152,16 +1154,122 @@ function findOccurrences(
 
 /**
  * State a line can start a scan in, once block comments/template
- * literals/Python triple-quoted strings may span lines. `pyTripleDouble` /
- * `pyTripleSingle` track which of `"""` / `'''` is open, since only the same
- * kind of triple-quote closes it (Python does not let one close the other).
+ * literals/Python triple-quoted strings/Ruby-PHP heredocs may span lines.
+ * `pyTripleDouble` / `pyTripleSingle` track which of `"""` / `'''` is open,
+ * since only the same kind of triple-quote closes it (Python does not let
+ * one close the other). The heredoc variant carries its own `terminator`
+ * instead of being one of a fixed enum: unlike the other constructs, what
+ * closes a heredoc body depends on which identifier its opener declared
+ * (`<<~SQL` is closed by a line that is just `SQL`, not by any other
+ * heredoc's terminator).
  */
 export type DocScanState =
   | "code"
   | "blockComment"
   | "template"
   | "pyTripleDouble"
-  | "pyTripleSingle";
+  | "pyTripleSingle"
+  | { kind: "heredoc"; terminator: string };
+
+/** Language IDs with heredoc/nowdoc constructs whose body spans multiple lines (see #239). */
+const HEREDOC_LANGUAGES = new Set(["ruby", "php"]);
+
+/**
+ * Ruby heredoc opener: `<<SQL`, `<<-SQL` (indented terminator allowed),
+ * `<<~SQL` (indented terminator allowed, content indentation squiggly-
+ * stripped — irrelevant here since only the terminator matters for this
+ * plugin), and the quoted forms `<<~"SQL"` / `<<~'SQL'` (quoting applies to
+ * all three modifiers alike). Capture groups 1/2/3 are the identifier from
+ * whichever quoting form matched.
+ */
+const RUBY_HEREDOC_OPENER = /<<[~-]?(?:"([A-Za-z_]\w*)"|'([A-Za-z_]\w*)'|([A-Za-z_]\w*))/;
+
+/**
+ * Character that would make a preceding `<<` Ruby's left-shift operator (it
+ * has a left operand, e.g. `x << 2`, `arr << item`) rather than a heredoc
+ * opener. A heredoc opener is preceded by nothing but whitespace, `=`, `(`,
+ * `,`, or similar — never a value.
+ */
+function precedesShiftOperand(ch: string | undefined): boolean {
+  return ch !== undefined && /[A-Za-z0-9_)\]"'`]/.test(ch);
+}
+
+/** PHP heredoc (`<<<EOT`, `<<<"EOT"`) / nowdoc (`<<<'EOT'`) opener. Capture groups 1/2/3 are the identifier from whichever quoting form matched. */
+const PHP_HEREDOC_OPENER = /<<<\s*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_]\w*))/;
+
+/**
+ * If `lineText` opens a Ruby heredoc or PHP heredoc/nowdoc, the terminator
+ * identifier that closes it; otherwise null. Skips string/comment content
+ * the same way the single-line finders do, so a `<<` inside a string or a
+ * `#`/`//` comment is never mistaken for an opener. Only the first opener on
+ * the line is recognized — multiple heredocs opened on one line
+ * (`f(<<~A, <<~B)`) are a known limitation (see #239).
+ */
+function findHeredocOpener(
+  lineText: string,
+  languageId: "ruby" | "php"
+): string | null {
+  const markers = lineCommentMarkers(languageId);
+  const cStyle = C_STYLE_COMMENT_ALSO.has(languageId);
+  const quoteState = initialQuoteState();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+      continue;
+    }
+    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
+    if (comment === "break") {
+      break;
+    }
+    if (comment !== false) {
+      i = comment;
+      continue;
+    }
+    if (
+      languageId === "php" &&
+      ch === "<" &&
+      lineText[i + 1] === "<" &&
+      lineText[i + 2] === "<"
+    ) {
+      const m = PHP_HEREDOC_OPENER.exec(lineText.slice(i));
+      if (m) {
+        return m[1] ?? m[2] ?? m[3];
+      }
+    }
+    if (
+      languageId === "ruby" &&
+      ch === "<" &&
+      lineText[i + 1] === "<" &&
+      !precedesShiftOperand(lineText[i - 1])
+    ) {
+      const m = RUBY_HEREDOC_OPENER.exec(lineText.slice(i));
+      if (m) {
+        return m[1] ?? m[2] ?? m[3];
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether `lineText` is the line that closes a heredoc opened with
+ * `terminator`. Leading/trailing whitespace and trailing punctuation (`;`,
+ * `,`, `)`, ...) are tolerated — Ruby's `<<-`/`<<~` and PHP's flexible
+ * heredoc/nowdoc syntax (PHP 7.3+) both allow an indented terminator, and
+ * PHP conventionally follows it with a statement terminator (`EOT;`). Being
+ * lenient about the stricter plain `<<EOS` form (which technically requires
+ * column 0) is an acceptable approximation for a visual-alignment tool. Only
+ * rejects a line where the terminator is a prefix of a longer identifier
+ * (`EOTX` does not close a `EOT` heredoc).
+ */
+function isHeredocTerminatorLine(lineText: string, terminator: string): boolean {
+  const trimmed = lineText.trim();
+  if (!trimmed.startsWith(terminator)) {
+    return false;
+  }
+  const after = trimmed[terminator.length];
+  return after === undefined || !/\w/.test(after);
+}
 
 /**
  * Which multi-line constructs apply to `languageId`, mirroring the same rules
@@ -1173,6 +1281,9 @@ export type DocScanState =
  * {@link TRIPLE_QUOTE_LANGUAGES} (Python); `markers` is only resolved for
  * those languages, so advanceLineDocState can tell a `#` line comment from a
  * `"""` that starts a docstring instead of one appearing inside a comment.
+ * `heredocLanguage` is {@link HEREDOC_LANGUAGES} (Ruby/PHP); unlike
+ * `markers`, {@link findHeredocOpener} resolves its own comment markers
+ * internally, so it stays independent of the other constructs' options here.
  */
 function resolveDocScanOptions(
   languageId: string | undefined
@@ -1181,6 +1292,7 @@ function resolveDocScanOptions(
   template: boolean;
   pyTripleQuote: boolean;
   markers?: readonly string[];
+  heredocLanguage?: "ruby" | "php";
 } {
   const isMarkerOnly =
     languageId !== undefined &&
@@ -1193,11 +1305,16 @@ function resolveDocScanOptions(
   const template = languageId !== undefined && TS_JS_LANGUAGES.has(languageId);
   const pyTripleQuote =
     languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId);
+  const heredocLanguage =
+    languageId !== undefined && HEREDOC_LANGUAGES.has(languageId)
+      ? (languageId as "ruby" | "php")
+      : undefined;
   return {
     cStyle,
     template,
     pyTripleQuote,
     markers: pyTripleQuote ? lineCommentMarkers(languageId) : undefined,
+    heredocLanguage,
   };
 }
 
@@ -1247,11 +1364,35 @@ function scanClosingTripleQuote(
 }
 
 /**
+ * The plain-code end state for a line, checking whether it opens a heredoc
+ * (Ruby/PHP only, via `heredocLanguage`) before settling on `"code"`. Shared
+ * by every "rest of the line carries nothing over" exit point in
+ * {@link advanceLineDocState} — a line comment starting mid-line, a
+ * single-line-closed `//`, or simply reaching the end of the line — since a
+ * heredoc opener can precede any of those (`sql = <<~SQL # comment`, `sql =
+ * <<~SQL`, ...) and {@link findHeredocOpener} already does its own
+ * comment/string-aware scan of the full line regardless of where in it the
+ * caller stopped.
+ */
+function codeEndState(
+  lineText: string,
+  heredocLanguage: "ruby" | "php" | undefined
+): DocScanState {
+  if (heredocLanguage) {
+    const terminator = findHeredocOpener(lineText, heredocLanguage);
+    if (terminator !== null) {
+      return { kind: "heredoc", terminator };
+    }
+  }
+  return "code";
+}
+
+/**
  * The {@link DocScanState} that follows `lineText`, given the state it
  * started in. Mirrors the comment/quote handling the finders already do per
- * line, but carries an unterminated block comment, template literal, or
- * Python triple-quoted string into the next line instead of resetting at the
- * line boundary.
+ * line, but carries an unterminated block comment, template literal, Python
+ * triple-quoted string, or Ruby/PHP heredoc into the next line instead of
+ * resetting at the line boundary.
  *
  * Does not model `${...}` interpolation inside a template literal (real code,
  * including its own strings/comments, can appear there) — a `` ` `` found
@@ -1266,10 +1407,16 @@ function advanceLineDocState(
     template: boolean;
     pyTripleQuote: boolean;
     markers?: readonly string[];
+    heredocLanguage?: "ruby" | "php";
   }
 ): DocScanState {
   let i = 0;
-  if (state === "blockComment") {
+  if (typeof state === "object") {
+    if (!isHeredocTerminatorLine(lineText, state.terminator)) {
+      return state; // still inside the heredoc body
+    }
+    // terminator line: fall through and scan it (i = 0) like any other line
+  } else if (state === "blockComment") {
     const close = lineText.indexOf("*/");
     if (close === -1) {
       return "blockComment";
@@ -1298,7 +1445,7 @@ function advanceLineDocState(
       !quote.quote &&
       startsLineComment(lineText, i, opts.markers)
     ) {
-      return "code"; // rest of the line is a line comment; nothing carries over
+      return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
     }
     if (
       opts.pyTripleQuote &&
@@ -1327,7 +1474,7 @@ function advanceLineDocState(
     }
     if (opts.cStyle) {
       if (ch === "/" && lineText[i + 1] === "/") {
-        return "code"; // rest of the line is a line comment; nothing carries over
+        return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
       }
       if (ch === "/" && lineText[i + 1] === "*") {
         const close = lineText.indexOf("*/", i + 2);
@@ -1339,15 +1486,15 @@ function advanceLineDocState(
       }
     }
   }
-  return "code";
+  return codeEndState(lineText, opts.heredocLanguage);
 }
 
 /**
  * Advances {@link DocScanState} across `lineText` for `languageId`, applying
- * that language's cStyle/template/pyTripleQuote rules. Exported so callers
- * with their own line loop (e.g. findAlignmentGroups) can track document
- * state one line at a time without needing {@link resolveDocScanOptions} /
- * {@link advanceLineDocState}.
+ * that language's cStyle/template/pyTripleQuote/heredoc rules. Exported so
+ * callers with their own line loop (e.g. findAlignmentGroups) can track
+ * document state one line at a time without needing
+ * {@link resolveDocScanOptions} / {@link advanceLineDocState}.
  */
 export function nextDocScanState(
   lineText: string,
@@ -1355,7 +1502,7 @@ export function nextDocScanState(
   languageId?: string
 ): DocScanState {
   const opts = resolveDocScanOptions(languageId);
-  if (!opts.cStyle && !opts.template && !opts.pyTripleQuote) {
+  if (!opts.cStyle && !opts.template && !opts.pyTripleQuote && !opts.heredocLanguage) {
     return "code"; // language has none of these constructs; state never leaves "code"
   }
   return advanceLineDocState(lineText, state, opts);
@@ -1455,11 +1602,15 @@ export function computeLineScanStateBefore(
 /**
  * Char index in `lineText` where normal scanning resumes given `state`, or
  * null if the whole line is still inside a block comment/template
- * literal/Python triple-quoted string that doesn't close on it.
+ * literal/Python triple-quoted string/Ruby-PHP heredoc that doesn't close
+ * on it.
  */
 function skipToCodeStart(lineText: string, state: DocScanState): number | null {
   if (state === "code") {
     return 0;
+  }
+  if (typeof state === "object") {
+    return isHeredocTerminatorLine(lineText, state.terminator) ? 0 : null;
   }
   if (state === "blockComment") {
     const close = lineText.indexOf("*/");
