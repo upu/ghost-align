@@ -185,6 +185,11 @@
           },
           "description": "Language IDs (e.g. \"markdown\", \"yaml\") for which Ghost Align decoration is fully disabled, including Markdown table / CSV / JSDoc alignment. Takes priority over ghostAlign.operatorsByLanguage: listing a language here disables it even if it also has an entry there. Equivalent to setting \"<languageId>\": [] in ghostAlign.operatorsByLanguage, but discoverable as its own setting."
         },
+        "ghostAlign.alignUnknownLanguages": {
+          "type": "boolean",
+          "default": true,
+          "description": "Align operators in languages that are not listed in ghostAlign.operatorsByLanguage, using the global ghostAlign.operators list (default [\"=\"]). Set to false to align only the languages explicitly listed in operatorsByLanguage — languages you add there yourself stay aligned. Unlike ghostAlign.disabledLanguages (an explicit blocklist), this switches off the fallback for every unlisted language at once. Markdown tables and CSV/TSV have their own alignment paths and are not affected."
+        },
         "ghostAlign.jsdoc.enabled": {
           "type": "boolean",
           "default": true,

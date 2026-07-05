@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Added feature-scoped settings to toggle each alignment path individually: `ghostAlign.jsdoc.enabled` (JSDoc `@param` alignment, replaces `alignJsdocParams`), `ghostAlign.markdownTable.enabled` (Markdown table alignment), and `ghostAlign.csv.enabled` (CSV/TSV alignment) — all default `true`. Previously Markdown tables and CSV/TSV could only be turned off per language via `ghostAlign.disabledLanguages`.
+- Added the `ghostAlign.alignUnknownLanguages` setting (default `true`). Set it to `false` to stop operator alignment in languages not listed in `ghostAlign.operatorsByLanguage` — until now, unlisted languages (HTML, SQL, plaintext, …) always fell back to the global `ghostAlign.operators` list. Languages you add to `operatorsByLanguage` yourself count as listed and stay aligned; the default keeps the current align-everywhere behavior.
 
 ### Changed
 

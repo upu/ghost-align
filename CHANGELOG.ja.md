@@ -12,6 +12,7 @@
 ### Added
 
 - 整列パスごとに個別に ON/OFF できる機能スコープの設定を追加: `ghostAlign.jsdoc.enabled`（JSDoc `@param` 整列、`alignJsdocParams` の後継）、`ghostAlign.markdownTable.enabled`（Markdown テーブル整列）、`ghostAlign.csv.enabled`（CSV/TSV 整列）— いずれも既定 `true`。これまで Markdown テーブルと CSV/TSV は `ghostAlign.disabledLanguages` で言語ごと無効化するしかなかった。
+- `ghostAlign.alignUnknownLanguages` 設定を追加（既定 `true`）。`false` にすると、`ghostAlign.operatorsByLanguage` に載っていない言語では演算子整列を止められる — これまで未掲載の言語（HTML・SQL・plaintext など）は常にグローバルの `ghostAlign.operators` にフォールバックしていた。自分で `operatorsByLanguage` に追加した言語は「既知」扱いで整列されたまま。既定値では従来どおりどの言語でも整列される。
 
 ### Changed
 

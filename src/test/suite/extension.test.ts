@@ -282,6 +282,34 @@ suite("resolveOperatorsForLanguage", () => {
     );
   });
 
+  test("alignUnknownLanguages=false なら operatorsByLanguage に無い言語は整列されない", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(
+        mockConfig({ alignUnknownLanguages: false }),
+        "plaintext"
+      ),
+      []
+    );
+  });
+
+  test("alignUnknownLanguages=false でもユーザーが operatorsByLanguage に追加した言語は整列される", () => {
+    const config = mockConfig({
+      alignUnknownLanguages: false,
+      operatorsByLanguage: { ...DEFAULT_OPERATORS_BY_LANGUAGE, sql: ["="] },
+    });
+    assert.deepStrictEqual(resolveOperatorsForLanguage(config, "sql"), ["="]);
+  });
+
+  test("alignUnknownLanguages=false でも既定の対象言語は従来どおり整列される", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(
+        mockConfig({ alignUnknownLanguages: false }),
+        "python"
+      ),
+      ["="]
+    );
+  });
+
   test("TS/TSX/JS/JSX は既定で `:` と `=` を揃える", () => {
     for (const lang of [
       "typescript",
@@ -1232,6 +1260,11 @@ suite("package.json との既定値同期", () => {
       props["ghostAlign.ghostColor"]?.default,
       DEFAULT_GHOST_COLOR
     );
+  });
+
+  test("alignUnknownLanguages が default true で登録されている", () => {
+    const props = configProperties();
+    assert.strictEqual(props["ghostAlign.alignUnknownLanguages"]?.default, true);
   });
 
   test("機能スコープの enabled キーが default true で登録されている", () => {
