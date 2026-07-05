@@ -1,4 +1,6 @@
 import * as assert from "assert";
+import * as fs from "fs";
+import * as path from "path";
 import * as vscode from "vscode";
 import { findOperatorTargets, findAssignmentEquals } from "../../finders";
 import { findAlignmentGroups, computePaddings } from "../../paddings";
@@ -1165,6 +1167,74 @@ suite("decorateEditor と可視範囲モード（大きい Markdown テーブル
     assert.ok(calls[1].length > 0);
     for (const d of calls[1]) {
       assert.strictEqual(d.renderOptions?.before?.contentText?.length, 2);
+    }
+  });
+});
+
+suite("README 設定表との同期", () => {
+  // 設定キーの過不足は機械的に照合できる（#280）。v1.0.0 の作業中に
+  // disabledLanguages の行が 0.4.0 以来ずっと欠落していたのが見つかった。
+  // 説明文の内容の鮮度（意味的なずれ）はここでは検証できない。
+  type ConfigProp = { markdownDeprecationMessage?: string };
+
+  function configProperties(): Record<string, ConfigProp> {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+  }
+
+  function readmeContents(): { file: string; content: string }[] {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    const root = ext!.extensionPath;
+    return ["README.md", "README.ja.md"].map((file) => ({
+      file,
+      content: fs.readFileSync(path.join(root, file), "utf8"),
+    }));
+  }
+
+  function tableKeys(content: string): string[] {
+    return [...content.matchAll(/^\| `(ghostAlign\.[^`]+)` \|/gm)].map(
+      (m) => m[1]
+    );
+  }
+
+  test("contributes.configuration の全キー（deprecated 除く）が両 README の設定表に載っている", () => {
+    const props = configProperties();
+    const readmes = readmeContents();
+    for (const [key, prop] of Object.entries(props)) {
+      if (prop.markdownDeprecationMessage) {
+        continue;
+      }
+      for (const { file, content } of readmes) {
+        assert.ok(
+          tableKeys(content).includes(key),
+          `${key} の行が ${file} の設定表にあること`
+        );
+      }
+    }
+  });
+
+  test("設定表の全行が package.json に存在するキーである（廃止キーの行が残っていない）", () => {
+    const props = configProperties();
+    for (const { file, content } of readmeContents()) {
+      for (const key of tableKeys(content)) {
+        assert.ok(
+          key in props,
+          `${file} の設定表の ${key} が package.json に存在すること`
+        );
+      }
+    }
+  });
+
+  test("deprecated キーは設定表に行を持たない（脚注での案内に統一）", () => {
+    const props = configProperties();
+    for (const { file, content } of readmeContents()) {
+      for (const key of tableKeys(content)) {
+        assert.ok(
+          !props[key]?.markdownDeprecationMessage,
+          `${file} の設定表に deprecated キー ${key} の行が無いこと`
+        );
+      }
     }
   });
 });
