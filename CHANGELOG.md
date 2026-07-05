@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-05
+
 ### Added
 
 - Added feature-scoped settings to toggle each alignment path individually: `ghostAlign.jsdoc.enabled` (JSDoc `@param` alignment, replaces `alignJsdocParams`), `ghostAlign.markdownTable.enabled` (Markdown table alignment), and `ghostAlign.csv.enabled` (CSV/TSV alignment) — all default `true`. Previously Markdown tables and CSV/TSV could only be turned off per language via `ghostAlign.disabledLanguages`.
@@ -180,7 +182,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
 [0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
 [0.6.0]: https://github.com/upu/ghost-align/releases/tag/v0.6.0
