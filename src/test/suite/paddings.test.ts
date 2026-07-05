@@ -6,7 +6,7 @@ import {
   computeColumnPlan,
   computeSliceBounds,
 } from "../../paddings";
-import { findOperatorTargets } from "../../finders";
+import { findOperatorTargets, initialLineScanState } from "../../finders";
 import { mockDocument } from "./testHelpers";
 
 suite("findAlignmentGroups", () => {
@@ -413,7 +413,10 @@ suite("findAlignmentGroups（複数行ブロックコメント / テンプレー
       "const x = 1;",
       "const longName = 2;",
     ]);
-    const groups = findAlignmentGroups(doc, ["="], "typescript", 4, "blockComment");
+    const groups = findAlignmentGroups(doc, ["="], "typescript", 4, {
+      ...initialLineScanState(),
+      doc: "blockComment",
+    });
     assert.strictEqual(groups.length, 1);
     assert.strictEqual(groups[0].length, 2);
     assert.strictEqual(groups[0][0].lineIndex, 2);

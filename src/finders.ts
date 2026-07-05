@@ -1381,6 +1381,77 @@ export function computeLineStateBefore(
   return state;
 }
 
+// ── Unified cross-line scan state ─────────────────────────────────────────
+//
+// DocScanState, CSS block depth, and YamlBlockScalarState are each their own
+// per-language rule for what "still open from the previous line" means, but
+// callers that just need to carry state from one line to the next (findAlignmentGroups,
+// computeDocumentPlacements, decorateEditor) don't care about that per-language
+// distinction — they only need one bundle to hold, advance, and pre-scan.
+// LineScanState is that bundle: adding a 4th cross-line construct (e.g. #225's
+// Ruby/PHP heredoc) means adding one field here plus one branch in
+// nextLineScanState, without touching any of those callers' signatures.
+
+/** Bundles every per-language cross-line scan state a single document position can be in. */
+export type LineScanState = {
+  doc: DocScanState;
+  cssBlockDepth: number;
+  yamlBlockScalar: YamlBlockScalarState;
+};
+
+/** The {@link LineScanState} for the top of a document (or a slice with nothing above it). */
+export function initialLineScanState(): LineScanState {
+  return { doc: "code", cssBlockDepth: 0, yamlBlockScalar: null };
+}
+
+/**
+ * The {@link LineScanState} that follows `lineText`, given the state it
+ * started in. Each field advances via its own existing per-language rule
+ * (nextDocScanState / nextCssBlockDepth / nextYamlBlockScalarState), gated the
+ * same way findAlignmentGroups already gated them before this consolidation:
+ * CSS block depth only moves for {@link CSS_LANGUAGES}, YAML block-scalar
+ * state only for `"yaml"` — otherwise a language whose own syntax uses `{}`
+ * or indentation differently would desync the other languages' trackers.
+ */
+export function nextLineScanState(
+  lineText: string,
+  state: LineScanState,
+  languageId?: string
+): LineScanState {
+  return {
+    doc: nextDocScanState(lineText, state.doc, languageId),
+    cssBlockDepth:
+      languageId !== undefined && CSS_LANGUAGES.has(languageId)
+        ? nextCssBlockDepth(lineText, state.cssBlockDepth, languageId)
+        : state.cssBlockDepth,
+    yamlBlockScalar:
+      languageId === "yaml"
+        ? nextYamlBlockScalarState(lineText, state.yamlBlockScalar)
+        : state.yamlBlockScalar,
+  };
+}
+
+/**
+ * The {@link LineScanState} as of `lineCount` lines scanned via `lineAt`,
+ * without computing per-line alignment targets. Seeds a visible-range
+ * slice's starting state with whatever a block comment, template literal,
+ * CSS rule block, or YAML block scalar opened above it left behind — the
+ * single pre-scan that replaces the three separate ones
+ * (computeLineStateBefore / computeCssBlockDepthBefore /
+ * computeYamlBlockScalarStateBefore) a caller used to run individually.
+ */
+export function computeLineScanStateBefore(
+  lineCount: number,
+  lineAt: (index: number) => string,
+  languageId?: string
+): LineScanState {
+  let state = initialLineScanState();
+  for (let i = 0; i < lineCount; i++) {
+    state = nextLineScanState(lineAt(i), state, languageId);
+  }
+  return state;
+}
+
 /**
  * Char index in `lineText` where normal scanning resumes given `state`, or
  * null if the whole line is still inside a block comment/template

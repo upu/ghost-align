@@ -6,15 +6,12 @@
 // alignment path, and the visible-range slicing used for large files.
 
 import {
-  CSS_LANGUAGES,
-  DocScanState,
   findOperatorTargets,
+  initialLineScanState,
   isYamlBlockScalarContent,
   LINE_CONTINUATION_OPERATOR,
-  nextCssBlockDepth,
-  nextDocScanState,
-  nextYamlBlockScalarState,
-  YamlBlockScalarState,
+  LineScanState,
+  nextLineScanState,
 } from "./finders";
 
 /** Default tab width used when an editor's tabSize cannot be resolved. */
@@ -151,47 +148,31 @@ export type LineSource = {
  * target. Indent comparison and alignment use visual columns so tabs and
  * tab/space mixes line up on screen, not by raw character count.
  *
- * `initialDocState` seeds the state (plain code / inside a block comment /
- * inside a template literal) that line 0 of `document` starts in, so a
- * visible-range slice of a large file can resume whatever a multi-line block
- * comment or template literal opened above it left behind — see
- * computeLineStateBefore in finders.ts. Each line's targets are found
- * relative to that state, which is then advanced across the loop via
- * nextDocScanState, so an operator inside an unclosed block comment or
- * template literal is never treated as an alignment target.
- *
- * `initialCssBlockDepth` is the CSS/SCSS/LESS analog for the `:` operator
- * (see computeCssBlockDepthBefore in finders.ts): whether line 0 starts
- * already inside a rule's declaration block, so a multi-line selector
- * continuation (`.foo:hover,`) is not mistaken for a declaration. Defaults to
- * 0 (not inside a block), the correct assumption for the top of a real file —
- * unlike findOperatorTargets's own default, which favors single-line callers
- * with no document context.
- *
- * `initialYamlBlockScalarState` is the YAML analog for a block scalar
- * (`key: |` / `key: >`; see computeYamlBlockScalarStateBefore in finders.ts):
- * whether line 0 starts already inside one opened above it, so its opaque
- * content (arbitrary text, not YAML) is never scanned for `:` targets.
- * Defaults to `null` (not inside a block scalar).
+ * `initialState` seeds the cross-line scan state (plain code / inside a
+ * block comment or template literal; CSS/SCSS/LESS rule-block depth; YAML
+ * block-scalar indent) that line 0 of `document` starts in, so a
+ * visible-range slice of a large file can resume whatever a construct
+ * opened above it left behind — see {@link LineScanState} in finders.ts.
+ * Each line's targets are found relative to that state, which is then
+ * advanced across the loop via nextLineScanState, so an operator inside an
+ * unclosed block comment/template literal, a multi-line CSS selector
+ * continuation, or opaque YAML block-scalar content is never treated as an
+ * alignment target. Defaults to {@link initialLineScanState}, the correct
+ * assumption for the top of a real file.
  */
 export function findAlignmentGroups(
   document: LineSource,
   operators: string[],
   languageId?: string,
   tabSize: number = DEFAULT_TAB_SIZE,
-  initialDocState: DocScanState = "code",
-  initialCssBlockDepth: number = 0,
-  initialYamlBlockScalarState: YamlBlockScalarState = null
+  initialState: LineScanState = initialLineScanState()
 ): AlignmentEntry[][] {
   const groups: AlignmentEntry[][] = [];
   let currentGroup: AlignmentEntry[] = [];
   let currentIndent: number | null = null;
   let currentGroupHasContinuation = false;
-  let docState: DocScanState = initialDocState;
-  const isCssLang = languageId !== undefined && CSS_LANGUAGES.has(languageId);
-  let cssBlockDepth = initialCssBlockDepth;
+  let state = initialState;
   const isYamlLang = languageId === "yaml";
-  let yamlBlockScalarState: YamlBlockScalarState = initialYamlBlockScalarState;
 
   const flush = () => {
     if (currentGroup.length >= 2) {
@@ -205,8 +186,8 @@ export function findAlignmentGroups(
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
 
-    if (isYamlLang && isYamlBlockScalarContent(lineText, yamlBlockScalarState)) {
-      yamlBlockScalarState = nextYamlBlockScalarState(lineText, yamlBlockScalarState);
+    if (isYamlLang && isYamlBlockScalarContent(lineText, state.yamlBlockScalar)) {
+      state = nextLineScanState(lineText, state, languageId);
       flush();
       continue;
     }
@@ -215,16 +196,10 @@ export function findAlignmentGroups(
       lineText,
       operators,
       languageId,
-      docState,
-      cssBlockDepth > 0
+      state.doc,
+      state.cssBlockDepth > 0
     );
-    docState = nextDocScanState(lineText, docState, languageId);
-    if (isCssLang) {
-      cssBlockDepth = nextCssBlockDepth(lineText, cssBlockDepth, languageId as string);
-    }
-    if (isYamlLang) {
-      yamlBlockScalarState = nextYamlBlockScalarState(lineText, yamlBlockScalarState);
-    }
+    state = nextLineScanState(lineText, state, languageId);
 
     if (targets.length === 0) {
       flush();
