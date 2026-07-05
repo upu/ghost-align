@@ -41,12 +41,12 @@ function todayIso(date = new Date()) {
 }
 
 /** The [Unreleased] section's body lines and whether any are non-blank. */
-function findUnreleasedBody(changelogText) {
+function findUnreleasedBody(changelogText, label = "CHANGELOG.md") {
   const eol = detectEol(changelogText);
   const lines = normalizeToLf(changelogText).split("\n");
   const startIdx = lines.findIndex((l) => l.trim() === UNRELEASED_HEADING);
   if (startIdx === -1) {
-    throw new Error(`Could not find "${UNRELEASED_HEADING}" heading in CHANGELOG.md`);
+    throw new Error(`Could not find "${UNRELEASED_HEADING}" heading in ${label}`);
   }
   let endIdx = lines.findIndex((l, i) => i > startIdx && /^## \[/.test(l));
   if (endIdx === -1) {
@@ -57,24 +57,29 @@ function findUnreleasedBody(changelogText) {
 }
 
 /**
- * Validate a release request against the current version and CHANGELOG
- * state. Returns an error message, or null when the request is valid.
+ * Validate a release request against the current version and the state of
+ * every CHANGELOG file (`changelogs` is an array of `{ label, text }`).
+ * Each file must have a non-empty [Unreleased] section, so an entry added to
+ * only one language is caught here. Returns an error message, or null when
+ * the request is valid.
  */
-function validate(version, currentVersion, changelogText) {
+function validate(version, currentVersion, changelogs) {
   if (!version || !SEMVER_RE.test(version)) {
     return `Version must be in x.y.z form (got: ${version || "(none)"})`;
   }
   if (compareSemver(version, currentVersion) <= 0) {
     return `${version} is not greater than the current version ${currentVersion}`;
   }
-  let unreleased;
-  try {
-    unreleased = findUnreleasedBody(changelogText);
-  } catch (err) {
-    return err.message;
-  }
-  if (!unreleased.hasEntries) {
-    return "The [Unreleased] section in CHANGELOG.md has no entries; nothing to release";
+  for (const { label, text } of changelogs) {
+    let unreleased;
+    try {
+      unreleased = findUnreleasedBody(text, label);
+    } catch (err) {
+      return err.message;
+    }
+    if (!unreleased.hasEntries) {
+      return `The [Unreleased] section in ${label} has no entries; nothing to release`;
+    }
   }
   return null;
 }
@@ -84,8 +89,8 @@ function validate(version, currentVersion, changelogText) {
  * `[Unreleased]` above it, and update the link references at the bottom
  * (repoint `[Unreleased]` to the new compare URL, add a `[version]` link).
  */
-function finalizeChangelog(changelogText, version, date = todayIso()) {
-  const { lines, eol, startIdx } = findUnreleasedBody(changelogText);
+function finalizeChangelog(changelogText, version, date = todayIso(), label = "CHANGELOG.md") {
+  const { lines, eol, startIdx } = findUnreleasedBody(changelogText, label);
   const withHeading = [
     ...lines.slice(0, startIdx),
     UNRELEASED_HEADING,
@@ -100,7 +105,7 @@ function finalizeChangelog(changelogText, version, date = todayIso()) {
     return m !== null && m[1] === "Unreleased";
   });
   if (unreleasedLinkIdx === -1) {
-    throw new Error('Could not find the "[Unreleased]: ..." link reference at the bottom of CHANGELOG.md');
+    throw new Error(`Could not find the "[Unreleased]: ..." link reference at the bottom of ${label}`);
   }
   withHeading[unreleasedLinkIdx] = `[Unreleased]: ${REPO_URL}/compare/v${version}...HEAD`;
   withHeading.splice(unreleasedLinkIdx + 1, 0, `[${version}]: ${REPO_URL}/releases/tag/v${version}`);
@@ -120,34 +125,41 @@ function bumpPackageJsonVersion(packageJsonText, version) {
 function main() {
   const version = process.argv[2];
   const root = path.join(__dirname, "..");
-  const changelogPath = path.join(root, "CHANGELOG.md");
   const packageJsonPath = path.join(root, "package.json");
+  const changelogLabels = ["CHANGELOG.md", "CHANGELOG.ja.md"];
 
   const packageJsonText = fs.readFileSync(packageJsonPath, "utf8");
   const currentVersion = JSON.parse(packageJsonText).version;
-  const changelogText = fs.readFileSync(changelogPath, "utf8");
+  const changelogs = changelogLabels.map((label) => ({
+    label,
+    path: path.join(root, label),
+    text: fs.readFileSync(path.join(root, label), "utf8"),
+  }));
 
-  const error = validate(version, currentVersion, changelogText);
+  const error = validate(version, currentVersion, changelogs);
   if (error) {
     console.error(`::error::${error}`);
     process.exit(1);
   }
 
-  // Compute both new file contents before writing either, so a failure in
-  // either transform leaves both files untouched.
-  let newChangelog;
+  // Compute every new file content before writing any, so a failure in any
+  // transform leaves all files untouched.
+  const date = todayIso();
+  let newChangelogs;
   let newPackageJson;
   try {
-    newChangelog = finalizeChangelog(changelogText, version);
+    newChangelogs = changelogs.map((c) => finalizeChangelog(c.text, version, date, c.label));
     newPackageJson = bumpPackageJsonVersion(packageJsonText, version);
   } catch (err) {
     console.error(`::error::${err.message}`);
     process.exit(1);
   }
 
-  fs.writeFileSync(changelogPath, newChangelog);
+  changelogs.forEach((c, i) => fs.writeFileSync(c.path, newChangelogs[i]));
   fs.writeFileSync(packageJsonPath, newPackageJson);
-  console.log(`Prepared release ${version} (from ${currentVersion}): CHANGELOG.md finalized, package.json bumped.`);
+  console.log(
+    `Prepared release ${version} (from ${currentVersion}): ${changelogLabels.join(" and ")} finalized, package.json bumped.`
+  );
 }
 
 module.exports = {
