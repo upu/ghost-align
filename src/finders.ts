@@ -1126,15 +1126,54 @@ function findOccurrences(
     const idx = findLineContinuationMarker(lineText, languageId);
     return idx === -1 ? [] : [{ insert: idx, align: idx }];
   }
+  return findLiteralOccurrences(lineText, op, languageId);
+}
+
+/**
+ * All occurrences of a literal operator token — a `ghostAlign.operators`
+ * entry that isn't one of the built-in tokens (`=`, `:`, `=>`, `//`, `#`,
+ * `\`) — on a line, outside strings and comments. Shares the same
+ * string/comment/Rust-char-literal/raw-string/digit-separator skipping as
+ * findAssignmentEquals via {@link advanceCodeScan}, so a custom token like
+ * `->` or `::` is excluded from string and comment content exactly the same
+ * way the built-in tokens already are, instead of a plain `indexOf` that
+ * matched anywhere on the line regardless of context.
+ */
+function findLiteralOccurrences(
+  lineText: string,
+  op: string,
+  languageId?: string
+): OperatorTarget[] {
   const results: OperatorTarget[] = [];
-  let from = 0;
-  for (;;) {
-    const idx = lineText.indexOf(op, from);
-    if (idx === -1) {
-      break;
+  const markers = lineCommentMarkers(languageId);
+  const cStyle =
+    markers === undefined ||
+    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
+  const opts: CodeScanOptions = {
+    quoteChars: assignmentQuoteChars(languageId),
+    markers,
+    cStyle,
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
+    digitSeparators:
+      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
+    pyTripleQuote:
+      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
+  };
+  const quoteState = initialQuoteState();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      break; // comment to the end of the line, or an unterminated triple-quote
     }
-    results.push({ insert: idx, align: idx });
-    from = idx + op.length;
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (lineText.startsWith(op, i)) {
+      results.push({ insert: i, align: i });
+      i += op.length - 1; // loop's i++ advances past the matched token
+    }
   }
   return results;
 }

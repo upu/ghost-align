@@ -672,8 +672,21 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("const x = 1;", ["->"]), null);
   });
 
-  test("汎用フォールバックは文字列内のリテラルも区別なく検出する（文字列/コメント考慮なし）", () => {
-    assert.strictEqual(findOperatorColumn('const s = "a->b";', ["->"]), 12);
+  test("汎用フォールバック: 文字列内のリテラルは整列対象にならない", () => {
+    assert.strictEqual(findOperatorColumn('const s = "a->b";', ["->"]), null);
+  });
+
+  test("汎用フォールバック: 行コメント内のリテラルは整列対象にならない", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1; // a -> b", ["->"]), null);
+  });
+
+  test("汎用フォールバック: ブロックコメント内のリテラルは整列対象にならない", () => {
+    assert.strictEqual(findOperatorColumn("const x = 1; /* a -> b */", ["->"]), null);
+  });
+
+  test("汎用フォールバック: 文字列外のリテラルは従来どおり検出する", () => {
+    const line = 'const s = "a->b"; c -> d';
+    assert.strictEqual(findOperatorColumn(line, ["->"]), 20);
   });
 
   test("`=>` はアロー関数の位置を返す", () => {
