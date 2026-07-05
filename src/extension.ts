@@ -262,16 +262,18 @@ export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
 };
 
 /**
- * Resolve the ghost-align rendering settings (character + color).
- * An empty string from the settings UI is treated as "use default" so a
- * cleared field cannot silently break the feature (empty char → no padding,
- * empty color → invisible ghost).
+ * Resolve the ghost-align rendering settings. The padding character is fixed
+ * to NBSP (the `ghostCharacter` setting was removed in #260 — VS Code
+ * collapses consecutive ASCII spaces in decorations, so a custom character
+ * was a footgun); only the color is configurable. An empty string from the
+ * settings UI is treated as "use default" so a cleared field cannot silently
+ * make the ghost invisible.
  */
 export function resolveGhostSettings(
   config: { get<T>(key: string, defaultValue: T): T }
 ): { ghostChar: string; ghostColor: string } {
   return {
-    ghostChar: config.get<string>("ghostCharacter", DEFAULT_GHOST_CHAR) || DEFAULT_GHOST_CHAR,
+    ghostChar: DEFAULT_GHOST_CHAR,
     ghostColor: config.get<string>("ghostColor", DEFAULT_GHOST_COLOR) || DEFAULT_GHOST_COLOR,
   };
 }

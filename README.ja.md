@@ -100,7 +100,6 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 | `ghostAlign.markdownTable.enabled` | boolean | `true` | Markdown テーブルの列整列。`false` にするとテーブル整列だけを無効化します（Markdown を丸ごと無効にするには `ghostAlign.disabledLanguages` を使います）。 |
 | `ghostAlign.csv.enabled` | boolean | `true` | CSV/TSV の列整列。`false` にすると CSV/TSV の整列だけを無効化します（言語ごと無効にするには `ghostAlign.disabledLanguages` を使います）。 |
 | `ghostAlign.maxPadding` | number | `0` | 1行・1カラムあたりに挿入するゴースト文字数の上限。揃えるのにこれを超えるパディングが必要な場合、極端に長い外れ値の行を除外して残りの行だけで揃えます。`0` は無制限。Markdown テーブルの整列には適用されません。 |
-| `ghostAlign.ghostCharacter` | string | `" "`（U+00A0 / ノーブレークスペース） | ゴーストパディングに使う文字。通常の ASCII スペースはエディタの描画で 1 文字分に詰められてアライメントが崩れるため、NBSP（U+00A0）や en space（U+2002）を使ってください。設定 UI で空にすると既定値に戻ります。 |
 | `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | ゴーストパディングの色（任意の CSS カラー文字列）。前景色・背景色の両方に適用され、実際の空白と区別できます。`"transparent"` で着色を無効化できます。設定 UI で空にすると既定値に戻ります。 |
 
 `ghostAlign.alignJsdocParams` は非推奨になりました。今後は `ghostAlign.jsdoc.enabled` を使ってください（新キーが未設定の間は旧キーも引き続き有効です）。

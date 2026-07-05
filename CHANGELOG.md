@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Deprecated `ghostAlign.alignJsdocParams` in favor of `ghostAlign.jsdoc.enabled`. The old key keeps working while the new one is left unset (an explicit new-key value wins), and the settings UI now points to the new key; removal is planned for a future major version.
 
+### Removed
+
+- Removed the `ghostAlign.ghostCharacter` setting (breaking change). Ghost padding is now always rendered with NBSP (U+00A0) — the setting was a footgun whose own description warned that an ASCII space breaks alignment (VS Code collapses consecutive ASCII spaces in decorations), and visual tuning is covered by `ghostAlign.ghostColor`. A leftover `ghostAlign.ghostCharacter` in settings is simply ignored. The `-` padding of Markdown separator rows and the ASCII-space output of Copy with Alignment were always independent of this setting and are unaffected.
+
 ## [0.7.1] - 2026-07-05
 
 ### Fixed
