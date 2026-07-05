@@ -715,6 +715,115 @@ function isDigitSeparatorNeighbor(ch: string | undefined): boolean {
 }
 
 /**
+ * Result of {@link advanceCodeScan} at one character position:
+ *   - `{ kind: "code" }` — `ch` is itself a normal code character; the caller
+ *     should run its own token-matching logic for this iteration
+ *   - `{ kind: "skip", nextIndex }` — `ch` was consumed by a string/escape,
+ *     comment, or language-specific literal; the caller should set its loop
+ *     index to `nextIndex - 1` (the loop's own `i++` then lands on
+ *     `nextIndex`) and `continue`
+ *   - `{ kind: "stop" }` — scanning should end here (a comment running to the
+ *     end of the line, or an unterminated Python triple-quote): the caller
+ *     should `break` out of its loop
+ */
+type CodeScanStep =
+  | { kind: "code" }
+  | { kind: "skip"; nextIndex: number }
+  | { kind: "stop" };
+
+/**
+ * Per-language skip rules {@link advanceCodeScan} applies. One flag/option
+ * per rule so each call site opts into exactly the set it needs, preserving
+ * the differences between findAssignmentEquals / findArrow /
+ * findLineContinuationMarker instead of silently unifying them (see #243):
+ * e.g. only findAssignmentEquals skips Python triple-quotes, and
+ * findArrow is the only one of the three with no digit-separator handling —
+ * both match each function's behavior from before this refactor.
+ */
+interface CodeScanOptions {
+  quoteChars: ReadonlySet<string>;
+  markers?: readonly string[];
+  cStyle: boolean;
+  cStyleLineComment?: boolean;
+  lifetimeLang?: boolean;
+  digitSeparators?: boolean;
+  pyTripleQuote?: boolean;
+}
+
+/**
+ * Shared per-character skip step for findAssignmentEquals / findArrow /
+ * findLineContinuationMarker (see #243). These three finders each need to
+ * tell real code apart from the same set of things — a Rust char literal
+ * (`'x'`) or raw string (`r#"..."#`), a C++14 digit separator (`1'000`), a
+ * Python triple-quote (`"""`/`'''`), a quoted string, or a comment — before
+ * deciding whether `ch` is a candidate for the operator they're each looking
+ * for. This consolidates that shared skip logic into one step function so a
+ * language-specific exception is added in one place instead of three.
+ * Mutates `quoteState` in place, same as {@link advanceQuoteState}.
+ */
+function advanceCodeScan(
+  lineText: string,
+  i: number,
+  ch: string,
+  quoteState: QuoteState,
+  opts: CodeScanOptions
+): CodeScanStep {
+  if (opts.lifetimeLang && quoteState.quote === false && ch === "'") {
+    const end = rustCharLiteralEnd(lineText, i);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
+    // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+  }
+  if (opts.lifetimeLang && quoteState.quote === false && ch === "r") {
+    const end = rustRawStringEnd(lineText, i);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
+  }
+  if (
+    ch === "'" &&
+    !quoteState.quote &&
+    opts.digitSeparators &&
+    isDigitSeparatorNeighbor(lineText[i - 1]) &&
+    isDigitSeparatorNeighbor(lineText[i + 1])
+  ) {
+    return { kind: "skip", nextIndex: i + 1 }; // C++14 digit separator (1'000'000), not a quote
+  }
+  if (
+    opts.pyTripleQuote &&
+    !quoteState.quote &&
+    (ch === '"' || ch === "'") &&
+    lineText[i + 1] === ch &&
+    lineText[i + 2] === ch
+  ) {
+    // Python triple-quote (""" or '''): recognized as one token so an odd
+    // number of embedded same-char quotes in its content can't desync the
+    // naive single-char toggle below into treating embedded code as real.
+    const close = scanClosingTripleQuote(lineText, i + 3, ch);
+    if (close === -1) {
+      return { kind: "stop" }; // unterminated on this line: nothing after it is code
+    }
+    return { kind: "skip", nextIndex: close + 1 };
+  }
+  if (advanceQuoteState(quoteState, ch, opts.quoteChars)) {
+    return { kind: "skip", nextIndex: i + 1 };
+  }
+  const comment = advanceCommentState(lineText, i, ch, {
+    markers: opts.markers,
+    cStyle: opts.cStyle,
+    cStyleLineComment: opts.cStyleLineComment,
+  });
+  if (comment === "break") {
+    return { kind: "stop" }; // comment to the end of the line
+  }
+  if (comment !== false) {
+    return { kind: "skip", nextIndex: comment + 1 };
+  }
+  return { kind: "code" };
+}
+
+/**
  * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
@@ -746,72 +855,29 @@ export function findAssignmentEquals(
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
   const markers = lineCommentMarkers(languageId);
-  const digitSeparators =
-    languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId);
   const cStyle =
     markers === undefined ||
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
-  const isLifetimeLang =
-    languageId !== undefined && LIFETIME_LANGUAGES.has(languageId);
-  const pyTripleQuote =
-    languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId);
-  const quoteChars = assignmentQuoteChars(languageId);
-  const state = initialQuoteState();
+  const opts: CodeScanOptions = {
+    quoteChars: assignmentQuoteChars(languageId),
+    markers,
+    cStyle,
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
+    digitSeparators:
+      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
+    pyTripleQuote:
+      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
+  };
+  const quoteState = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (isLifetimeLang && state.quote === false && ch === "'") {
-      const end = rustCharLiteralEnd(lineText, i);
-      if (end !== -1) {
-        i = end - 1; // loop's i++ advances past the closing `'`
-        continue;
-      }
-      // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      break; // comment to the end of the line, or an unterminated triple-quote
     }
-    if (isLifetimeLang && state.quote === false && ch === "r") {
-      const end = rustRawStringEnd(lineText, i);
-      if (end !== -1) {
-        i = end - 1; // loop's i++ advances past the closing `"`/`#`s
-        continue;
-      }
-    }
-    if (
-      ch === "'" &&
-      !state.quote &&
-      digitSeparators &&
-      isDigitSeparatorNeighbor(lineText[i - 1]) &&
-      isDigitSeparatorNeighbor(lineText[i + 1])
-    ) {
-      continue; // C++14 digit separator (1'000'000), not a quote
-    }
-    if (
-      pyTripleQuote &&
-      !state.quote &&
-      (ch === '"' || ch === "'") &&
-      lineText[i + 1] === ch &&
-      lineText[i + 2] === ch
-    ) {
-      // Python triple-quote (""" or '''): recognized as one token so an
-      // odd number of embedded same-char quotes in its content (e.g.
-      // `x = """a "quote example = 1"""`) can't desync the naive
-      // single-char toggle below into treating the embedded `=` as real.
-      const close = scanClosingTripleQuote(lineText, i + 3, ch);
-      if (close === -1) {
-        break; // unterminated on this line: nothing after it is code
-      }
-      i = close; // loop's i++ advances past the closing quote char
-      continue;
-    }
-    if (advanceQuoteState(state, ch, quoteChars)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
-    if (comment === "break") {
-      // Comment to the end of the line: no assignment can follow.
-      break;
-    }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
     if (ch === "(" || ch === "[") {
@@ -884,36 +950,20 @@ export function findAssignmentEquals(
  */
 function findArrow(lineText: string, languageId?: string): number[] {
   const results: number[] = [];
-  const isLifetimeLang =
-    languageId !== undefined && LIFETIME_LANGUAGES.has(languageId);
-  const quoteChars = assignmentQuoteChars(languageId);
-  const state = initialQuoteState();
+  const opts: CodeScanOptions = {
+    quoteChars: assignmentQuoteChars(languageId),
+    cStyle: true,
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
+  };
+  const quoteState = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (isLifetimeLang && state.quote === false && ch === "'") {
-      const end = rustCharLiteralEnd(lineText, i);
-      if (end !== -1) {
-        i = end - 1; // loop's i++ advances past the closing `'`
-        continue;
-      }
-      // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
-    }
-    if (isLifetimeLang && state.quote === false && ch === "r") {
-      const end = rustRawStringEnd(lineText, i);
-      if (end !== -1) {
-        i = end - 1; // loop's i++ advances past the closing `"`/`#`s
-        continue;
-      }
-    }
-    if (advanceQuoteState(state, ch, quoteChars)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
-    if (comment === "break") {
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
       break; // comment to the end of the line
     }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
     if (ch === "=" && lineText[i + 1] === ">" && lineText[i - 1] !== "<") {
@@ -1020,34 +1070,26 @@ function findLineContinuationMarker(
   const cStyle =
     markers === undefined ||
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
-  const digitSeparators =
-    languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId);
-  const quoteChars = assignmentQuoteChars(languageId);
-  const state = initialQuoteState();
+  const opts: CodeScanOptions = {
+    quoteChars: assignmentQuoteChars(languageId),
+    markers,
+    cStyle,
+    digitSeparators:
+      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
+  };
+  const quoteState = initialQuoteState();
   for (let i = 0; i < idx; i++) {
     const ch = lineText[i];
-    if (
-      ch === "'" &&
-      !state.quote &&
-      digitSeparators &&
-      isDigitSeparatorNeighbor(lineText[i - 1]) &&
-      isDigitSeparatorNeighbor(lineText[i + 1])
-    ) {
-      continue; // C++14 digit separator (1'000'000), not a quote
-    }
-    if (advanceQuoteState(state, ch, quoteChars)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
-    if (comment === "break") {
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
       return -1; // trailing `\` is inside a comment, not a real continuation
     }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
   }
-  return state.quote ? -1 : idx; // -1: trailing `\` inside an unterminated string
+  return quoteState.quote ? -1 : idx; // -1: trailing `\` inside an unterminated string
 }
 
 /** All occurrences of a single operator token on a line, in order. */
