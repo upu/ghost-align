@@ -338,6 +338,37 @@ const CSV_DELIMITERS = new Map<string, string>([
   ["tsv", "\t"],
 ]);
 
+/** Which alignment path a language uses, with the settings that path needs. */
+export type AlignmentPath =
+  | { kind: "markdown" }
+  | { kind: "csv"; delimiter: string }
+  | { kind: "operators"; operators: string[]; alignJsdoc: boolean };
+
+/**
+ * Resolve the alignment path for `languageId` in one place, so the dispatch
+ * cannot drift between the decoration pass and Copy with Alignment (they
+ * used to duplicate this resolution).
+ */
+export function resolveAlignmentPath(
+  languageId: string,
+  config: { get<T>(key: string, defaultValue: T): T }
+): AlignmentPath {
+  if (MARKDOWN_LANGUAGES.has(languageId)) {
+    return { kind: "markdown" };
+  }
+  const delimiter = CSV_DELIMITERS.get(languageId);
+  if (delimiter !== undefined) {
+    return { kind: "csv", delimiter };
+  }
+  return {
+    kind: "operators",
+    operators: resolveOperatorsForLanguage(config, languageId),
+    alignJsdoc:
+      TS_JS_LANGUAGES.has(languageId) &&
+      config.get<boolean>("alignJsdocParams", true),
+  };
+}
+
 /**
  * Resolve `ghostAlign.maxPadding` from settings: a non-negative integer, or
  * 0 (unlimited) for any invalid or non-positive value. Shared by every
@@ -380,35 +411,25 @@ export function computeDocumentPlacements(
   markdownFenceState?: FenceState,
   initialState?: LineScanState
 ): Placement[] {
-  const csvDelimiter = CSV_DELIMITERS.get(languageId);
-  const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
-  const isOperatorPath = !isMarkdown && csvDelimiter === undefined;
-  const operators = isOperatorPath
-    ? resolveOperatorsForLanguage(config, languageId)
-    : [];
-  const alignJsdoc =
-    isOperatorPath &&
-    TS_JS_LANGUAGES.has(languageId) &&
-    config.get<boolean>("alignJsdocParams", true);
-
+  const path = resolveAlignmentPath(languageId, config);
   const maxPadding = resolveMaxPadding(config);
 
-  if (isMarkdown) {
+  if (path.kind === "markdown") {
     return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState, maxPadding);
   }
-  if (csvDelimiter !== undefined) {
-    return computeCsvPaddings(lines, csvDelimiter, tabSize, maxPadding);
+  if (path.kind === "csv") {
+    return computeCsvPaddings(lines, path.delimiter, tabSize, maxPadding);
   }
 
   const groups = findAlignmentGroups(
     source,
-    operators,
+    path.operators,
     languageId,
     tabSize,
     initialState
   );
   let placements = computePaddings(groups, maxPadding);
-  if (alignJsdoc) {
+  if (path.alignJsdoc) {
     placements = placements.concat(
       computeJsdocParamPaddings(lines, tabSize, maxPadding)
     );
@@ -484,16 +505,7 @@ export function decorateEditor(
   const tabSize = resolveTabSize(editor);
   const lineCount = document.lineCount;
 
-  const csvDelimiter = CSV_DELIMITERS.get(languageId);
-  const isMarkdown = MARKDOWN_LANGUAGES.has(languageId);
-  const isOperatorPath = !isMarkdown && csvDelimiter === undefined;
-  const operators = isOperatorPath
-    ? resolveOperatorsForLanguage(config, languageId)
-    : [];
-  const alignJsdoc =
-    isOperatorPath &&
-    TS_JS_LANGUAGES.has(languageId) &&
-    config.get<boolean>("alignJsdocParams", true);
+  const path = resolveAlignmentPath(languageId, config);
   const maxPadding = resolveMaxPadding(config);
 
   // Large files are computed per visible range instead of whole-file, and
@@ -514,11 +526,12 @@ export function decorateEditor(
     );
     const visibleEnd = Math.max(...editor.visibleRanges.map((r) => r.end.line));
     let isGroupLine: (line: number) => boolean;
-    if (isMarkdown) {
+    if (path.kind === "markdown") {
       isGroupLine = (i) => findPipePositions(document.lineAt(i).text).length > 0;
-    } else if (csvDelimiter !== undefined) {
+    } else if (path.kind === "csv") {
       isGroupLine = () => false;
     } else {
+      const { operators, alignJsdoc } = path;
       isGroupLine = (i) => {
         const text = document.lineAt(i).text;
         return (
@@ -536,7 +549,7 @@ export function decorateEditor(
   }
 
   let placements: Placement[];
-  if (isMarkdown && useVisibleRange) {
+  if (path.kind === "markdown" && useVisibleRange) {
     // Whole-document table widths come from the cache — rebuilt in full only
     // on an edit (see notifyMarkdownDocumentChange) — so scrolling alone
     // reads the cached widths and never shifts alignment.
@@ -547,13 +560,13 @@ export function decorateEditor(
     }
     cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, maxPadding);
     placements = cache.placementsForRange(sliceStart, sliceEnd);
-  } else if (csvDelimiter !== undefined && useVisibleRange) {
+  } else if (path.kind === "csv" && useVisibleRange) {
     // Whole-file column widths come from the cache — built once, then only
     // the lines an edit touched are re-scanned (see notifyCsvDocumentChange)
     // — so only the decoration generation is limited to the slice.
     let cache = csvWidthCaches.get(document);
-    if (!cache || cache.delimiter !== csvDelimiter) {
-      cache = new CsvWidthCache(csvDelimiter);
+    if (!cache || cache.delimiter !== path.delimiter) {
+      cache = new CsvWidthCache(path.delimiter);
       csvWidthCaches.set(document, cache);
     }
     cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize);
@@ -567,7 +580,7 @@ export function decorateEditor(
     placements = computeCsvPaddingsFromMax(
       rows,
       cache.columnPlan(maxPadding),
-      csvDelimiter,
+      path.delimiter,
       tabSize
     );
   } else {
@@ -584,7 +597,7 @@ export function decorateEditor(
     // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
     // so it's fine to run over every line above the slice even for a huge file.
     const fenceState =
-      isMarkdown && sliceStart > 0
+      path.kind === "markdown" && sliceStart > 0
         ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
         : undefined;
     // A block comment/template literal, CSS rule block, or YAML block scalar
@@ -592,7 +605,7 @@ export function decorateEditor(
     // slice; seed the scan with whatever state it left behind (mirrors the
     // fence-state pre-scan above).
     const initialState: LineScanState | undefined =
-      isOperatorPath && sliceStart > 0
+      path.kind === "operators" && sliceStart > 0
         ? computeLineScanStateBefore(
             sliceStart,
             (i) => document.lineAt(i).text,
