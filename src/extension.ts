@@ -42,7 +42,8 @@ let alignDecorationType: vscode.TextEditorDecorationType;
 export const DEFAULT_GHOST_CHAR = " ";
 export const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 
-// globalState key under which the toggle state is persisted across reloads.
+// Memento key under which the toggle state is persisted across reloads
+// (workspaceState per workspace, globalState as the migration fallback).
 const ENABLED_STATE_KEY = "enabled";
 
 let enabled = true;
@@ -51,13 +52,23 @@ let enabled = true;
 let statusBarItem: vscode.StatusBarItem;
 
 /**
- * Resolve the toggle state from persisted storage. Defaults to enabled so
- * existing users (no stored value) keep the feature on.
+ * Resolve the toggle state from persisted storage. The workspace's own value
+ * wins; a workspace where the toggle was never used falls back to the global
+ * value (where releases before the per-workspace toggle stored it), and
+ * defaults to enabled so existing users keep the feature on.
  */
 export function resolveInitialEnabled(
-  state: { get<T>(key: string, defaultValue: T): T }
+  globalState: { get<T>(key: string, defaultValue: T): T },
+  workspaceState?: { get<T>(key: string, defaultValue: T): T }
 ): boolean {
-  return state.get<boolean>(ENABLED_STATE_KEY, true);
+  const workspaceValue = workspaceState?.get<boolean | undefined>(
+    ENABLED_STATE_KEY,
+    undefined
+  );
+  if (typeof workspaceValue === "boolean") {
+    return workspaceValue;
+  }
+  return globalState.get<boolean>(ENABLED_STATE_KEY, true);
 }
 
 /** Label shown in the status bar for the given toggle state. */
@@ -69,7 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
   alignDecorationType = vscode.window.createTextEditorDecorationType({});
   context.subscriptions.push(alignDecorationType);
 
-  enabled = resolveInitialEnabled(context.globalState);
+  enabled = resolveInitialEnabled(context.globalState, context.workspaceState);
 
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
@@ -88,7 +99,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.toggle", () => {
       enabled = !enabled;
-      void context.globalState.update(ENABLED_STATE_KEY, enabled);
+      void context.workspaceState.update(ENABLED_STATE_KEY, enabled);
       vscode.window.showInformationMessage(statusBarText(enabled));
       if (enabled) {
         updateDecorations();
