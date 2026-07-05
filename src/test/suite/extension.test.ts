@@ -5,6 +5,7 @@ import { findAlignmentGroups, computePaddings } from "../../paddings";
 import { buildAlignedText } from "../../copyAligned";
 import {
   resolveGhostSettings,
+  resolveAlignmentPath,
   resolveOperatorsForLanguage,
   isLanguageDisabled,
   toggleDisabledLanguage,
@@ -113,6 +114,53 @@ suite("resolveGhostSettings", () => {
   test('"transparent" は色を消す値として保持される（フォールバックしない）', () => {
     const s = resolveGhostSettings(mockConfig({ ghostColor: "transparent" }));
     assert.strictEqual(s.ghostColor, "transparent");
+  });
+});
+
+suite("resolveAlignmentPath", () => {
+  test("markdown は markdown パスになる", () => {
+    assert.deepStrictEqual(resolveAlignmentPath("markdown", mockConfig({})), {
+      kind: "markdown",
+    });
+  });
+
+  test("csv / tsv はそれぞれの区切り文字を持つ csv パスになる", () => {
+    assert.deepStrictEqual(resolveAlignmentPath("csv", mockConfig({})), {
+      kind: "csv",
+      delimiter: ",",
+    });
+    assert.deepStrictEqual(resolveAlignmentPath("tsv", mockConfig({})), {
+      kind: "csv",
+      delimiter: "\t",
+    });
+  });
+
+  test("TypeScript は operators パスで既定オペレーターと JSDoc 整列 ON になる", () => {
+    assert.deepStrictEqual(resolveAlignmentPath("typescript", mockConfig({})), {
+      kind: "operators",
+      operators: [":", "="],
+      alignJsdoc: true,
+    });
+  });
+
+  test("alignJsdocParams=false なら operators パスの alignJsdoc も false", () => {
+    const path = resolveAlignmentPath(
+      "typescript",
+      mockConfig({ alignJsdocParams: false })
+    );
+    assert.strictEqual(path.kind, "operators");
+    assert.strictEqual(
+      path.kind === "operators" ? path.alignJsdoc : undefined,
+      false
+    );
+  });
+
+  test("TS/JS 以外の言語では alignJsdoc は常に false", () => {
+    assert.deepStrictEqual(resolveAlignmentPath("python", mockConfig({})), {
+      kind: "operators",
+      operators: ["="],
+      alignJsdoc: false,
+    });
   });
 });
 
