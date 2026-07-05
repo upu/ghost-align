@@ -1181,6 +1181,40 @@ suite("resolveInitialEnabled", () => {
   test("ON を保存していれば有効で復元する", () => {
     assert.strictEqual(resolveInitialEnabled(mockState({ enabled: true })), true);
   });
+
+  test("workspaceState の OFF は globalState の ON より優先される", () => {
+    assert.strictEqual(
+      resolveInitialEnabled(
+        mockState({ enabled: true }),
+        mockState({ enabled: false })
+      ),
+      false
+    );
+  });
+
+  test("workspaceState の ON は globalState の OFF より優先される", () => {
+    assert.strictEqual(
+      resolveInitialEnabled(
+        mockState({ enabled: false }),
+        mockState({ enabled: true })
+      ),
+      true
+    );
+  });
+
+  test("workspaceState 未設定なら globalState にフォールバックする（既存の保存値を引き継ぐ）", () => {
+    assert.strictEqual(
+      resolveInitialEnabled(mockState({ enabled: false }), mockState({})),
+      false
+    );
+  });
+
+  test("どちらも未設定ならデフォルトで有効", () => {
+    assert.strictEqual(
+      resolveInitialEnabled(mockState({}), mockState({})),
+      true
+    );
+  });
 });
 
 suite("statusBarText", () => {

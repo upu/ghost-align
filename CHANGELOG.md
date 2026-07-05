@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- The `Ghost Align: Toggle` state is now kept per workspace instead of globally, so turning the extension off in one project no longer turns it off everywhere. A workspace where the toggle has never been used falls back to the previously saved global state, so existing users see no change until they toggle again.
 - The changelog is now written in English, with a Japanese companion ([CHANGELOG.ja.md](CHANGELOG.ja.md)) — the same arrangement as the README. Entries for past releases have been translated.
 
 ### Deprecated

@@ -81,7 +81,7 @@ Marketplace page: <https://marketplace.visualstudio.com/items?itemName=upu.ghost
 
 Once enabled, lines containing a target operator are automatically displayed aligned.
 
-You can toggle the visual alignment on/off from the Command Palette (the state persists across window reloads):
+You can toggle the visual alignment on/off from the Command Palette. The state is kept per workspace and persists across window reloads; a workspace where you never used the toggle follows the last state saved before the per-workspace toggle was introduced (ON for new installs):
 
 - `Ghost Align: Toggle` (command ID: `ghostAlign.toggle`)
 
