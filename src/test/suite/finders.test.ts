@@ -205,6 +205,75 @@ suite("computeLineStateBefore", () => {
   });
 });
 
+suite("computeLineStateBefore（Ruby/PHP ヒアドキュメント）", () => {
+  test("Ruby: 閉じていないヒアドキュメントは終端子つきの heredoc 状態を返す", () => {
+    const lines = ["sql = <<~SQL", "  SET x = 1"];
+    assert.deepStrictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+      { kind: "heredoc", terminator: "SQL" }
+    );
+  });
+
+  test("Ruby: 終端行まで含めれば code に戻る", () => {
+    const lines = ["sql = <<~SQL", "  SET x = 1", "SQL"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+      "code"
+    );
+  });
+
+  test("Ruby: <<- / 素の <<EOS / クォート付き識別子も開始として認識する", () => {
+    for (const opener of ["<<-SQL", "<<SQL", '<<~"SQL"', "<<~'SQL'"]) {
+      const lines = [`sql = ${opener}`, "  still open"];
+      assert.deepStrictEqual(
+        computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+        { kind: "heredoc", terminator: "SQL" },
+        opener
+      );
+    }
+  });
+
+  test("Ruby: 左シフト演算子はヒアドキュメント開始と誤認しない", () => {
+    const lines = ["x = 1 << 2", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+      "code"
+    );
+  });
+
+  test("PHP: nowdoc（<<<'EOT'）が閉じていなければ heredoc 状態を返す", () => {
+    const lines = ["$sql = <<<'EOT'", "  SET x = 1"];
+    assert.deepStrictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "php"),
+      { kind: "heredoc", terminator: "EOT" }
+    );
+  });
+
+  test("PHP: heredoc（<<<EOT、クォートなし）も同様に扱う", () => {
+    const lines = ["$sql = <<<EOT", "  SET x = 1"];
+    assert.deepStrictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "php"),
+      { kind: "heredoc", terminator: "EOT" }
+    );
+  });
+
+  test("PHP: 終端行が `;` などを伴っていても終了として認識する", () => {
+    const lines = ["$sql = <<<EOT", "  SET x = 1", "EOT;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "php"),
+      "code"
+    );
+  });
+
+  test("Ruby/PHP 以外の言語では << はヒアドキュメントとして扱わない", () => {
+    const lines = ["x = 1 <<~SQL", "still open"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
+      "code"
+    );
+  });
+});
+
 suite("findOperatorColumn", () => {
   test("単純な代入の = を見つける", () => {
     assert.strictEqual(findOperatorColumn("const x = 1;", ["="]), 8);

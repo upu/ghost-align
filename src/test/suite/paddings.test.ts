@@ -460,6 +460,78 @@ suite("findAlignmentGroups（Python triple-quote docstring）", () => {
   });
 });
 
+suite("findAlignmentGroups（Ruby/PHP ヒアドキュメント）", () => {
+  test("Ruby: ヒアドキュメント本文内の = は整列対象にならず、終端行の後は通常どおり整列される", () => {
+    // 本文行をオープナー行と同じインデント（0）にして、ヒアドキュメント判定なしでは
+    // インデント差によるグループ分割に頼らず本文が誤って地の文と同じグループに
+    // 混ざることを検出できるようにする。
+    const doc = mockDocument([
+      "sql = <<~SQL",
+      "SET x = 1",
+      "SQL",
+      "a = 2",
+      "longName = 3",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "ruby");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 3);
+    assert.strictEqual(groups[0][1].lineIndex, 4);
+  });
+
+  test("Ruby: ヒアドキュメント本文内の => も整列対象にならない", () => {
+    // オープナー行自体にも => を含め、本文行の => が抑制されなければ
+    // オープナー行と地続きのグループになってしまう構成にする。
+    const doc = mockDocument([
+      "a => 1 <<~SQL",
+      "b => 2",
+      "SQL",
+      "c = 1 => d",
+      "longName = 2 => e",
+    ]);
+    const groups = findAlignmentGroups(doc, ["=>"], "ruby");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 3);
+    assert.strictEqual(groups[0][1].lineIndex, 4);
+  });
+
+  test("Ruby: x << 2 のような左シフトはヒアドキュメント開始と誤認せず通常どおり整列される", () => {
+    const doc = mockDocument(["x = 1 << 2", "longName = 2"]);
+    const groups = findAlignmentGroups(doc, ["="], "ruby");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+  });
+
+  test("PHP: nowdoc（<<<'EOT'）本文内の = は整列対象にならない", () => {
+    const doc = mockDocument([
+      "$sql = <<<'EOT'",
+      "SET x = 1",
+      "EOT;",
+      "$a = 2;",
+      "$longName = 3;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "php");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].lineIndex, 3);
+    assert.strictEqual(groups[0][1].lineIndex, 4);
+  });
+
+  test("PHP: heredoc（<<<EOT、クォートなし）本文内の = も整列対象にならない", () => {
+    const doc = mockDocument([
+      "$sql = <<<EOT",
+      "SET x = 1",
+      "EOT;",
+      "$a = 2;",
+      "$longName = 3;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "php");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+  });
+});
+
 /** Builds a single-column AlignmentEntry for computePaddings tests. */
 function entry(lineIndex: number, insert: number, visualColumn: number) {
   return { lineIndex, columns: [{ opIndex: 0, insert, visualColumn }] };
