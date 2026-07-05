@@ -1,53 +1,53 @@
 ---
 name: plan-next
-description: Plan the next release of this extension — review the source, surface improvements and new feature ideas, decide priorities with the user, then file the chosen items as GitHub issues assigned to a release milestone. Use this whenever the user is deciding what to build next rather than implementing or shipping: starting a planning phase, scoping a version, building a roadmap, choosing which items go into the next version, or turning improvement ideas into prioritized issues under a milestone (e.g. "次バージョンの計画", "次に何を作るか決めたい", "ロードマップ整理して issue 化", "v0.3 のスコープを決めたい", "what should we build next"). Not for implementing an already-filed issue (use /ship) or cutting and tagging a release (use /release).
-argument-hint: "[target version, e.g. 0.2.0]"
+description: この拡張機能の次期リリースを計画する——ソースをレビューして改善点と新機能案を洗い出し、ユーザーと優先度を決め、選ばれた項目をリリースマイルストーン付きの GitHub issue として起票する。実装やリリース作業ではなく「次に何を作るか」を決めるときに使う：計画フェーズの開始、バージョンのスコープ決め、ロードマップ作り、次バージョンに入れる項目の選定、改善アイデアのマイルストーン付き issue 化（例:「次バージョンの計画」「次に何を作るか決めたい」「ロードマップ整理して issue 化」「v0.3 のスコープを決めたい」「what should we build next」）。起票済み issue の実装（/ship）やリリースのタグ付け（/release）には使わない。
+argument-hint: "[目標バージョン。例: 0.2.0]"
 ---
 
-# Plan Next Release
+# 次期リリースを計画する
 
-Run the planning phase for the next version: read the code, propose improvements and new features, agree on priorities with the user, and file the chosen items as issues under a release milestone. This is the front door that feeds `/ship` (implementation) and `/release` (cutting the release).
+次バージョンの計画フェーズを実行する：コードを読み、改善点と新機能を提案し、ユーザーと優先度を合意し、選ばれた項目をリリースマイルストーン配下の issue として起票する。これは `/ship`（実装）と `/release`（リリース作業）につながる入り口となるスキル。
 
-`$ARGUMENTS` is the target version (e.g. `0.2.0`). If empty, infer it from the current `package.json` `version` and the final selection — a breaking change bumps major, any `enhancement` bumps minor, otherwise patch — and confirm it with the user.
+`$ARGUMENTS` は目標バージョン（例: `0.2.0`）。空の場合は、現在の `package.json` の `version` と最終的な選定内容から推定し——破壊的変更があればメジャー、`enhancement` があればマイナー、それ以外はパッチを上げる——ユーザーに確認する。
 
-## Steps
+## 手順
 
-1. **Gather current state** — read `src/extension.ts`, `package.json` (`contributes.configuration`), and `src/test/**`. Run `gh issue list --state open --limit 1000 --json number,title,labels,milestone` and `gh api repos/:owner/:repo/milestones --paginate --jq '.[] | {title,state,number}'` (this is an inventory — always pass `--limit`/`--paginate` so the default page size doesn't hide issues or milestones). Don't re-propose things that already have an open issue.
+1. **現状を把握する** — `src/extension.ts`、`package.json`（`contributes.configuration`）、`src/test/**` を読む。`gh issue list --state open --limit 1000 --json number,title,labels,milestone` と `gh api repos/:owner/:repo/milestones --paginate --jq '.[] | {title,state,number}'` を実行する（棚卸しなので、デフォルトの取得件数制限で issue やマイルストーンを見落とさないよう `--limit`/`--paginate` を必ず付ける）。すでにオープンな issue があるものを再提案しない。
 
-2. **Review the code for improvements** — read before judging. Look for correctness bugs (especially in languages already enabled by default), behavior gaps, and scalability concerns. Tie each finding to a concrete location in the source. Separate real bugs from nice-to-haves.
+2. **コードをレビューして改善点を洗い出す** — 判断する前に必ず読む。正しさのバグ（特にデフォルトで有効な言語での）、挙動の欠落、スケーラビリティの懸念を探す。各指摘はソース上の具体的な場所に紐付ける。本物のバグと nice-to-have を区別する。
 
-3. **Propose new features** — suggest features that fit the project's concept ("コードを変えずに、表示上で整える"). Keep proposals aligned with the "将来の方針" in `CLAUDE.md`. Mark which are children of existing tracking issues (e.g. #19).
+3. **新機能を提案する** — プロジェクトのコンセプト（「コードを変えずに、表示上で整える」）に合う機能を提案する。`CLAUDE.md` の「将来の方針」に沿わせる。既存のトラッキング issue（例: #19）の子にあたるものはその旨を明示する。
 
-4. **Map dependencies and a cheap order among the candidates** — before asking the user, work out how the candidates relate:
-   - Strict dependencies (X must land before Y): read existing issue bodies for `関連: #N` / `前提: #N` hints and check native sub-issue links (`gh api repos/:owner/:repo/issues/<n>/sub_issues`). A candidate whose prerequisite is neither selected nor closed cannot go in — surface that conflict to the user instead of silently dropping it.
-   - Cost-saving order (お得な順序): not a hard dependency, but doing X first makes Y cheaper — e.g. a foundation refactor that shrinks the diff of the features touching the same code (the v0.7.1 lesson: 土台リファクタを先に). Record these; they feed the recommended order in steps 6 and 8, not the selection itself.
+4. **候補間の依存関係とお得な順序を洗い出す** — ユーザーに提示する前に、候補同士の関係を整理する：
+   - 厳密な依存（X が Y より先に必要）：既存 issue の本文にある `関連: #N` / `前提: #N` のヒントを読み、ネイティブな sub-issue リンク（`gh api repos/:owner/:repo/issues/<n>/sub_issues`）も確認する。前提となる issue が今回選ばれておらずクローズもされていない候補は採用できない——黙って外すのではなく、その矛盾をユーザーに提示する。
+   - お得な順序：厳密な依存ではないが「先に X をやると Y が安く済む」もの——例えば、同じコードを触る機能追加の diff を小さくする土台リファクタ（v0.7.1 の教訓: 土台リファクタを先に）。これらを記録しておく。選定可否には影響させず、手順 6・8 の推奨着手順序に反映する。
 
-5. **Present and prioritize with the user** — show the findings and feature ideas as a table with a recommended priority (high / med / low), prerequisites/ordering notes from step 4, and a recommended cut for the target version. Use `AskUserQuestion` to confirm that cut and adjust it — e.g. accept the recommendation, drop specific items, or rebalance priorities. With many candidates, ask about the recommendation as a whole rather than one question per item (`AskUserQuestion` is capped at a few questions). Do not file issues until the user has chosen.
+5. **ユーザーに提示して優先度を決める** — 指摘と機能案を、推奨優先度（high / med / low）、手順 4 の前提・順序メモ、目標バージョンへの採否の推奨案とともに表で提示する。`AskUserQuestion` でその採否案を確認・調整してもらう——推奨をそのまま承認する、特定の項目を外す、優先度を組み替える、など。候補が多いときは項目ごとに 1 問ずつではなく、推奨案全体としてまとめて聞く（`AskUserQuestion` は質問数に上限がある）。ユーザーが選ぶまで issue は起票しない。
 
-6. **Set up the milestone and labels** — the milestone title is `v$ARGUMENTS` (prepend the `v`; `$ARGUMENTS` has none). Re-running this skill must not error or duplicate:
-   - Milestone: try the create directly and branch on the result instead of listing first — `gh api repos/:owner/:repo/milestones -f title="vX.Y.Z" -f state="open" -f description="<one-line theme>"`. On success, use it. On `422` (duplicate title), fetch it with `gh api "repos/:owner/:repo/milestones?state=all" --jq '.[] | select(.title=="vX.Y.Z")'`: if its `state` is `open`, reuse it (re-run safety); if `closed`, that version already shipped (or was closed by mistake) — stop and report to the user instead of reusing it.
-   - The full description is written in step 8, after the new issue numbers exist; the create only needs the one-line theme.
-   - Labels: every issue gets one type label (`bug`, `enhancement`, `documentation`, `ci`, `chore`) and one priority label (`priority:high` / `priority:med` / `priority:low`). As of now all of these already exist in this repo; still confirm with `gh label list` and create only genuinely missing ones — `gh label create` errors on an existing label. Match the type to the issue's title prefix: `fix:`→bug, `feat:`→enhancement, `docs:`→documentation, `ci:`→ci, and `build:`/`workflow:`/`chore:`→chore.
+6. **マイルストーンとラベルを準備する** — マイルストーンのタイトルは `v$ARGUMENTS`（`$ARGUMENTS` には `v` が無いので先頭に付ける）。このスキルは再実行してもエラーや重複を起こしてはならない：
+   - マイルストーン：一覧してから作成するのではなく、まず作成を試みて結果で分岐する——`gh api repos/:owner/:repo/milestones -f title="vX.Y.Z" -f state="open" -f description="<テーマ一行>"`。成功したらそれを使う。`422`（同名重複）なら `gh api "repos/:owner/:repo/milestones?state=all" --paginate --jq '.[] | select(.title=="vX.Y.Z")'` で取得する：`state` が `open` ならそのまま流用する（再実行時の安全策）。`closed` ならそのバージョンはリリース済み（または誤クローズ）なので、流用せず作業を止めてユーザーに報告する。
+   - description の本文は、新規 issue の番号が確定した後の手順 8 で書く。作成時点ではテーマ一行だけでよい。
+   - ラベル：すべての issue に種別ラベル（`bug` / `enhancement` / `documentation` / `ci` / `chore`）と優先度ラベル（`priority:high` / `priority:med` / `priority:low`）を 1 つずつ付ける。現時点でこれらはすべてこのリポジトリに存在するが、それでも `gh label list` で確認し、本当に無いものだけ作成する——`gh label create` は既存ラベルに対してエラーになる。種別は issue タイトルの接頭辞に合わせる：`fix:`→bug、`feat:`→enhancement、`docs:`→documentation、`ci:`→ci、`build:`/`workflow:`/`chore:`→chore。
 
-7. **File the chosen issues** — for each selected item, write a body with sections: 背景 / 期待する挙動 / 設計メモ / 受け入れ基準. Create with `gh issue create --milestone "vX.Y.Z" --label <type> --label <priority>`.
-   - When the design has more than one plausible approach, don't pick one at planning time: list the candidate approaches in 設計メモ (e.g. 案1/案2/案3 with trade-offs, marking a recommendation if there is one) and add "実装時にどれかを選ぶ（PR で決定を明記）". This lets `/ship` implement autonomously without blocking on a question, and keeps the decision auditable in the PR (worked well for #139/#140/#147 in v0.3.0). Treat the issue's analysis as a hypothesis — `/ship`'s test-first step is what verifies it.
-   - Encode the step-4 relations in GitHub itself, not just in prose:
-     - A strict order dependency gets a `前提: #N` line in the dependent issue's body (GitHub auto-links it).
-     - A true parent/child split of a tracking issue gets a native sub-issue link: `gh api repos/:owner/:repo/issues/<parent-number>/sub_issues -F sub_issue_id=<child-id>` where `<child-id>` is the child's `id` from `gh api repos/:owner/:repo/issues/<child-number> --jq .id` (gh 2.86 has no `--add-sub-issue` flag on `gh issue edit`; use the API). Also add a comment on the parent linking the new child.
+7. **選ばれた issue を起票する** — 選定した各項目について、背景 / 期待する挙動 / 設計メモ / 受け入れ基準 のセクション構成で本文を書く。`gh issue create --milestone "vX.Y.Z" --label <種別> --label <優先度>` で作成する。
+   - 設計に複数の妥当なアプローチがあるときは、計画時点で 1 つに決めない：設計メモに候補案を列挙し（例: 案1/案2/案3 とトレードオフ、推奨があればその旨）、「実装時にどれかを選ぶ（PR で決定を明記）」と書き添える。こうすると `/ship` が質問でブロックされずに自律実装でき、決定が PR に監査可能な形で残る（v0.3.0 の #139/#140/#147 でうまくいった方式）。issue の分析は仮説として扱う——検証するのは `/ship` のテストファーストのステップ。
+   - 手順 4 で洗い出した関係は、文章だけでなく GitHub 自体の仕組みにも残す：
+     - 厳密な順序依存は、依存する側の issue 本文に `前提: #N` の一行を入れる（GitHub が自動リンクする）。
+     - トラッキング issue を本当に親子分割した関係には、ネイティブの sub-issue リンクを張る：`gh api repos/:owner/:repo/issues/<親番号>/sub_issues -F sub_issue_id=<子のid>`。`<子のid>` は `gh api repos/:owner/:repo/issues/<子番号> --jq .id` で取得する（gh 2.86 の `gh issue edit` に `--add-sub-issue` フラグは無いので API を使う）。あわせて親 issue に新しい子へのリンクをコメントする。
 
-8. **Write the milestone description as a shared brief** — once all issues exist, update the description so a later session or skill (`/ship`, `/release`) can pick up the plan without re-asking the user:
-   - One line: the release's theme/goal.
-   - The recommended work order of the selected issues — strict dependencies first, then cost-saving order, then priority. E.g. `1. #244 → 2. #283（#244 と同じ配線を触るため後） → 3. #235 → …`, with the reason in parentheses where the order isn't obvious.
-   - Items considered but deferred, with the reason (prerequisite unmet, pushed to a later version, …).
-   Write the multiline text to a scratchpad file with the Write tool and pass it as `gh api --method PATCH repos/:owner/:repo/milestones/<number> -F description=@<file>` — `--method PATCH` is required (`-f`/`-F` flips the default to POST), and the file avoids PowerShell multiline-quoting breakage.
+8. **マイルストーンの description を共有ブリーフとして書く** — 全 issue が揃ったら、後続のセッションやスキル（`/ship`、`/release`）がユーザーに聞き直さずに計画を引き継げるよう description を更新する：
+   - リリースのテーマ・目的を一行で。
+   - 選定した issue の推奨着手順序——厳密な依存を最優先、次にお得な順序、その次に優先度。例: `1. #244 → 2. #283（#244 と同じ配線を触るため後） → 3. #235 → …`。順序が自明でない箇所は理由を括弧書きで添える。
+   - 検討したが見送った項目と、その理由（前提未達、次バージョン以降に持ち越し、など）。
+   複数行のテキストは Write ツールで scratchpad のファイルに書き、`gh api --method PATCH repos/:owner/:repo/milestones/<番号> -F description=@<ファイル>` で渡す——`--method PATCH` は必須（`-f`/`-F` があるとデフォルトが POST になる）。ファイル経由にするのは PowerShell の複数行クォート事故を避けるため。
 
-9. **Report** — list the created issue numbers with their priority, the milestone URL, and the recommended order of work. Note that `/ship <n>` implements each, the milestone description holds the handoff brief, and the milestone is done when all its issues close (hand off to `/release`).
+9. **報告する** — 作成した issue 番号と優先度の一覧、マイルストーンの URL、推奨着手順序を挙げる。各 issue は `/ship <n>` で実装すること、引き継ぎブリーフはマイルストーンの description にあること、全 issue がクローズしたらマイルストーン完了で `/release` に引き継ぐことも伝える。
 
-## Notes
+## 補足
 
-- This is a planning skill: its output is issues + a milestone, not code. Do not start implementing here — that is `/ship`.
-- One concern per issue so each can be shipped independently.
-- Three label axes: type (`bug`/`enhancement`/`documentation`/`ci`/`chore`) + priority (`priority:high`/`med`/`low`) + milestone (which release). Keep that split; every issue gets one type label and one priority label.
-- Prefer GitHub's own mechanisms over inventing a handoff format: narrative and order live in the milestone `description`, parent/child in native sub-issues, simple order dependencies as auto-linked `前提: #N` text. Any future session can then rebuild the plan just by reading the milestone and its issues.
-- If a finding is out of scope for the target version, still file it as an issue (no milestone) so it is not lost, per this repo's issue-driven workflow.
-- Verify each `gh` call actually dispatched, especially the milestone / label / issue creation in steps 6–8. A dispatched call returns one of: a tool result, a "running in background" ack, or a "malformed … please retry" error. If your turn ends with none of these and the user speaks next, the call did not dispatch (a syntax slip) — re-issue it with corrected syntax rather than asking the user.
+- これは計画用のスキル：成果物は issue とマイルストーンであって、コードではない。ここで実装を始めない——それは `/ship` の仕事。
+- issue は 1 件 1 関心事にし、それぞれ独立して出荷できるようにする。
+- ラベルは 3 軸：種別（`bug`/`enhancement`/`documentation`/`ci`/`chore`）＋優先度（`priority:high`/`med`/`low`）＋マイルストーン（どのリリースか）。この分離を守り、すべての issue に種別と優先度を 1 つずつ付ける。
+- 引き継ぎには独自フォーマットを発明するより GitHub 自体の仕組みを優先する：物語と順序はマイルストーンの `description`、親子関係はネイティブの sub-issues、単純な順序依存は自動リンクされる `前提: #N` のテキスト。こうしておけば、将来のどのセッションもマイルストーンと issue を読むだけで計画を再構築できる。
+- 目標バージョンのスコープ外となった指摘も、失われないように issue としては起票する（マイルストーン無し）。このリポジトリの issue 駆動ワークフローに従う。
+- 各 `gh` 呼び出しが実際に実行されたことを確認する。特に手順 6〜8 のマイルストーン・ラベル・issue 作成。実行された呼び出しは、ツール結果・「バックグラウンドで実行中」の応答・「malformed … please retry」エラーのいずれかを返す。ターンがそのいずれも無いまま終わり、ユーザーが次に発言した場合、その呼び出しは実行されていない（構文ミス）——ユーザーに聞くのではなく、構文を直して再実行する。
