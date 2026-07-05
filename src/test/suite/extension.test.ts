@@ -162,6 +162,48 @@ suite("resolveAlignmentPath", () => {
       alignJsdoc: false,
     });
   });
+
+  test("markdownTable.enabled=false なら markdown は none パスになる", () => {
+    assert.deepStrictEqual(
+      resolveAlignmentPath(
+        "markdown",
+        mockConfig({ "markdownTable.enabled": false })
+      ),
+      { kind: "none" }
+    );
+  });
+
+  test("csv.enabled=false なら csv / tsv は none パスになる", () => {
+    const config = mockConfig({ "csv.enabled": false });
+    assert.deepStrictEqual(resolveAlignmentPath("csv", config), {
+      kind: "none",
+    });
+    assert.deepStrictEqual(resolveAlignmentPath("tsv", config), {
+      kind: "none",
+    });
+  });
+
+  test("jsdoc.enabled=false なら operators パスの alignJsdoc が false になる", () => {
+    const path = resolveAlignmentPath(
+      "typescript",
+      mockConfig({ "jsdoc.enabled": false })
+    );
+    assert.strictEqual(
+      path.kind === "operators" ? path.alignJsdoc : undefined,
+      false
+    );
+  });
+
+  test("新キー jsdoc.enabled の明示は旧 alignJsdocParams より優先される", () => {
+    const path = resolveAlignmentPath(
+      "typescript",
+      mockConfig({ "jsdoc.enabled": true, alignJsdocParams: false })
+    );
+    assert.strictEqual(
+      path.kind === "operators" ? path.alignJsdoc : undefined,
+      true
+    );
+  });
 });
 
 suite("resolveOperatorsForLanguage", () => {
@@ -525,6 +567,56 @@ suite("decorateEditor と disabledLanguages", () => {
       "gray"
     );
     assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("markdownTable.enabled=false なら Markdown テーブルが整列されない", () => {
+    const { editor, calls } = mockEditor("markdown", [
+      "| a | b |",
+      "|---|---|",
+      "| 1 | 22 |",
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        "markdownTable.enabled": false,
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("csv.enabled=false なら CSV / TSV が整列されない", () => {
+    const { editor, calls } = mockEditor("csv", ["a,b", "aaa,b"]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        "csv.enabled": false,
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.deepStrictEqual(calls[0], []);
+  });
+
+  test("既定では Markdown テーブルも CSV も整列される", () => {
+    const md = mockEditor("markdown", ["| a | b |", "|---|---|", "| 1 | 22 |"]);
+    decorateEditor(
+      md.editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.ok(md.calls[0].length > 0);
+
+    const csv = mockEditor("csv", ["a,b", "aaa,b"]);
+    decorateEditor(
+      csv.editor,
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.ok(csv.calls[0].length > 0);
   });
 
   test("disabledLanguages に載っていない言語では通常どおり整列される", () => {
@@ -1147,5 +1239,26 @@ suite("package.json との既定値同期", () => {
       props["ghostAlign.ghostColor"]?.default,
       DEFAULT_GHOST_COLOR
     );
+  });
+
+  test("機能スコープの enabled キーが default true で登録されている", () => {
+    const props = configProperties();
+    for (const key of [
+      "ghostAlign.jsdoc.enabled",
+      "ghostAlign.markdownTable.enabled",
+      "ghostAlign.csv.enabled",
+    ]) {
+      assert.strictEqual(props[key]?.default, true, key);
+    }
+  });
+
+  test("旧 alignJsdocParams に新キーへ誘導する deprecation メッセージが付いている", () => {
+    const props = configProperties() as Record<
+      string,
+      { markdownDeprecationMessage?: string }
+    >;
+    const message =
+      props["ghostAlign.alignJsdocParams"]?.markdownDeprecationMessage;
+    assert.ok(message && message.includes("ghostAlign.jsdoc.enabled"));
   });
 });

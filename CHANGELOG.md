@@ -9,9 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added feature-scoped settings to toggle each alignment path individually: `ghostAlign.jsdoc.enabled` (JSDoc `@param` alignment, replaces `alignJsdocParams`), `ghostAlign.markdownTable.enabled` (Markdown table alignment), and `ghostAlign.csv.enabled` (CSV/TSV alignment) — all default `true`. Previously Markdown tables and CSV/TSV could only be turned off per language via `ghostAlign.disabledLanguages`.
+
 ### Changed
 
 - The changelog is now written in English, with a Japanese companion ([CHANGELOG.ja.md](CHANGELOG.ja.md)) — the same arrangement as the README. Entries for past releases have been translated.
+
+### Deprecated
+
+- Deprecated `ghostAlign.alignJsdocParams` in favor of `ghostAlign.jsdoc.enabled`. The old key keeps working while the new one is left unset (an explicit new-key value wins), and the settings UI now points to the new key; removal is planned for a future major version.
 
 ## [0.7.1] - 2026-07-05
 
