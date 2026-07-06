@@ -19,7 +19,9 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 
 ## プロジェクト構成
 
-- `src/extension.ts` — VS Code 配線のみ（activate/deactivate、設定解決、ステータスバー、decorateEditor のオーケストレーション）
+- `src/extension.ts` — VS Code 配線のみ（activate/deactivate、コマンド登録、イベント配線、ステータスバー）
+- `src/config.ts` — 設定解決（`resolveOperatorsForLanguage` などの resolve* 関数群と `DEFAULT_OPERATORS_BY_LANGUAGE`）
+- `src/decorate.ts` — `computeDocumentPlacements` / `decorateEditor` / `buildCopyAlignedText`、大ファイル用キャッシュと notify*
 - `src/finders.ts` — 演算子検出（`=`/`:`/`=>`/コメントマーカー）とクォート状態機械
 - `src/paddings.ts` — アライメントグループ化・パディング計算・視覚幅計算・大ファイルの可視範囲スライス
 - `src/markdown.ts` — Markdown テーブルのパイプ整列
@@ -30,7 +32,7 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 - `scripts/esbuild.js` — 本番バンドルのビルドスクリプト
 - `.vscode/launch.json` — デバッグ設定
 
-テストは `src/test/suite/` 配下にソースモジュール対応で分割（`finders.test.ts` / `paddings.test.ts` / `markdown.test.ts` / `csv.test.ts` / `jsdoc.test.ts` / `copyAligned.test.ts` / `extension.test.ts` は配線まわり）。共有モック類は `testHelpers.ts`。
+テストは `src/test/suite/` 配下にソースモジュール対応で分割（`finders.test.ts` / `paddings.test.ts` / `markdown.test.ts` / `csv.test.ts` / `jsdoc.test.ts` / `copyAligned.test.ts`）。`extension.test.ts` は `config.ts` / `decorate.ts` / `extension.ts` をまとめて扱う（config/decorate 分割済みだがテストファイルはまだ未分割）。共有モック類は `testHelpers.ts`。
 
 ## アーキテクチャ
 

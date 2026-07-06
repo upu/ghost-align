@@ -11,19 +11,19 @@ import {
   resolveOperatorsForLanguage,
   isLanguageDisabled,
   toggleDisabledLanguage,
-  decorateEditor,
-  computeDocumentPlacements,
-  buildCopyAlignedText,
-  resolveInitialEnabled,
-  statusBarText,
   isAlignableScheme,
-  debounce,
-  notifyCsvDocumentChange,
-  notifyMarkdownDocumentChange,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
   DEFAULT_OPERATORS_BY_LANGUAGE,
-} from "../../extension";
+} from "../../config";
+import {
+  decorateEditor,
+  computeDocumentPlacements,
+  buildCopyAlignedText,
+  notifyCsvDocumentChange,
+  notifyMarkdownDocumentChange,
+} from "../../decorate";
+import { resolveInitialEnabled, statusBarText, debounce } from "../../extension";
 import {
   wait,
   mockDocument,
