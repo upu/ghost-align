@@ -8,6 +8,7 @@ import {
   isYamlBlockScalarContent,
   nextYamlBlockScalarState,
   computeYamlBlockScalarStateBefore,
+  isWholeLineComment,
 } from "../../finders";
 import { findOperatorTarget, findOperatorColumn } from "./testHelpers";
 
@@ -270,6 +271,87 @@ suite("computeLineStateBefore（Ruby/PHP ヒアドキュメント）", () => {
     assert.strictEqual(
       computeLineStateBefore(lines.length, (i) => lines[i], "typescript"),
       "code"
+    );
+  });
+});
+
+suite("isWholeLineComment", () => {
+  test("`//` 全行コメントは true", () => {
+    assert.strictEqual(isWholeLineComment("// comment", undefined, "code"), true);
+  });
+
+  test("先頭に空白があっても `//` 全行コメントなら true", () => {
+    assert.strictEqual(isWholeLineComment("   // comment", undefined, "code"), true);
+  });
+
+  test("`#`（Python）の全行コメントは true", () => {
+    assert.strictEqual(isWholeLineComment("# comment", "python", "code"), true);
+  });
+
+  test("`#`（YAML）の全行コメントも true（resolveDocScanOptions ではなく lineCommentMarkers を直接参照）", () => {
+    assert.strictEqual(isWholeLineComment("# comment", "yaml", "code"), true);
+  });
+
+  test("コード付き行末コメントは false（全行コメントではない）", () => {
+    assert.strictEqual(
+      isWholeLineComment("const x = 1; // comment", undefined, "code"),
+      false
+    );
+  });
+
+  test("空行は false", () => {
+    assert.strictEqual(isWholeLineComment("", undefined, "code"), false);
+  });
+
+  test("空白のみの行は false", () => {
+    assert.strictEqual(isWholeLineComment("   ", undefined, "code"), false);
+  });
+
+  test("実コードのみの行は false", () => {
+    assert.strictEqual(isWholeLineComment("const x = 1;", undefined, "code"), false);
+  });
+
+  test("1行で閉じるブロックコメントだけの行は true", () => {
+    assert.strictEqual(isWholeLineComment("/* note */", "typescript", "code"), true);
+  });
+
+  test("1行で閉じないブロックコメント開始行は true", () => {
+    assert.strictEqual(isWholeLineComment("/*", "typescript", "code"), true);
+  });
+
+  test("blockComment 状態で始まり閉じずに終わる行は true", () => {
+    assert.strictEqual(
+      isWholeLineComment(" * still open", "typescript", "blockComment"),
+      true
+    );
+  });
+
+  test("blockComment 状態で始まり閉じた後は空白のみなら true", () => {
+    assert.strictEqual(
+      isWholeLineComment(" */  ", "typescript", "blockComment"),
+      true
+    );
+  });
+
+  test("blockComment 状態で始まり閉じた後に実コードがあれば false", () => {
+    assert.strictEqual(
+      isWholeLineComment(" */ const x = 1;", "typescript", "blockComment"),
+      false
+    );
+  });
+
+  test("template / triple-quote 状態はコメントではないので false", () => {
+    assert.strictEqual(isWholeLineComment("still open", "typescript", "template"), false);
+    assert.strictEqual(
+      isWholeLineComment("still open", "python", "pyTripleDouble"),
+      false
+    );
+  });
+
+  test("heredoc 状態はコメントではないので false", () => {
+    assert.strictEqual(
+      isWholeLineComment("SET x = 1", "ruby", { kind: "heredoc", terminator: "SQL" }),
+      false
     );
   });
 });

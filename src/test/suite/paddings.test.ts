@@ -147,17 +147,17 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].lineIndex, 1);
   });
 
-  test("コメント行はグループの最大列を押し上げない", () => {
-    // 修正前は `// const yyyyyy = 2;` の `=`(列17)を拾い、3行が1グループに
-    // まとまって x/z のパディングが列17まで伸びていた。修正後はコメント行が
-    // 演算子なし扱いとなり、両側が単独行になるためグループ化されない。
+  test("全行コメント行はグループを分断せず、かつ最大列を押し上げない", () => {
     const doc = mockDocument([
       "const x = 1;",         // = at 8
-      "// const yyyyyy = 2;", // コメント行 — 演算子なし扱い
+      "// const yyyyyy = 2;", // 全行コメント — 透過するがそれ自体は対象外
       "const z = 3;",         // = at 8
     ]);
     const groups = findAlignmentGroups(doc, ["="]);
-    assert.strictEqual(groups.length, 0);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
+    // 既にどちらも列8で揃っている（コメント行の `=`(列17) には引きずられない）
+    assert.deepStrictEqual(computePaddings(groups), []);
   });
 
   test("CSS: セレクタ行はグループに含めず宣言行だけを揃える", () => {
@@ -236,14 +236,15 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].columns[0].insert, 12);
   });
 
-  test("丸ごとコメント行はグループを分断する", () => {
+  test("丸ごとコメント行はグループを分断せず前後を同一グループとして揃える", () => {
     const doc = mockDocument([
       "x = 1; // a",
       "// 丸ごとコメント",
       "y = 2; // b",
     ]);
     const groups = findAlignmentGroups(doc, ["//"]);
-    assert.strictEqual(groups.length, 0);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
   });
 
   test("スペース/タブ混在でも視覚インデントが同じなら同じグループになる", () => {
@@ -312,24 +313,26 @@ suite("findAlignmentGroups", () => {
     ]);
   });
 
-  test("YAML: コメント行はグループを分断し最大列を押し上げない", () => {
+  test("YAML: 全行コメント行はグループを分断せず前後が同一グループとして揃う", () => {
     const doc = mockDocument([
       "a: 1",
       "# veryLongCommentedOutKey: 99",
       "b: 2",
     ]);
     const groups = findAlignmentGroups(doc, [":"], "yaml");
-    assert.strictEqual(groups.length, 0);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
   });
 
-  test("`#` コメント行はグループを分断し最大列を押し上げない", () => {
+  test("`#` の全行コメント行はグループを分断せず前後が同一グループとして揃う", () => {
     const doc = mockDocument([
       "x = 1",
       "# veryLongCommentedOutName = 99",
       "y = 2",
     ]);
     const groups = findAlignmentGroups(doc, ["="], "python");
-    assert.strictEqual(groups.length, 0);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
   });
 
   test("単純代入と複合代入が混在しても = の列で揃う", () => {
@@ -372,6 +375,78 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, [":"], "yaml");
     assert.strictEqual(groups.length, 1);
     assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 1]);
+  });
+
+  test("代入グループの途中に全行コメント行を挟んでも前後の = が同一グループとして揃う", () => {
+    const doc = mockDocument([
+      "const a = 1;",              // = at 8
+      "// しきい値は実測から決めた",
+      "const longName = 2;",       // = at 15
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
+    const placements = computePaddings(groups);
+    // コメント行にはパディングが入らず、実コード行だけが列15に揃う
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 8, padding: 7 },
+    ]);
+  });
+
+  test("空行は全行コメント行と違いグループを分断する", () => {
+    const doc = mockDocument([
+      "const a = 1;",
+      "",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 0);
+  });
+
+  test("全行コメント行のインデントはグループのインデント比較に参加しない", () => {
+    const doc = mockDocument([
+      "  const a = 1;",                    // indent 2
+      "      // 大きく異なるインデント",   // indent 6、全行コメント
+      "  const longName = 2;",             // indent 2
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
+  });
+
+  test("グループ開始前の全行コメント行は無視される", () => {
+    const doc = mockDocument([
+      "// header comment",
+      "const a = 1;",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [1, 2]);
+  });
+
+  test("ブロックコメントだけの行もグループを分断しない", () => {
+    const doc = mockDocument([
+      "const a = 1;",
+      "/* note */",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
+  });
+
+  test("複数行ブロックコメントの開始行・継続行・終了行もグループを分断しない", () => {
+    const doc = mockDocument([
+      "const a = 1;",
+      "/*",
+      " * note",
+      " */",
+      "const longName = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 4]);
   });
 });
 

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- A whole-line comment (e.g. `// note` or `# note` on its own line) no longer splits an alignment group — it now passes through transparently, so assignments before and after it still align together. A blank line still splits a group as before.
+
 ### Fixed
 
 - Alignment no longer stays stuck at the old tab width after changing an editor's tab size (via the status bar, a command, or indentation auto-detection) — decorations now re-render immediately.

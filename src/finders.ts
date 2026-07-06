@@ -1357,6 +1357,78 @@ function resolveDocScanOptions(
   };
 }
 
+/**
+ * Whether `lineText` contributes no real code — only whitespace and comment
+ * content — given the {@link DocScanState} it starts in. Used by
+ * findAlignmentGroups so a whole-line comment (`// ...`, `# ...`, or a line
+ * that is only a `/* ... *​/` block comment or its continuation/close) passes
+ * through an alignment group instead of splitting it, while a blank line or a
+ * line with real code (even a trailing `//` comment after it) still does not.
+ *
+ * `template`/`pyTripleDouble`/`pyTripleSingle`/heredoc states are string
+ * constructs, not comments, so they always return false — a line inside an
+ * open template literal or docstring is opaque content, not something to
+ * treat as transparent.
+ *
+ * Marker/cStyle resolution mirrors findAssignmentEquals's own (not
+ * resolveDocScanOptions's): the latter only populates `markers` for Python,
+ * scoped narrowly to disambiguating a `#` comment from a `"""` docstring
+ * opener, so reusing it here would silently miss every other marker language
+ * (YAML, shell, Ruby, Makefile, ...).
+ */
+export function isWholeLineComment(
+  lineText: string,
+  languageId: string | undefined,
+  docState: DocScanState
+): boolean {
+  if (
+    typeof docState === "object" ||
+    docState === "template" ||
+    docState === "pyTripleDouble" ||
+    docState === "pyTripleSingle"
+  ) {
+    return false;
+  }
+  const markers = lineCommentMarkers(languageId);
+  const cStyle =
+    markers === undefined ||
+    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
+  let i = 0;
+  let inComment = false;
+  if (docState === "blockComment") {
+    const close = lineText.indexOf("*/");
+    if (close === -1) {
+      return true; // whole line still inside the block comment
+    }
+    i = close + 2;
+    inComment = true;
+  }
+  while (i < lineText.length) {
+    const ch = lineText[i];
+    if (ch === " " || ch === "\t") {
+      i++;
+      continue;
+    }
+    if (markers && startsLineComment(lineText, i, markers)) {
+      return true;
+    }
+    if (cStyle && ch === "/" && lineText[i + 1] === "/") {
+      return true;
+    }
+    if (cStyle && ch === "/" && lineText[i + 1] === "*") {
+      const close = lineText.indexOf("*/", i + 2);
+      if (close === -1) {
+        return true; // block comment runs to (or past) the end of the line
+      }
+      i = close + 2;
+      inComment = true;
+      continue;
+    }
+    return false; // a real code character
+  }
+  return inComment; // blank/whitespace-only unless a comment was actually consumed
+}
+
 /** Index of `quoteChar`'s matching close in `lineText` from `from` (respecting `\` escapes), or -1. */
 function scanClosingQuote(
   lineText: string,
