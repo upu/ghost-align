@@ -1358,6 +1358,13 @@ suite("package.json との既定値同期", () => {
     assert.strictEqual(props["ghostAlign.ghostCharacter"], undefined);
   });
 
+  test("DEFAULT_GHOST_CHAR は NBSP（U+00A0）であり ASCII space ではない", () => {
+    // VS Code は decoration の contentText 内で連続する ASCII space を1文字に
+    // 潰すため、ASCII space だとパディングが折り畳まれてアライメントが壊れる。
+    assert.strictEqual(DEFAULT_GHOST_CHAR, "\u00A0");
+    assert.notStrictEqual(DEFAULT_GHOST_CHAR, " ");
+  });
+
   test("ghostColor の既定値が DEFAULT_GHOST_COLOR と一致する", () => {
     const props = configProperties();
     assert.strictEqual(
