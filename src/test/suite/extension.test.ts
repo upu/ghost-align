@@ -1361,7 +1361,7 @@ suite("package.json との既定値同期", () => {
   test("DEFAULT_GHOST_CHAR は NBSP（U+00A0）であり ASCII space ではない", () => {
     // VS Code は decoration の contentText 内で連続する ASCII space を1文字に
     // 潰すため、ASCII space だとパディングが折り畳まれてアライメントが壊れる。
-    assert.strictEqual(DEFAULT_GHOST_CHAR, " ");
+    assert.strictEqual(DEFAULT_GHOST_CHAR, "\u00A0");
     assert.notStrictEqual(DEFAULT_GHOST_CHAR, " ");
   });
 
