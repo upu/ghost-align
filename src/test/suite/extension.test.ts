@@ -23,7 +23,7 @@ import {
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
 } from "../../decorate";
-import { resolveInitialEnabled, statusBarText, debounce } from "../../extension";
+import { resolveInitialEnabled, statusBarText, debounce, activate } from "../../extension";
 import {
   wait,
   mockDocument,
@@ -1397,5 +1397,93 @@ suite("package.json との既定値同期", () => {
     const message =
       props["ghostAlign.alignJsdocParams"]?.markdownDeprecationMessage;
     assert.ok(message && message.includes("ghostAlign.jsdoc.enabled"));
+  });
+});
+
+suite("エディタの tabSize 変更時の再描画", () => {
+  test("onDidChangeTextEditorOptions の発火で可視エディタが再デコレートされる", async function () {
+    this.timeout(5000);
+
+    // activate() は実際にすでに一度（onStartupFinished で）走っているため、
+    // 同じコマンド ID を二重登録すると vscode.commands.registerCommand が例外を
+    // 投げる。activate() が触る vscode.window / vscode.commands の該当箇所を
+    // すべて無害化した上で、実際の activate() をもう一度呼び出し、
+    // onDidChangeTextEditorOptions に渡されたコールバックだけを捕捉して直接発火
+    // させることで、真の VS Code イベントやパッケージ済み dist に頼らずに配線を検証する。
+    const dummyDisposable = { dispose() {} };
+    const fakeStatusBarItem = {
+      command: "",
+      tooltip: "",
+      text: "",
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+
+    const restorers: (() => void)[] = [];
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+
+    let optionsChangeCallback: (() => void) | undefined;
+
+    const { editor: fakeEditor, calls } = mockEditor("typescript", [
+      "a = 1",
+      "bb = 2",
+    ]);
+    (fakeEditor.document as unknown as { uri: { scheme: string } }).uri = {
+      scheme: "file",
+    };
+
+    stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
+    stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
+    stub(vscode.window, "onDidChangeActiveTextEditor", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
+    stub(vscode.window, "onDidChangeVisibleTextEditors", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeVisibleTextEditors);
+    stub(vscode.window, "onDidChangeTextEditorVisibleRanges", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorVisibleRanges);
+    stub(vscode.workspace, "onDidChangeTextDocument", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeTextDocument);
+    stub(vscode.workspace, "onDidChangeConfiguration", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeConfiguration);
+    stub(vscode.window, "onDidChangeTextEditorOptions", ((cb: () => void) => {
+      optionsChangeCallback = cb;
+      return dummyDisposable;
+    }) as unknown as typeof vscode.window.onDidChangeTextEditorOptions);
+    stub(vscode.window, "visibleTextEditors", [fakeEditor] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(
+        optionsChangeCallback,
+        "onDidChangeTextEditorOptions が購読されていること"
+      );
+      const callsBefore = calls.length;
+
+      optionsChangeCallback!();
+      await wait(200); // debounce (80ms) が発火するのを待つ
+
+      assert.ok(
+        calls.length > callsBefore,
+        "onDidChangeTextEditorOptions のコールバックで再デコレートが走ること"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
   });
 });
