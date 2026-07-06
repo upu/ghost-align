@@ -122,6 +122,10 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
     vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
+    // Alignment depends on tabSize (visualColumn), so a tabSize change —
+    // from the status bar, a command, or indentation auto-detection right
+    // after opening a file — must trigger a re-render.
+    vscode.window.onDidChangeTextEditorOptions(() => debouncedUpdate()),
     // Large files are decorated per visible range, so scrolling must
     // recompute; small files are fully decorated and can ignore scrolling.
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {

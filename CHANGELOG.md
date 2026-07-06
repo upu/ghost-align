@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Alignment no longer stays stuck at the old tab width after changing an editor's tab size (via the status bar, a command, or indentation auto-detection) — decorations now re-render immediately.
+
 ## [1.0.0] - 2026-07-05
 
 ### Added
