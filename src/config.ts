@@ -6,7 +6,7 @@ import { TS_JS_LANGUAGES } from "./finders";
 // spaces in decoration `contentText`, so plain " ".repeat(N) renders as a
 // single space and breaks alignment. NBSP renders identically in monospace
 // fonts but is not collapsed.
-export const DEFAULT_GHOST_CHAR = " ";
+export const DEFAULT_GHOST_CHAR = " ";
 export const DEFAULT_GHOST_COLOR = "rgba(128, 128, 128, 0.25)";
 
 /**
