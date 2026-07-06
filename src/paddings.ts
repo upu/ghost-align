@@ -8,6 +8,7 @@
 import {
   findOperatorTargets,
   initialLineScanState,
+  isWholeLineComment,
   isYamlBlockScalarContent,
   LINE_CONTINUATION_OPERATOR,
   LineScanState,
@@ -159,6 +160,15 @@ export type LineSource = {
  * continuation, or opaque YAML block-scalar content is never treated as an
  * alignment target. Defaults to {@link initialLineScanState}, the correct
  * assumption for the top of a real file.
+ *
+ * A whole-line comment (see {@link isWholeLineComment}) is the other
+ * exception to the `targets.length === 0` flush: it has no targets of its
+ * own but is transparent to the surrounding group, so a comment interleaved
+ * between assignments (`x = 1\n// note\ny = 2`) doesn't split them. It never
+ * joins the group itself (no entry is pushed for it) and its indent is never
+ * compared against `currentIndent`, so an oddly-indented comment can't split
+ * a group either. A blank line is not a whole-line comment, so it still
+ * flushes as before.
  */
 export function findAlignmentGroups(
   document: LineSource,
@@ -192,6 +202,7 @@ export function findAlignmentGroups(
       continue;
     }
 
+    const incomingDocState = state.doc;
     const targets = findOperatorTargets(
       lineText,
       operators,
@@ -202,6 +213,9 @@ export function findAlignmentGroups(
     state = nextLineScanState(lineText, state, languageId);
 
     if (targets.length === 0) {
+      if (isWholeLineComment(lineText, languageId, incomingDocState)) {
+        continue; // whole-line comment: transparent to the surrounding group
+      }
       flush();
       continue;
     }
