@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- SQL・Haskell・PowerShell・Dockerfile・Scala・Groovy の `=` 整列、GraphQL の `:` 整列（フィールド定義のコロン）、R の `["<-", "="]` 整列（慣用的な代入演算子 `<-` を `=` に加えて既定で対象化）をそれぞれ有効化。各言語の行コメント（SQL/Haskell は `--`、PowerShell/Dockerfile/GraphQL/R は `#`）も正しく認識するようにした。
+
 ## [1.1.0] - 2026-07-07
 
 ### Added
