@@ -263,6 +263,10 @@ suite("resolveOperatorsForLanguage", () => {
       kotlin: ["val x = 1", "val longName = 2"],
       dart: ["var x = 1;", "var longName = 2;"],
       zig: ["const x = 1;", "const longName = 2;"],
+      terraform: ["region = \"us-east-1\"", "instance_type = \"t3.micro\""],
+      proto3: ["name = 1;", "id = 2;"],
+      elixir: ["x = 1", "longer_name = 2"],
+      perl: ["my $x = 1;", "my $longer_name = 2;"],
     };
     for (const [lang, lines] of Object.entries(samples)) {
       const operators = resolveOperatorsForLanguage(mockConfig({}), lang);
@@ -383,6 +387,17 @@ suite("resolveOperatorsForLanguage", () => {
   test("swift / kotlin / dart / zig は既定で `=` を揃える", () => {
     const config = mockConfig({ operators: [":"] });
     for (const lang of ["swift", "kotlin", "dart", "zig"]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(config, lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
+  test("terraform / proto3 / elixir / perl は既定で `=` を揃える", () => {
+    const config = mockConfig({ operators: [":"] });
+    for (const lang of ["terraform", "proto3", "elixir", "perl"]) {
       assert.deepStrictEqual(
         resolveOperatorsForLanguage(config, lang),
         ["="],

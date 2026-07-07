@@ -167,6 +167,18 @@
             ],
             "zig": [
               "="
+            ],
+            "terraform": [
+              "="
+            ],
+            "proto3": [
+              "="
+            ],
+            "elixir": [
+              "="
+            ],
+            "perl": [
+              "="
             ]
           },
           "additionalProperties": {

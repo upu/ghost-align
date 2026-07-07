@@ -59,6 +59,10 @@ export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   kotlin: ["="],
   dart: ["="],
   zig: ["="],
+  terraform: ["="],
+  proto3: ["="],
+  elixir: ["="],
+  perl: ["="],
 };
 
 /**

@@ -669,15 +669,18 @@ const LINE_COMMENT_MARKERS_BY_LANGUAGE: Record<string, readonly string[]> = {
   yaml: ["#"],
   lua: ["--"],
   php: ["#"],
+  terraform: ["#"],
+  elixir: ["#"],
+  perl: ["#"],
 };
 
 /**
  * Marker languages that additionally keep the C-style `//` / `/* ... *​/`
- * comment handling (PHP supports both `#` and `//`). For other marker
- * languages C-style is disabled — `//` is floor division in Python and
- * has no comment meaning in the rest.
+ * comment handling (PHP and Terraform/HCL both support `#` and `//`). For
+ * other marker languages C-style is disabled — `//` is floor division in
+ * Python and has no comment meaning in the rest.
  */
-const C_STYLE_COMMENT_ALSO = new Set(["php"]);
+const C_STYLE_COMMENT_ALSO = new Set(["php", "terraform"]);
 
 /** Whether a line comment starts at `index` with one of `markers` (line start or after whitespace). */
 function startsLineComment(
