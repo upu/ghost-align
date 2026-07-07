@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-07
+
 ### Added
 
 - Added `"--"` and `";"` as trailing-line-comment tokens for `ghostAlign.operators` (and `operatorsByLanguage`), aligning Lua/SQL/Haskell (`--`) and INI/asm (`;`) trailing comments the same way `"//"` and `"#"` already did.
@@ -195,7 +197,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
 [0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
