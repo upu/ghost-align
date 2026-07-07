@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added `"--"` and `";"` as trailing-line-comment tokens for `ghostAlign.operators` (and `operatorsByLanguage`), aligning Lua/SQL/Haskell (`--`) and INI/asm (`;`) trailing comments the same way `"//"` and `"#"` already did.
+
 ### Changed
 
 - A whole-line comment (e.g. `// note` or `# note` on its own line) no longer splits an alignment group — it now passes through transparently, so assignments before and after it still align together. A blank line still splits a group as before.

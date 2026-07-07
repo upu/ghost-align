@@ -740,6 +740,38 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn('name = "a#b"', ["#"]), null);
   });
 
+  test("行末コメント `--`（Lua/SQL）の位置を返す", () => {
+    assert.strictEqual(findOperatorColumn("x = 1 -- note", ["--"]), 6);
+  });
+
+  test("丸ごとコメント行の `--` は対象外", () => {
+    assert.strictEqual(findOperatorColumn("-- just a comment", ["--"]), null);
+  });
+
+  test("空白前置のない `--` は行末コメント扱いしない（デクリメント誤検出回避）", () => {
+    assert.strictEqual(findOperatorColumn("x--", ["--"]), null);
+  });
+
+  test("文字列内の `--` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn('s = "a--b"', ["--"]), null);
+  });
+
+  test("行末コメント `;`（INI/asm）の位置を返す", () => {
+    assert.strictEqual(findOperatorColumn("x = 1 ; note", [";"]), 6);
+  });
+
+  test("丸ごとコメント行の `;` は対象外", () => {
+    assert.strictEqual(findOperatorColumn("; just a comment", [";"]), null);
+  });
+
+  test("空白前置のない `;` は行末コメント扱いしない（区切りの `a;b` 誤検出回避）", () => {
+    assert.strictEqual(findOperatorColumn("a;b", [";"]), null);
+  });
+
+  test("文字列内の `;` は拾わない", () => {
+    assert.strictEqual(findOperatorColumn('s = "a;b"', [";"]), null);
+  });
+
   test("operators の並び順が優先度になる（先頭が優先）", () => {
     // `=` を先に置けば代入の `=`、`//` を先に置けば行末コメントを返す
     assert.strictEqual(findOperatorColumn("x = 1; // c", ["=", "//"]), 2);

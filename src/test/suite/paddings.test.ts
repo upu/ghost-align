@@ -247,6 +247,28 @@ suite("findAlignmentGroups", () => {
     assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 2]);
   });
 
+  test("連続行の行末コメント `--`（Lua/SQL）をグループ化する", () => {
+    const doc = mockDocument([
+      "x = 1 -- a",      // -- at 6
+      "total = 42 -- b", // -- at 11
+    ]);
+    const groups = findAlignmentGroups(doc, ["--"]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].columns[0].insert, 6);
+    assert.strictEqual(groups[0][1].columns[0].insert, 11);
+  });
+
+  test("連続行の行末コメント `;`（INI/asm）をグループ化する", () => {
+    const doc = mockDocument([
+      "x = 1 ; a",      // ; at 6
+      "total = 42 ; b", // ; at 11
+    ]);
+    const groups = findAlignmentGroups(doc, [";"]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].columns[0].insert, 6);
+    assert.strictEqual(groups[0][1].columns[0].insert, 11);
+  });
+
   test("スペース/タブ混在でも視覚インデントが同じなら同じグループになる", () => {
     // tabSize 4: タブ1個もスペース4個も視覚インデントは 4。
     // 文字数基準だと 1 と 4 で別グループに割れていた。

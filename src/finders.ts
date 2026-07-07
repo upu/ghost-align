@@ -977,15 +977,26 @@ function findArrow(lineText: string, languageId?: string): number[] {
 }
 
 /**
- * Index of a *trailing* line-comment marker (`//` or `#`) on a line, or -1.
+ * `ghostAlign.operators` tokens routed to {@link findTrailingComment}: line
+ * comment markers for C-style (`//`), shell/Python/YAML (`#`),
+ * Lua/SQL/Haskell (`--`), and INI/asm (`;`).
+ */
+const TRAILING_COMMENT_MARKERS = new Set(["//", "#", "--", ";"]);
+
+/**
+ * Index of a *trailing* line-comment marker — one of {@link
+ * TRAILING_COMMENT_MARKERS} (`//`, `#`, `--`, `;`) — on a line, or -1.
  * Excludes:
  *   - markers inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - whole-line comments (the marker is the first non-whitespace token)
  *   - `//` that is part of a URL scheme such as `http://` (preceded by `:`)
- *   - for `#`, a marker not preceded by whitespace (so `value#x` is not a comment)
+ *   - for every marker other than `//`, an occurrence not preceded by
+ *     whitespace — so Lua/SQL's `x--` decrement/subtraction chain and a
+ *     statement separator like `a;b` are not mistaken for a `--`/`;` trailing
+ *     comment (mirrors the existing `#` rule, e.g. `value#x` is not a comment)
  *   - `//` inside a single-line `/* ... *​/` block (only for the `//` marker)
  */
-function findTrailingComment(lineText: string, marker: "//" | "#"): number {
+function findTrailingComment(lineText: string, marker: string): number {
   const state = initialQuoteState();
   let seenCode = false;
   for (let i = 0; i < lineText.length; i++) {
@@ -1003,24 +1014,22 @@ function findTrailingComment(lineText: string, marker: "//" | "#"): number {
       seenCode = true;
       continue;
     }
-    if (marker === "//" && ch === "/" && lineText[i + 1] === "/") {
+    if (lineText.startsWith(marker, i)) {
       if (!seenCode) {
-        return -1;
+        return -1; // whole-line comment, not a trailing one
       }
-      if (lineText[i - 1] === ":") {
-        i++; // URL scheme like http:// — skip both slashes and keep scanning
-        continue;
-      }
-      return i;
-    }
-    if (marker === "#" && ch === "#") {
-      if (!seenCode) {
-        return -1;
+      if (marker === "//") {
+        if (lineText[i - 1] === ":") {
+          i += marker.length - 1; // URL scheme like http:// — skip both slashes and keep scanning
+          continue;
+        }
+        return i;
       }
       const prev = lineText[i - 1];
       if (prev === " " || prev === "\t") {
         return i;
       }
+      i += marker.length - 1; // not preceded by whitespace: not a comment here
       continue;
     }
     if (ch !== " " && ch !== "\t") {
@@ -1115,7 +1124,7 @@ function findOccurrences(
     }
     return indices.map((i) => ({ insert: i, align: i }));
   }
-  if (op === "//" || op === "#") {
+  if (TRAILING_COMMENT_MARKERS.has(op)) {
     const idx = findTrailingComment(lineText, op);
     return idx === -1 ? [] : [{ insert: idx, align: idx }];
   }
@@ -1131,8 +1140,9 @@ function findOccurrences(
 
 /**
  * All occurrences of a literal operator token — a `ghostAlign.operators`
- * entry that isn't one of the built-in tokens (`=`, `:`, `=>`, `//`, `#`,
- * `\`) — on a line, outside strings and comments. Shares the same
+ * entry that isn't one of the built-in tokens (`=`, `:`, `=>`, `\`, or one of
+ * {@link TRAILING_COMMENT_MARKERS}) — on a line, outside strings and
+ * comments. Shares the same
  * string/comment/Rust-char-literal/raw-string/digit-separator skipping as
  * findAssignmentEquals via {@link advanceCodeScan}, so a custom token like
  * `->` or `::` is excluded from string and comment content exactly the same
