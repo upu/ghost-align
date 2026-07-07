@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Added default `"="` alignment for SQL, Haskell, PowerShell, Dockerfile, Scala, and Groovy, default `":"` alignment for GraphQL (field-definition colons), and default `["<-", "="]` alignment for R (its idiomatic `<-` assignment arrow alongside `=`), each with correct line-comment handling (`--` for SQL/Haskell, `#` for PowerShell/Dockerfile/GraphQL/R).
+- JSDoc alignment now also covers `@property` (`@typedef` members) and the `@param` aliases `@arg` / `@argument`, aligning their name/description columns the same way `@param` already did. A run of `@param` lines immediately followed by a run of `@property` (or `@arg`/`@argument`) lines is aligned as a single group, since they share the same shape.
 
 ### Fixed
 

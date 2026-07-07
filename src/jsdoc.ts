@@ -8,8 +8,13 @@ import {
   visualColumn,
 } from "./paddings";
 
-/** Matches a JSDoc body line `* @param ...` (leading whitespace + `*`). */
-const JSDOC_PARAM_RE = /^\s*\*\s*@param(?:\s+|$)/;
+/**
+ * Matches a JSDoc body line `* @param ...` / `* @property ...` /
+ * `* @arg ...` / `* @argument ...` (leading whitespace + `*`). `@property`
+ * (`@typedef` members) and the `@param` aliases `@arg` / `@argument` share
+ * the same `{type} name description` shape, so they are parsed identically.
+ */
+const JSDOC_PARAM_RE = /^\s*\*\s*@(?:param|property|arg|argument)(?:\s+|$)/;
 
 /** Index of the first non-whitespace character at or after `from`. */
 function skipSpaces(lineText: string, from: number): number {
@@ -82,11 +87,16 @@ export function parseJsdocParamLine(
 }
 
 /**
- * Ghost-padding placements aligning consecutive JSDoc `@param` lines: the
- * parameter-name column, then the description column. Reuses the sequential
- * multi-column logic of computePaddings (name padding shifts the
- * description). Any line that is not an alignable `@param` line splits the
- * run, so `@returns` etc. are never pulled into the group.
+ * Ghost-padding placements aligning consecutive JSDoc `@param`-shaped lines
+ * (`@param`, `@property`, `@arg`, `@argument`): the parameter-name column,
+ * then the description column. Reuses the sequential multi-column logic of
+ * computePaddings (name padding shifts the description). Any line that is
+ * not an alignable line splits the run, so `@returns` etc. are never pulled
+ * into the group. A run of `@param` lines immediately followed by a run of
+ * `@property` (or `@arg`/`@argument`) lines is treated as one group rather
+ * than split by tag type — the tags share the same shape, so aligning the
+ * name/description columns across the boundary reads as one coherent list
+ * instead of two arbitrarily-different ones.
  */
 export function computeJsdocParamPaddings(
   lines: string[],

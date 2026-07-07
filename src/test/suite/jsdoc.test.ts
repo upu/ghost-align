@@ -48,6 +48,41 @@ suite("computeJsdocParamPaddings", () => {
     assert.deepStrictEqual(placements, []);
   });
 
+  test("連続する @property 行が @param と同様に整列される", () => {
+    const placements = computeJsdocParamPaddings(
+      [" * @property {number} a d", " * @property {string} bbbb d"],
+      4
+    );
+    // 名前開始は両行とも列22で揃い済み。説明は行0が24、行1が27 → 行0に+3
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 24, padding: 3 },
+    ]);
+  });
+
+  test("@arg / @argument が @param と同様に整列される", () => {
+    const placements = computeJsdocParamPaddings(
+      [" * @arg {number} a d", " * @argument {string} bbbb d"],
+      4
+    );
+    // 名前開始は行0が17、行1が22 → 行0に+5。説明は行0が19+5=24、行1が27 → 行0に+3
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 17, padding: 5 },
+      { lineIndex: 0, character: 19, padding: 3 },
+    ]);
+  });
+
+  test("@param 群の直後の @property 群も同一グループとして整列される", () => {
+    const placements = computeJsdocParamPaddings(
+      [" * @param {number} a d", " * @property {string} bbbb d"],
+      4
+    );
+    // 名前開始は行0が19、行1が22 → 行0に+3。説明は行0が21+3=24、行1が27 → 行0に+3
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 19, padding: 3 },
+      { lineIndex: 0, character: 21, padding: 3 },
+    ]);
+  });
+
   test("単独の @param 行はグループにならない", () => {
     const placements = computeJsdocParamPaddings(
       ["const x = 1;", " * @param {number} a d", "const y = 2;"],
