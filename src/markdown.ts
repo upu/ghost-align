@@ -100,9 +100,40 @@ export interface FenceState {
 const NO_FENCE: FenceState = { char: null, len: 0 };
 
 /**
+ * Fence state after processing one more line, given the state as of the line
+ * before it. A fence opens on a line whose trimmed text starts with 3+
+ * backticks or tildes, and closes on a later line whose trimmed text starts
+ * with 3+ of the same character (at least as many as the opening run). The
+ * single per-line step shared by {@link computeFencedLines} (a full scan
+ * that also records which lines are inside the fence) and
+ * {@link computeFenceStateBefore} (a state-only pre-scan for a slice's
+ * starting fence state) — mirrors nextCssBlockDepth / nextYamlBlockScalarState
+ * in finders.ts, which are each shared the same way between a full scan and
+ * a state pre-scan.
+ *
+ * Always returns a freshly constructed object rather than `state` or the
+ * shared {@link NO_FENCE} constant by reference, so a caller mutating the
+ * returned state can never corrupt NO_FENCE or an earlier call's state.
+ */
+function nextFenceState(lineText: string, state: FenceState): FenceState {
+  const trimmed = lineText.trim();
+  const match = FENCE_RE.exec(trimmed);
+  if (state.char === null) {
+    if (match) {
+      return { char: match[1][0], len: match[1].length };
+    }
+    return { char: null, len: 0 };
+  }
+  if (match && match[1][0] === state.char && match[1].length >= state.len) {
+    return { char: null, len: 0 };
+  }
+  return { char: state.char, len: state.len };
+}
+
+/**
  * For each line, whether it is inside a fenced code block (```` ``` ```` or `~~~`).
- * A fence opens on a line whose trimmed text starts with 3+ backticks or tildes, and
- * closes on the next line whose trimmed text starts with 3+ of the same character. An
+ * A line is fenced if the fence was already open before it, or if it's the line that
+ * opens one — so both the opening and closing delimiter lines count as fenced, and an
  * unclosed fence extends to the end of the file. `initialState` seeds the fence state
  * as of line 0, for callers scanning a slice rather than the whole file.
  */
@@ -111,23 +142,11 @@ function computeFencedLines(
   initialState: FenceState = NO_FENCE
 ): boolean[] {
   const fenced = new Array<boolean>(lines.length).fill(false);
-  let fenceChar = initialState.char;
-  let fenceLen = initialState.len;
+  let state = initialState;
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    const match = FENCE_RE.exec(trimmed);
-    if (fenceChar === null) {
-      if (match) {
-        fenceChar = match[1][0];
-        fenceLen = match[1].length;
-        fenced[i] = true;
-      }
-    } else {
-      fenced[i] = true;
-      if (match && match[1][0] === fenceChar && match[1].length >= fenceLen) {
-        fenceChar = null;
-      }
-    }
+    const next = nextFenceState(lines[i], state);
+    fenced[i] = state.char !== null || next.char !== null;
+    state = next;
   }
   return fenced;
 }
@@ -142,22 +161,11 @@ export function computeFenceStateBefore(
   lineCount: number,
   lineAt: (index: number) => string
 ): FenceState {
-  let fenceChar: string | null = null;
-  let fenceLen = 0;
+  let state = NO_FENCE;
   for (let i = 0; i < lineCount; i++) {
-    const trimmed = lineAt(i).trim();
-    const match = FENCE_RE.exec(trimmed);
-    if (fenceChar === null) {
-      if (match) {
-        fenceChar = match[1][0];
-        fenceLen = match[1].length;
-      }
-    } else if (match && match[1][0] === fenceChar && match[1].length >= fenceLen) {
-      fenceChar = null;
-      fenceLen = 0;
-    }
+    state = nextFenceState(lineAt(i), state);
   }
-  return { char: fenceChar, len: fenceLen };
+  return state;
 }
 
 /**
