@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-07
+
 ### Added
 
 - `ghostAlign.operators`（および `operatorsByLanguage`）のトレーリングコメントマーカーに `"--"` と `";"` を追加。Lua/SQL/Haskell（`--`）と INI/asm（`;`）の行末コメントも、既存の `"//"` / `"#"` と同様に整列できるようになった。
@@ -195,7 +197,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
 [0.7.0]: https://github.com/upu/ghost-align/releases/tag/v0.7.0
