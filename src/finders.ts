@@ -991,10 +991,11 @@ const TRAILING_COMMENT_MARKERS = new Set(["//", "#", "--", ";"]);
  *   - whole-line comments (the marker is the first non-whitespace token)
  *   - `//` that is part of a URL scheme such as `http://` (preceded by `:`)
  *   - for every marker other than `//`, an occurrence not preceded by
- *     whitespace — so an unrelated token adjacent to real code, like `x--y`
- *     (Lua/SQL subtraction of a negative) or a statement separator like
- *     `a;b`, is not mistaken for a `--`/`;` trailing comment (mirrors the
- *     existing `#` rule, e.g. `value#x` is not a comment)
+ *     whitespace — so a marker glued to preceding code, like the `--` in
+ *     `x--y` or the `;` in `a;b`, is not mistaken for a `--`/`;` trailing
+ *     comment (mirrors the existing `#` rule, e.g. `value#x` is not a
+ *     comment); this is a token-level rule only, independent of what `--`
+ *     or `;` actually mean in whatever language they're configured for
  *   - `//` inside a single-line `/* ... *​/` block (only for the `//` marker)
  */
 function findTrailingComment(lineText: string, marker: string): number {
