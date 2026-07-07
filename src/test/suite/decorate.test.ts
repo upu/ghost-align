@@ -412,6 +412,47 @@ suite("buildCopyAlignedText", () => {
     const text = buildCopyAlignedText(editor, config);
     assert.strictEqual(text, "a   = 1\nbb  = 2");
   });
+
+  test("複数カーソルが選択なし（空selection）の場合は、VS Code標準コピーと同様に各カーソル行全体を対象にする", () => {
+    const lines = ["a = 1", "bb = 2", "ccc = 3"];
+    const config = mockConfig({
+      operators: ["="],
+    }) as unknown as vscode.WorkspaceConfiguration;
+    const selections = [
+      new vscode.Selection(0, 2, 0, 2),
+      new vscode.Selection(2, 3, 2, 3),
+    ];
+    const { editor } = mockEditor(
+      "typescript",
+      lines,
+      [],
+      selections[0],
+      selections
+    );
+    const text = buildCopyAlignedText(editor, config);
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "typescript",
+      config,
+      2
+    );
+    const expected = [
+      buildAlignedText(lines, placements, {
+        startLine: 0,
+        startChar: 0,
+        endLine: 0,
+        endChar: lines[0].length,
+      }),
+      buildAlignedText(lines, placements, {
+        startLine: 2,
+        startChar: 0,
+        endLine: 2,
+        endChar: lines[2].length,
+      }),
+    ].join("\n");
+    assert.strictEqual(text, expected);
+  });
 });
 
 suite("decorateEditor と可視範囲モード（複数行ブロックコメント）", () => {
