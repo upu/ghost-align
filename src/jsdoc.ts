@@ -9,10 +9,10 @@ import {
 } from "./paddings";
 
 /**
- * Matches a JSDoc body line `* @param ...` (leading whitespace + `*`).
- * `@property` (`@typedef` members) and the `@param` aliases `@arg` /
- * `@argument` share the same `{type} name description` shape, so they are
- * parsed identically.
+ * Matches a JSDoc body line `* @param ...` / `* @property ...` /
+ * `* @arg ...` / `* @argument ...` (leading whitespace + `*`). `@property`
+ * (`@typedef` members) and the `@param` aliases `@arg` / `@argument` share
+ * the same `{type} name description` shape, so they are parsed identically.
  */
 const JSDOC_PARAM_RE = /^\s*\*\s*@(?:param|property|arg|argument)(?:\s+|$)/;
 
