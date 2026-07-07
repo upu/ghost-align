@@ -13,6 +13,10 @@
 
 - SQL・Haskell・PowerShell・Dockerfile・Scala・Groovy の `=` 整列、GraphQL の `:` 整列（フィールド定義のコロン）、R の `["<-", "="]` 整列（慣用的な代入演算子 `<-` を `=` に加えて既定で対象化）をそれぞれ有効化。各言語の行コメント（SQL/Haskell は `--`、PowerShell/Dockerfile/GraphQL/R は `#`）も正しく認識するようにした。
 
+### Fixed
+
+- 「Copy with Alignment」がマルチカーソル（複数選択）時に最初の選択範囲しかコピーしなかった不具合を修正。VS Code標準のコピー挙動と同様に、各選択範囲を整列済みテキスト化しドキュメント順にドキュメントのEOLで連結してコピーするようになった。
+
 ## [1.1.0] - 2026-07-07
 
 ### Added

@@ -371,16 +371,47 @@ export function buildCopyAlignedText(
         resolveTabSize(editor)
       );
 
-  const selection = editor.selection;
-  const range: TextRange | null = selection.isEmpty
-    ? null
-    : {
-        startLine: selection.start.line,
-        startChar: selection.start.character,
-        endLine: selection.end.line,
-        endChar: selection.end.character,
-      };
-
   const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  return buildAlignedText(lines, placements, range, eol);
+
+  const selections = editor.selections;
+  if (selections.length <= 1) {
+    const selection = selections[0] ?? editor.selection;
+    const range = selection.isEmpty ? null : toTextRange(selection);
+    return buildAlignedText(lines, placements, range, eol);
+  }
+
+  // マルチカーソル: VS Code標準コピーに揃え、ドキュメント順にソートした各選択範囲を
+  // 整列済みテキスト化してEOLで連結する。placements は全文で1回だけ計算済みのものを使い回す。
+  // 選択なし（空selection）のカーソルは、VS Code標準コピーと同様にそのカーソル行全体を対象にする
+  // （単一選択・選択なし時の「全文コピー」とは異なる、複数カーソル固有の挙動）。
+  return [...selections]
+    .sort((a, b) => a.start.line - b.start.line || a.start.character - b.start.character)
+    .map((selection) =>
+      buildAlignedText(
+        lines,
+        placements,
+        selection.isEmpty ? toWholeLineRange(selection, lines) : toTextRange(selection),
+        eol
+      )
+    )
+    .join(eol);
+}
+
+function toTextRange(selection: vscode.Selection): TextRange {
+  return {
+    startLine: selection.start.line,
+    startChar: selection.start.character,
+    endLine: selection.end.line,
+    endChar: selection.end.character,
+  };
+}
+
+function toWholeLineRange(selection: vscode.Selection, lines: string[]): TextRange {
+  const line = selection.start.line;
+  return {
+    startLine: line,
+    startChar: 0,
+    endLine: line,
+    endChar: lines[line].length,
+  };
 }
