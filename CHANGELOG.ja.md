@@ -12,6 +12,7 @@
 ### Added
 
 - SQL・Haskell・PowerShell・Dockerfile・Scala・Groovy の `=` 整列、GraphQL の `:` 整列（フィールド定義のコロン）、R の `["<-", "="]` 整列（慣用的な代入演算子 `<-` を `=` に加えて既定で対象化）をそれぞれ有効化。各言語の行コメント（SQL/Haskell は `--`、PowerShell/Dockerfile/GraphQL/R は `#`）も正しく認識するようにした。
+- JSDoc 整列の対象に `@property`（`@typedef` のメンバー）と `@param` のエイリアス `@arg` / `@argument` を追加。`@param` と同様に名前列・説明列が揃うようになった。`@param` 群の直後に `@property`（や `@arg`/`@argument`）群が続く場合は、同じ形のタグとして同一グループで整列する。
 
 ### Fixed
 
