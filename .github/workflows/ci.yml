@@ -8,7 +8,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -22,4 +25,7 @@ jobs:
       - run: npm run compile
       - run: npm run test:scripts
       - run: npm test
+        if: runner.os != 'Linux'
+      - run: xvfb-run -a npm test
+        if: runner.os == 'Linux'
       - run: npm run check:package
