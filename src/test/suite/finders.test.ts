@@ -849,6 +849,8 @@ suite("findOperatorColumn", () => {
       "dotenv",
       "properties",
       "ini",
+      "elixir",
+      "perl",
     ]) {
       assert.strictEqual(
         findOperatorColumn("# default = 3", ["="], lang),
@@ -943,6 +945,27 @@ suite("findOperatorColumn", () => {
 
   test("PHP: 単一行ブロックコメント内の `=` も検出しない", () => {
     assert.strictEqual(findOperatorColumn("/* x = 1 */", ["="], "php"), null);
+  });
+
+  test("Terraform: `#` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("# x = 1", ["="], "terraform"),
+      null
+    );
+  });
+
+  test("Terraform: `//` コメント行の `=` も検出しない（# / // 併用）", () => {
+    assert.strictEqual(
+      findOperatorColumn("// x = 1", ["="], "terraform"),
+      null
+    );
+  });
+
+  test("Terraform: 単一行ブロックコメント内の `=` も検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* x = 1 */", ["="], "terraform"),
+      null
+    );
   });
 
   test("YAML: 丸ごとコメント行の `:` を検出しない", () => {

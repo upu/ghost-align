@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - Added `"--"` and `";"` as trailing-line-comment tokens for `ghostAlign.operators` (and `operatorsByLanguage`), aligning Lua/SQL/Haskell (`--`) and INI/asm (`;`) trailing comments the same way `"//"` and `"#"` already did.
+- Added default `"="` alignment for Terraform, Protocol Buffers (proto3), Elixir, and Perl, with correct line-comment handling for each (`#` and `//` for Terraform, `#` for Elixir and Perl).
 
 ### Changed
 
