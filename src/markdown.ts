@@ -110,6 +110,10 @@ const NO_FENCE: FenceState = { char: null, len: 0 };
  * starting fence state) — mirrors nextCssBlockDepth / nextYamlBlockScalarState
  * in finders.ts, which are each shared the same way between a full scan and
  * a state pre-scan.
+ *
+ * Always returns a freshly constructed object rather than `state` or the
+ * shared {@link NO_FENCE} constant by reference, so a caller mutating the
+ * returned state can never corrupt NO_FENCE or an earlier call's state.
  */
 function nextFenceState(lineText: string, state: FenceState): FenceState {
   const trimmed = lineText.trim();
@@ -118,12 +122,12 @@ function nextFenceState(lineText: string, state: FenceState): FenceState {
     if (match) {
       return { char: match[1][0], len: match[1].length };
     }
-    return state;
+    return { char: null, len: 0 };
   }
   if (match && match[1][0] === state.char && match[1].length >= state.len) {
-    return NO_FENCE;
+    return { char: null, len: 0 };
   }
-  return state;
+  return { char: state.char, len: state.len };
 }
 
 /**
