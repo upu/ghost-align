@@ -59,7 +59,7 @@ const longName = 3;
 - 行末の継続マーカー（`\`）も独立したトークンとして揃えられます。`ghostAlign.operators`（または `operatorsByLanguage`）に `"\\"` を追加すると、シェルスクリプトや Makefile、C プリプロセッサの `#define` 継続行の末尾 `\` の位置が揃います。対象になるのは行の最後の非空白文字である `\` のみで、文字列やエスケープシーケンス内の `\` は対象外です。どの言語でも既定では無効（オプトイン）です。
 - 既定では `=` を揃えます。言語によって既定のオペレーターが変わり、`json` / `jsonc` / `yaml` / `css` / `scss` / `less` では `:`、`dotenv` / `properties` / `toml` / `ini` / `python` / `shellscript` / `makefile` / `go` / `lua` / `c` / `cpp` / `csharp` / `java` では `=` を揃えます。`ruby` / `php` / `rust` では `=` に加えて `=>`（ハッシュロケット・連想配列・match アーム）も揃えます。それ以外の言語はグローバルの `ghostAlign.operators`（既定 `=`）にフォールバックします。`ghostAlign.alignUnknownLanguages` を `false` にすると、`operatorsByLanguage` に載っている言語だけを揃えます。
 - JavaScript/TypeScript では、連続する JSDoc の `@param` 行も整列します。パラメータ名のカラムと説明文のカラムがそれぞれ縦に揃います（`ghostAlign.jsdoc.enabled` で無効化できます）。
-- 行末コメント（`//` / `#` / `--` / `;`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` / `"--"` / `";"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外。`//` 以外のマーカーは直前が空白であることも条件で、例えば Lua/SQL の `x--`（デクリメント）を `--` コメントと誤認しません）。
+- 行末コメント（`//` / `#` / `--` / `;`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` / `"--"` / `";"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外。`//` 以外のマーカーは直前が空白であることも条件で、例えば `x--y` や `a;b` を `--`/`;` コメントと誤認しません）。
 - 1行だけ極端に長い行があると他の行に大量のゴーストが入りますが、`ghostAlign.maxPadding` で上限を設定すると、外れ値の行を除外して残りの行だけで揃えます（既定は無制限）。
 - Markdown では、テーブルの列（`|` 区切り）が縦に揃って見えるようにします（`ghostAlign.markdownTable.enabled` で無効化できます）。
 - CSV / TSV のドキュメント（言語 ID が `csv` / `tsv` の場合。Rainbow CSV などの拡張機能が提供します — VS Code 単体では `.csv` はプレーンテキストとして開かれます）では、区切り文字が縦に揃って見えるように列を整列します。ダブルクォートで囲まれたフィールド内のカンマ（RFC 4180、`""` エスケープを含む）は区切りとして扱いません。`ghostAlign.csv.enabled` で無効化できます。

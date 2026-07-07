@@ -748,7 +748,7 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(findOperatorColumn("-- just a comment", ["--"]), null);
   });
 
-  test("空白前置のない `--` は行末コメント扱いしない（デクリメント誤検出回避）", () => {
+  test("空白前置のない `--` は行末コメント扱いしない（`x--` の誤検出回避）", () => {
     assert.strictEqual(findOperatorColumn("x--", ["--"]), null);
   });
 
