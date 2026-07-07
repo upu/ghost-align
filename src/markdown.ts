@@ -237,9 +237,15 @@ function delimiterCellInsertPos(
   return pipe;
 }
 
-/** One table row's delimiter positions and per-column cell widths, in rendered columns. */
+/**
+ * One table row's own text plus its delimiter positions and per-column cell
+ * widths (in rendered columns). Carrying `text` alongside the metrics lets
+ * {@link placementsForTableRows} work row-by-row without a caller having to
+ * hand it a full `lines` array indexed by absolute line number.
+ */
 interface TableRowMetrics {
   lineIndex: number;
+  text: string;
   pipes: number[];
   segWidths: number[];
 }
@@ -260,7 +266,7 @@ function computeTableRowMetrics(
       segWidths.push(pipeVisual - prevVisual);
       prevVisual = pipeVisual + 1; // skip the pipe character (width 1)
     }
-    return { lineIndex, pipes, segWidths };
+    return { lineIndex, text, pipes, segWidths };
   });
 }
 
@@ -292,15 +298,20 @@ function computeTableColumnPlan(
  * width instead of a shared target, so a skipped column doesn't stop later
  * columns from aligning — it just makes them align relative to each row's
  * real position rather than one inherited from the skipped column.
+ *
+ * Row-unit API: each row carries its own `text` (see {@link
+ * TableRowMetrics}), so a caller with rows scattered across a document
+ * (e.g. {@link MarkdownTableWidthCache.placementsForRange}) doesn't need to
+ * build a full `lines` array indexed by absolute line number just to satisfy
+ * this function.
  */
 function placementsForTableRows(
-  lines: string[],
   rows: readonly TableRowMetrics[],
   plan: readonly (number | null)[]
 ): Placement[] {
   const placements: Placement[] = [];
   for (const row of rows) {
-    const text = lines[row.lineIndex];
+    const text = row.text;
     const isDelimiter = isDelimiterRow(text);
     let pos = 0;
     row.pipes.forEach((pipe, k) => {
@@ -365,7 +376,7 @@ export function computeMarkdownTablePaddings(
   for (const block of findMarkdownTables(lines, initialState)) {
     const rows = computeTableRowMetrics(lines, block, tabSize);
     const plan = computeTableColumnPlan(rows, maxPadding);
-    placements.push(...placementsForTableRows(lines, rows, plan));
+    placements.push(...placementsForTableRows(rows, plan));
   }
   return placements;
 }
@@ -388,7 +399,7 @@ export function computeMarkdownTablePaddings(
  */
 export class MarkdownTableWidthCache {
   private tables: number[][] = [];
-  private rowMetrics = new Map<number, TableRowMetrics & { text: string }>();
+  private rowMetrics = new Map<number, TableRowMetrics>();
   private tableIndexByLine = new Map<number, number>();
   private planByTable: (number | null)[][] = [];
   private lineCount = -1;
@@ -437,7 +448,7 @@ export class MarkdownTableWidthCache {
     this.tables.forEach((block, tableIndex) => {
       const rows = computeTableRowMetrics(lines, block, tabSize);
       for (const row of rows) {
-        this.rowMetrics.set(row.lineIndex, { ...row, text: lines[row.lineIndex] });
+        this.rowMetrics.set(row.lineIndex, row);
         this.tableIndexByLine.set(row.lineIndex, tableIndex);
       }
       this.planByTable.push(computeTableColumnPlan(rows, maxPadding));
@@ -446,23 +457,15 @@ export class MarkdownTableWidthCache {
 
   /** Placements for the table rows in `[sliceStart, sliceEnd]`. Call sync() first. */
   placementsForRange(sliceStart: number, sliceEnd: number): Placement[] {
-    const rows: (TableRowMetrics & { text: string })[] = [];
-    const planByRow = new Map<number, readonly (number | null)[]>();
+    const placements: Placement[] = [];
     for (let lineIndex = sliceStart; lineIndex <= sliceEnd; lineIndex++) {
       const row = this.rowMetrics.get(lineIndex);
       const tableIndex = this.tableIndexByLine.get(lineIndex);
       if (!row || tableIndex === undefined) {
         continue;
       }
-      rows.push(row);
-      planByRow.set(lineIndex, this.planByTable[tableIndex]);
-    }
-    const placements: Placement[] = [];
-    const lines: string[] = [];
-    for (const row of rows) {
-      lines[row.lineIndex] = row.text;
       placements.push(
-        ...placementsForTableRows(lines, [row], planByRow.get(row.lineIndex) ?? [])
+        ...placementsForTableRows([row], this.planByTable[tableIndex])
       );
     }
     return placements;
