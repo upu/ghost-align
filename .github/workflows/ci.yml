@@ -3,9 +3,13 @@ on:
   pull_request:
   push:
     branches: [main]
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   test:
     runs-on: windows-latest
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
