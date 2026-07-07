@@ -61,11 +61,13 @@ export function mockState(values: Record<string, unknown>) {
 }
 
 // vscode.TextEditor の最小限モック（setDecorations 呼び出しを記録する）
+// selections 省略時は selection 1つだけの配列（マルチカーソルでない通常状態）を表す。
 export function mockEditor(
   languageId: string,
   lines: string[] = [],
   visibleRanges: { start: number; end: number }[] = [],
-  selection: vscode.Selection = new vscode.Selection(0, 0, 0, 0)
+  selection: vscode.Selection = new vscode.Selection(0, 0, 0, 0),
+  selections: vscode.Selection[] = [selection]
 ) {
   const calls: vscode.DecorationOptions[][] = [];
   const editor = {
@@ -82,6 +84,7 @@ export function mockEditor(
     })),
     options: { tabSize: 2 },
     selection,
+    selections,
     setDecorations(_type: unknown, decorations: vscode.DecorationOptions[]) {
       calls.push(decorations);
     },

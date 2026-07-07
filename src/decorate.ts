@@ -371,16 +371,28 @@ export function buildCopyAlignedText(
         resolveTabSize(editor)
       );
 
-  const selection = editor.selection;
-  const range: TextRange | null = selection.isEmpty
-    ? null
-    : {
-        startLine: selection.start.line,
-        startChar: selection.start.character,
-        endLine: selection.end.line,
-        endChar: selection.end.character,
-      };
-
   const eol = document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
-  return buildAlignedText(lines, placements, range, eol);
+
+  const selections = editor.selections;
+  if (selections.length <= 1) {
+    const selection = selections[0] ?? editor.selection;
+    const range = selection.isEmpty ? null : toTextRange(selection);
+    return buildAlignedText(lines, placements, range, eol);
+  }
+
+  // マルチカーソル: VS Code標準コピーに揃え、ドキュメント順にソートした各選択範囲を
+  // 整列済みテキスト化してEOLで連結する。placements は全文で1回だけ計算済みのものを使い回す。
+  return [...selections]
+    .sort((a, b) => a.start.line - b.start.line || a.start.character - b.start.character)
+    .map((selection) => buildAlignedText(lines, placements, toTextRange(selection), eol))
+    .join(eol);
+}
+
+function toTextRange(selection: vscode.Selection): TextRange {
+  return {
+    startLine: selection.start.line,
+    startChar: selection.start.character,
+    endLine: selection.end.line,
+    endChar: selection.end.character,
+  };
 }

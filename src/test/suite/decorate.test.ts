@@ -350,6 +350,68 @@ suite("buildCopyAlignedText", () => {
     );
     assert.strictEqual(text, expected);
   });
+
+  test("複数選択（マルチカーソル）は各範囲を整列済みテキスト化しEOLで連結する", () => {
+    const lines = ["a = 1", "bb = 2", "ccc = 3"];
+    const config = mockConfig({
+      operators: ["="],
+    }) as unknown as vscode.WorkspaceConfiguration;
+    const selections = [
+      new vscode.Selection(0, 0, 0, 5),
+      new vscode.Selection(2, 0, 2, 7),
+    ];
+    const { editor } = mockEditor(
+      "typescript",
+      lines,
+      [],
+      selections[0],
+      selections
+    );
+    const text = buildCopyAlignedText(editor, config);
+    assert.strictEqual(text, "a   = 1\nccc = 3");
+  });
+
+  test("複数選択がドキュメント順でなくても、ソートしてから連結する", () => {
+    const lines = ["a = 1", "bb = 2", "ccc = 3"];
+    const config = mockConfig({
+      operators: ["="],
+    }) as unknown as vscode.WorkspaceConfiguration;
+    // 選択順は下(2行目)→上(0行目)だが、出力はドキュメント順(0→2)になるべき
+    const selections = [
+      new vscode.Selection(2, 0, 2, 7),
+      new vscode.Selection(0, 0, 0, 5),
+    ];
+    const { editor } = mockEditor(
+      "typescript",
+      lines,
+      [],
+      selections[0],
+      selections
+    );
+    const text = buildCopyAlignedText(editor, config);
+    assert.strictEqual(text, "a   = 1\nccc = 3");
+  });
+
+  test("複数選択でも placements はドキュメント全体で1回だけ計算される（範囲外行が基準の整列先になる）", () => {
+    // 3行のグループの中で最も右にある2行目(ccc = 3)を基準に、選択している0行目・1行目も揃う
+    const lines = ["a = 1", "bb = 2", "ccc = 3"];
+    const config = mockConfig({
+      operators: ["="],
+    }) as unknown as vscode.WorkspaceConfiguration;
+    const selections = [
+      new vscode.Selection(0, 0, 0, 5),
+      new vscode.Selection(1, 0, 1, 6),
+    ];
+    const { editor } = mockEditor(
+      "typescript",
+      lines,
+      [],
+      selections[0],
+      selections
+    );
+    const text = buildCopyAlignedText(editor, config);
+    assert.strictEqual(text, "a   = 1\nbb  = 2");
+  });
 });
 
 suite("decorateEditor と可視範囲モード（複数行ブロックコメント）", () => {
