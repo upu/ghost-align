@@ -672,6 +672,12 @@ const LINE_COMMENT_MARKERS_BY_LANGUAGE: Record<string, readonly string[]> = {
   terraform: ["#"],
   elixir: ["#"],
   perl: ["#"],
+  sql: ["--"],
+  haskell: ["--"],
+  powershell: ["#"],
+  dockerfile: ["#"],
+  graphql: ["#"],
+  r: ["#"],
 };
 
 /**

@@ -63,6 +63,14 @@ export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   proto3: ["="],
   elixir: ["="],
   perl: ["="],
+  sql: ["="],
+  haskell: ["="],
+  powershell: ["="],
+  dockerfile: ["="],
+  graphql: [":"],
+  scala: ["="],
+  groovy: ["="],
+  r: ["<-", "="],
 };
 
 /**

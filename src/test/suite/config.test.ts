@@ -151,8 +151,8 @@ suite("resolveOperatorsForLanguage", () => {
     );
   });
 
-  test("yaml / css / scss / less は既定で `:` を揃える", () => {
-    for (const lang of ["yaml", "css", "scss", "less"]) {
+  test("yaml / css / scss / less / graphql は既定で `:` を揃える", () => {
+    for (const lang of ["yaml", "css", "scss", "less", "graphql"]) {
       assert.deepStrictEqual(
         resolveOperatorsForLanguage(mockConfig({}), lang),
         [":"],
@@ -199,6 +199,12 @@ suite("resolveOperatorsForLanguage", () => {
       proto3: ["name = 1;", "id = 2;"],
       elixir: ["x = 1", "longer_name = 2"],
       perl: ["my $x = 1;", "my $longer_name = 2;"],
+      sql: ["x = 1", "longer_name = 2"],
+      haskell: ["x = 1", "longerName = 2"],
+      powershell: ["$x = 1", "$longerName = 2"],
+      dockerfile: ["ENV X=1", "ENV LONGER_NAME=2"],
+      scala: ["val x = 1", "val longerName = 2"],
+      groovy: ["def x = 1", "def longerName = 2"],
     };
     for (const [lang, lines] of Object.entries(samples)) {
       const operators = resolveOperatorsForLanguage(mockConfig({}), lang);
@@ -336,6 +342,51 @@ suite("resolveOperatorsForLanguage", () => {
         lang
       );
     }
+  });
+
+  test("sql / haskell / powershell / dockerfile / scala / groovy は既定で `=` を揃える", () => {
+    const config = mockConfig({ operators: [":"] });
+    for (const lang of [
+      "sql",
+      "haskell",
+      "powershell",
+      "dockerfile",
+      "scala",
+      "groovy",
+    ]) {
+      assert.deepStrictEqual(
+        resolveOperatorsForLanguage(config, lang),
+        ["="],
+        lang
+      );
+    }
+  });
+
+  test("r は既定で `<-` と `=` を揃える", () => {
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(mockConfig({}), "r"),
+      ["<-", "="]
+    );
+  });
+
+  test("GraphQL: フィールド定義の `:` が連続行で揃う", () => {
+    const doc = mockDocument(["name: String!", "longerName: Int!"]);
+    const groups = findAlignmentGroups(doc, [":"], "graphql");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 4, padding: 6 },
+    ]);
+  });
+
+  test("R: 代入演算子 `<-` が連続行で揃う", () => {
+    const doc = mockDocument(["x <- 1", "longer_name <- 2"]);
+    const groups = findAlignmentGroups(doc, ["<-", "="], "r");
+    assert.strictEqual(groups.length, 1);
+    const placements = computePaddings(groups);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 10 },
+    ]);
   });
 
   test("Ruby: ハッシュロケット `=>` が連続行で揃う", () => {

@@ -851,6 +851,9 @@ suite("findOperatorColumn", () => {
       "ini",
       "elixir",
       "perl",
+      "powershell",
+      "dockerfile",
+      "r",
     ]) {
       assert.strictEqual(
         findOperatorColumn("# default = 3", ["="], lang),
@@ -965,6 +968,97 @@ suite("findOperatorColumn", () => {
     assert.strictEqual(
       findOperatorColumn("/* x = 1 */", ["="], "terraform"),
       null
+    );
+  });
+
+  test("`--` コメント言語（SQL/Haskell）では丸ごとコメント行の `=` を検出しない", () => {
+    for (const lang of ["sql", "haskell"]) {
+      assert.strictEqual(findOperatorColumn("-- x = 1", ["="], lang), null, lang);
+    }
+  });
+
+  test("`--` コメント言語（SQL/Haskell）ではトレーリングコメントより前の `=` を検出する", () => {
+    for (const lang of ["sql", "haskell"]) {
+      assert.strictEqual(
+        findOperatorColumn("x = 1 -- old = 2", ["="], lang),
+        2,
+        lang
+      );
+    }
+  });
+
+  test("PowerShell: `#` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("# $x = 1", ["="], "powershell"),
+      null
+    );
+  });
+
+  test("PowerShell: トレーリング `#` コメントより前の `=` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("$x = 1  # old = 2", ["="], "powershell"),
+      3
+    );
+  });
+
+  test("Dockerfile: `#` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("# ENV X=1", ["="], "dockerfile"),
+      null
+    );
+  });
+
+  test("Dockerfile: トレーリング `#` コメントより前の `=` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("ENV X=1  # old=2", ["="], "dockerfile"),
+      5
+    );
+  });
+
+  test("GraphQL: `#` コメント行の `:` を検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("# name: String", [":"], "graphql"),
+      null
+    );
+  });
+
+  test("GraphQL: トレーリング `#` コメントより前の `:` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("name: String  # note: x", [":"], "graphql"),
+      4
+    );
+  });
+
+  test("Scala: `//` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(findOperatorColumn("// x = 1", ["="], "scala"), null);
+  });
+
+  test("Scala: 単一行ブロックコメント内の `=` も検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* x = 1 */", ["="], "scala"),
+      null
+    );
+  });
+
+  test("Groovy: `//` コメント行の `=` を検出しない", () => {
+    assert.strictEqual(findOperatorColumn("// x = 1", ["="], "groovy"), null);
+  });
+
+  test("Groovy: 単一行ブロックコメント内の `=` も検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("/* x = 1 */", ["="], "groovy"),
+      null
+    );
+  });
+
+  test("R: `#` コメント行の `<-` を検出しない", () => {
+    assert.strictEqual(findOperatorColumn("# x <- 1", ["<-"], "r"), null);
+  });
+
+  test("R: トレーリング `#` コメントより前の `<-` は検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("x <- 1  # old <- 2", ["<-"], "r"),
+      2
     );
   });
 

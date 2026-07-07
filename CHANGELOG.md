@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added default `"="` alignment for SQL, Haskell, PowerShell, Dockerfile, Scala, and Groovy, default `":"` alignment for GraphQL (field-definition colons), and default `["<-", "="]` alignment for R (its idiomatic `<-` assignment arrow alongside `=`), each with correct line-comment handling (`--` for SQL/Haskell, `#` for PowerShell/Dockerfile/GraphQL/R).
+
 ## [1.1.0] - 2026-07-07
 
 ### Added
