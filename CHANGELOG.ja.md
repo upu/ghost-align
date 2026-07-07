@@ -12,7 +12,7 @@
 ### Added
 
 - `ghostAlign.operators`（および `operatorsByLanguage`）のトレーリングコメントマーカーに `"--"` と `";"` を追加。Lua/SQL/Haskell（`--`）と INI/asm（`;`）の行末コメントも、既存の `"//"` / `"#"` と同様に整列できるようになった。
-- Terraform/HCL・Protocol Buffers（proto3）・Elixir・Perl の `=` 整列を既定で有効化。各言語の行コメント（Terraform/HCL は `#` と `//`、Elixir と Perl は `#`）も正しく認識するようにした。
+- Terraform・Protocol Buffers（proto3）・Elixir・Perl の `=` 整列を既定で有効化。各言語の行コメント（Terraform は `#` と `//`、Elixir と Perl は `#`）も正しく認識するようにした。
 
 ### Changed
 
