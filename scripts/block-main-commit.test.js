@@ -18,6 +18,16 @@ test("isGitCommitCommand: 複合コマンド内の git commit も検出する", 
 test("isGitCommitCommand: グローバルオプションを挟んでも検出する", () => {
   assert.equal(isGitCommitCommand("git -C repo commit -m \"msg\""), true);
   assert.equal(isGitCommitCommand("git -c user.name=x commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("git --work-tree /tmp/wt commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("git --git-dir /tmp/repo/.git commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("git --git-dir=/tmp/repo/.git commit -m \"msg\""), true);
+});
+
+test("isGitCommitCommand: env/command/sudo などのラッパー越しでも検出する", () => {
+  assert.equal(isGitCommitCommand("env FOO=1 git commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("command git commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("sudo git commit -m \"msg\""), true);
+  assert.equal(isGitCommitCommand("FOO=1 BAR=2 git commit -m \"msg\""), true);
 });
 
 test("isGitCommitCommand: commit 以外の git コマンドは検出しない", () => {

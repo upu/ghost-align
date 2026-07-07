@@ -28,7 +28,7 @@
           {
             "type": "command",
             "command": "node scripts/block-main-commit.js",
-            "statusMessage": "Checking branch before commit..."
+            "statusMessage": "Running command safety check..."
           }
         ]
       }
