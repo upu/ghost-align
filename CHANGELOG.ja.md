@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-08
+
 ### Added
 
 - SQL・Haskell・PowerShell・Dockerfile・Scala・Groovy の `=` 整列、GraphQL の `:` 整列（フィールド定義のコロン）、R の `["<-", "="]` 整列（慣用的な代入演算子 `<-` を `=` に加えて既定で対象化）をそれぞれ有効化。各言語の行コメント（SQL/Haskell は `--`、PowerShell/Dockerfile/GraphQL/R は `#`）も正しく認識するようにした。
@@ -210,7 +212,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
