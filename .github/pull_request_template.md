@@ -8,7 +8,7 @@
 
 ## チェック
 
-- [ ] テストが通る（`npm run compile` → `npm test`）
+- [ ] テストが通る（`npm run compile` → `npm test` → `npm run check:package`）
 - [ ] CHANGELOG（`CHANGELOG.md` 英語と `CHANGELOG.ja.md` 日本語の両方）の `[Unreleased]` に追記した／または N/A（内部リファクタ・ビルド・CI・テスト・ドキュメント・Claude スキル等、ユーザー影響なし）
 
 Closes #
