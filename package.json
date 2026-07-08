@@ -2,7 +2,7 @@
   "name": "ghost-align",
   "displayName": "Ghost Align",
   "description": "Visually align operators like = without modifying your source code",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "publisher": "upu",
   "license": "MIT",
   "repository": {

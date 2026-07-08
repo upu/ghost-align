@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-07-08
+
 ### Added
 
 - Added default `"="` alignment for SQL, Haskell, PowerShell, Dockerfile, Scala, and Groovy, default `":"` alignment for GraphQL (field-definition colons), and default `["<-", "="]` alignment for R (its idiomatic `<-` assignment arrow alongside `=`), each with correct line-comment handling (`--` for SQL/Haskell, `#` for PowerShell/Dockerfile/GraphQL/R).
@@ -210,7 +212,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
 [0.7.1]: https://github.com/upu/ghost-align/releases/tag/v0.7.1
