@@ -12,12 +12,26 @@
       "Bash(git diff *)",
       "Bash(git ls-files *)",
       "Bash(git check-ignore *)",
+      "Bash(git branch --show-current)",
+      "Bash(set -o pipefail)",
       "Bash(gh label list*)",
+      "Bash(gh issue view*)",
+      "Bash(gh issue list*)",
+      "Bash(gh pr view*)",
+      "Bash(gh pr list*)",
+      "Bash(gh pr checks*)",
+      "Bash(gh run list*)",
+      "Bash(gh run view*)",
       "Bash(gh run watch *)",
       "Bash(git worktree remove .claude/worktrees/*)",
       "Bash(git worktree prune*)",
       "Bash(git branch -D worktree-agent-*)",
-      "Bash(rm -rf .claude/worktrees/*)"
+      "Bash(rm -rf .claude/worktrees/*)",
+      "Bash(cat docs/changelog-guide.md)",
+      "Skill(update-config)",
+      "Skill(fewer-permission-prompts)",
+      "WebFetch(domain:keepachangelog.com)",
+      "WebFetch(domain:docs.claude.com)"
     ]
   },
   "hooks": {
