@@ -14,6 +14,10 @@
 - SQL・Haskell・PowerShell・Dockerfile・Scala・Groovy の `=` 整列、GraphQL の `:` 整列（フィールド定義のコロン）、R の `["<-", "="]` 整列（慣用的な代入演算子 `<-` を `=` に加えて既定で対象化）をそれぞれ有効化。各言語の行コメント（SQL/Haskell は `--`、PowerShell/Dockerfile/GraphQL/R は `#`）も正しく認識するようにした。
 - JSDoc 整列の対象に `@property`（`@typedef` のメンバー）と `@param` のエイリアス `@arg` / `@argument` を追加。`@param` と同様に名前列・説明列が揃うようになった。`@param` 群の直後に `@property`（や `@arg`/`@argument`）群が続く場合は、同じ形のタグとして同一グループで整列する。
 
+### Changed
+
+- 対応する最低 VS Code バージョンを 1.85.0 から 1.125.0 に引き上げ。ビルドに使用する `@types/vscode` のバージョンに合わせた。
+
 ### Fixed
 
 - 「Copy with Alignment」がマルチカーソル（複数選択）時に最初の選択範囲しかコピーしなかった不具合を修正。VS Code標準のコピー挙動と同様に、各選択範囲を整列済みテキスト化しドキュメント順にドキュメントのEOLで連結してコピーするようになった。
