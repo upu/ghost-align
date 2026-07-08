@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Added default `"="` alignment for SQL, Haskell, PowerShell, Dockerfile, Scala, and Groovy, default `":"` alignment for GraphQL (field-definition colons), and default `["<-", "="]` alignment for R (its idiomatic `<-` assignment arrow alongside `=`), each with correct line-comment handling (`--` for SQL/Haskell, `#` for PowerShell/Dockerfile/GraphQL/R).
 - JSDoc alignment now also covers `@property` (`@typedef` members) and the `@param` aliases `@arg` / `@argument`, aligning their name/description columns the same way `@param` already did. A run of `@param` lines immediately followed by a run of `@property` (or `@arg`/`@argument`) lines is aligned as a single group, since they share the same shape.
 
+### Changed
+
+- Raised the minimum supported VS Code version to 1.125.0 (from 1.85.0), to match the `@types/vscode` version this extension is now built against.
+
 ### Fixed
 
 - "Copy with Alignment" now copies every selection when using multiple cursors, matching VS Code's standard copy behavior (each selection's aligned text, joined by the document's line ending, in document order) — previously only the first selection was copied.
