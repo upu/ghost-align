@@ -306,7 +306,11 @@ export const TS_JS_LANGUAGES = new Set([
  * (after stripping a trailing `//`/`/* *​/` comment, then trailing whitespace)
  * is treated as that property instead of a label — a switch `default:` label's
  * line never ends in a trailing comma, while a non-last object/type property
- * does. This is necessarily incomplete: a semicolon can't be used as the same
+ * does. This is necessarily incomplete: only a *trailing comma* flips the
+ * heuristic to "property, not label" — any `default:` line without one is
+ * still read as a label, including a `default` property with no trailing
+ * comma at all (a last member like `default: 1`), not just one ending in
+ * `;`. A semicolon in particular can't be used as its own "not a label"
  * signal, since ordinary switch bodies routinely end in `;` too
  * (`default: return z;`), so a `;`-terminated line with no other content
  * (e.g. an interface member `default: string;`) is still read as a label.
