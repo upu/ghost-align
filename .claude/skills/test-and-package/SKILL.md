@@ -1,6 +1,6 @@
 ---
 name: test-and-package
-description: Run the test suite and verify the package contents, then only if both pass build a local .vsix. Use when the user wants to verify the extension and produce a .vsix to install or hand-test locally — not the official release artifact, which /release cuts via the tagged Release workflow (e.g. "/test-and-package", "テストしてパッケージ", "ship a build").
+description: Run the test suite and verify the package contents, then only if both pass build a local .vsix. Use when the user wants to verify the extension and produce a .vsix to install or hand-test locally — not the official release artifact, which dev-flow:release cuts via the tagged Release workflow (e.g. "/test-and-package", "テストしてパッケージ", "ship a build").
 ---
 
 # Test and Package
