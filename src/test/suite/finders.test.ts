@@ -700,6 +700,126 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: `case X:` のラベルコロンは対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case 1:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `default:` のラベルコロンは対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  default:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case X: return ...;` の行にラベルコロン以外の `:` がなければ対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case 1: return a;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case X:` 行の後続コロン（オブジェクトリテラル等）は対象のまま", () => {
+    // `case 1: obj = { a: 1 };` のラベルコロンは除外し、`a:`（列19）を返す
+    assert.strictEqual(
+      findOperatorColumn("  case 1: obj = { a: 1 };", [":"], "typescript"),
+      19
+    );
+  });
+
+  test("TS: `case` の値部分の三項演算子とラベルコロンをどちらも除外する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case cond ? 1 : 2:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case` で始まらない識別子（`caseValue:`）は通常のコロンとして検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  caseValue: 1,", [":"], "typescript"),
+      11
+    );
+  });
+
+  test("TS: `default` を含むが `default:` ラベルではない行（型注釈）は通常のコロンとして検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  defaultValue: 1,", [":"], "typescript"),
+      14
+    );
+  });
+
+  test("TS: `case` という名前のプロパティキー（コロン前に空白あり）は通常のコロンとして検出する", () => {
+    // `case : 1,` は `case` の直後が空白のみでコロンに続くため、実際は
+    // case 式を持たない（switch のラベルにはなり得ない）プロパティキー。
+    // コロン（列7）を返す
+    assert.strictEqual(
+      findOperatorColumn("  case : 1,", [":"], "typescript"),
+      7
+    );
+  });
+
+  test("TS: `default` という名前のプロパティキー（末尾カンマあり）は通常のコロンとして検出する", () => {
+    // `default: 1,` は switch のラベルではなくオブジェクト/型のプロパティ。
+    // 末尾カンマを手がかりにラベル扱いせず、コロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn("  default: 1,", [":"], "typescript"),
+      9
+    );
+  });
+
+  test("TS: `default` プロパティの末尾カンマの後ろに行末コメントがあっても通常のコロンとして検出する", () => {
+    // `default: 1, // note` はカンマの後ろにコメントが続く。ラベル判定の
+    // 「末尾カンマ」チェックはコメントを除いて見るので、プロパティとして
+    // 扱われコロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn("  default: 1, // note", [":"], "typescript"),
+      9
+    );
+  });
+
+  test("TS: `default` プロパティの値に途中のブロックコメントがあっても末尾コメントだけを取り除く", () => {
+    // `default: fn(/*x*/), /* note */` の末尾カンマ判定は末尾のブロック
+    // コメントだけを取り除くべきで、貪欲マッチだと先頭の `/*x*/` まで
+    // 巻き込んでカンマが見えなくなってしまう。プロパティとして扱われ
+    // コロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn("  default: fn(/*x*/), /* note */", [":"], "typescript"),
+      9
+    );
+  });
+
+  test("TS: `default` プロパティの値に `//` を含む文字列（URL等）があっても末尾コメントと誤認しない", () => {
+    // `default: "http://x", // note` の値の中の `//` はコメントではない。
+    // 末尾カンマ判定は文字列を認識した上で行末コメントだけを取り除くので、
+    // プロパティとして扱われコロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn('  default: "http://x", // note', [":"], "typescript"),
+      9
+    );
+  });
+
+  test("TS: `case` とラベル値の間にブロックコメントが直接続いてもラベルコロンは対象外", () => {
+    // `case/*comment*/1:` はコメントが空白の代わりに `case` の直後に来る書き方。
+    // 字句上は空白と等価なので、通常の `case 1:` と同じくラベルコロン（列18）を除外する
+    assert.strictEqual(
+      findOperatorColumn("  case/*comment*/1:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: 既知の制約 — 末尾カンマのない `default` プロパティ（型メンバー等）はラベルと区別できない", () => {
+    // `default: string;` はインターフェースのメンバーだが、switch の
+    // `default: return z;` も同じく `;` で終わるため、`;` を手がかりには
+    // できない（行単体の情報だけでは switch 本体とオブジェクト/型リテラルの
+    // 区別がつかない）。現状の既知の制約として、この形はラベル扱いになる
+    assert.strictEqual(
+      findOperatorColumn("  default: string;", [":"], "typescript"),
+      null
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });

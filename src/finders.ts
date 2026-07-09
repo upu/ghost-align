@@ -289,12 +289,90 @@ export const TS_JS_LANGUAGES = new Set([
  *
  * Block comments and template literals spanning multiple lines are not tracked:
  * this function sees one line at a time, matching the other single-line finders.
+ *
+ * `switch` labels are also excluded: on a line whose trimmed start is `case `
+ * or `default:`, the first depth-0, non-ternary `:` — the label colon itself —
+ * is skipped. Any later `:` on the same line (e.g. an object literal in
+ * `case 1: obj = { a: 1 };`) is still a normal target. `case` is recognized
+ * whether followed by whitespace (`case 1:`) or directly by a block comment
+ * (`case/*c*​/1:`, which lexically behaves like whitespace); either way, the
+ * required separation from the keyword rules out a property key literally
+ * named `case` (`case: 1`, colon directly after the word) — including one
+ * with stray whitespace before its colon (`case : 1`, still no expression
+ * between the word and `:`, so it can't be a real case label either).
+ *
+ * `default:` alone is ambiguous with an object/type property literally named
+ * `default` (`default: 1,`), since both share the same "word, colon" shape at
+ * line start and this function has no cross-line brace context to tell a
+ * switch body from an object literal. As a heuristic, a line ending in `,`
+ * (after stripping a trailing `//`/`/* *​/` comment, then trailing whitespace)
+ * is treated as that property instead of a label — a switch `default:` label's
+ * line never ends in a trailing comma, while a non-last object/type property
+ * does. This is necessarily incomplete: only a *trailing comma* flips the
+ * heuristic to "property, not label" — any `default:` line without one is
+ * still read as a label, including a `default` property with no trailing
+ * comma at all (a last member like `default: 1`), not just one ending in
+ * `;`. A semicolon in particular can't be used as its own "not a label"
+ * signal, since ordinary switch bodies routinely end in `;` too
+ * (`default: return z;`), so a `;`-terminated line with no other content
+ * (e.g. an interface member `default: string;`) is still read as a label.
+ * Precisely resolving that needs cross-line context (tracking whether the
+ * enclosing `{...}` is a switch body or an object/type literal), which is out
+ * of scope for this line-local finder (#345). Likewise out of scope: a
+ * comment wedged directly between `default`/`case` and the label `:` itself
+ * (`default/*c*​/:`, `case/*c*​/: 1,`) — pathological formatting nobody writes
+ * in practice, unlike a trailing end-of-line comment.
  */
+const CASE_LABEL_RE = /^case(?:\s|\/\*)/;
+// `case` immediately followed by only whitespace and then `:` — no
+// expression at all between the keyword and the colon, so this can't be a
+// real case label (`case 1:`) and must be a property key literally named
+// `case` (`case: 1` / `case : 1`). `\s*` (not `\s+`) also covers `case:`
+// with zero whitespace, matching CASE_LABEL_RE's own no-separator exclusion.
+const CASE_PROPERTY_COLON_RE = /^case\s*:/;
+const DEFAULT_LABEL_RE = /^default\s*:/;
+
+/**
+ * Best-effort trailing-comment strip used only to steady the `default:`
+ * label heuristic against a comment after the line's real trailing comma
+ * (`default: 1, // note`).
+ *
+ * The `//` strip reuses {@link findTrailingComment}, the same string- and
+ * URL-aware (`http://`) scanner the `//` operator target itself is found
+ * with, so a `//` inside a string literal doesn't get mistaken for a comment
+ * here either. The block-comment strip uses `lastIndexOf` to find only the
+ * *trailing* `/* *​/`, not a greedy regex — a greedy `.*` would span from the
+ * first `/*` on the line to the last `*​/`, over-stripping a line with an
+ * earlier inline comment too (`fn(/*x*​/), /* note *​/` must only lose the
+ * second comment). That part is still a plain string search, not
+ * quote-aware, so a `*​/`-shaped sequence inside a string literal remains a
+ * known (rarer) edge case.
+ */
+function stripTrailingCommentForLabelCheck(text: string): string {
+  const lineCommentAt = findTrailingComment(text, "//");
+  const withoutLineComment = (
+    lineCommentAt === -1 ? text : text.slice(0, lineCommentAt)
+  ).trimEnd();
+  const blockStart = withoutLineComment.endsWith("*/")
+    ? withoutLineComment.lastIndexOf("/*")
+    : -1;
+  return blockStart === -1
+    ? withoutLineComment
+    : withoutLineComment.slice(0, blockStart).trimEnd();
+}
+
 function findTsColon(lineText: string): number[] {
   const results: number[] = [];
   const state = initialQuoteState();
   const ternaryDepths: number[] = [];
   let depth = 0;
+  const trimmed = lineText.trimStart();
+  const looksLikeCaseLabel =
+    CASE_LABEL_RE.test(trimmed) && !CASE_PROPERTY_COLON_RE.test(trimmed);
+  const looksLikeDefaultLabel =
+    DEFAULT_LABEL_RE.test(trimmed) &&
+    !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
+  let pendingLabelColon = looksLikeCaseLabel || looksLikeDefaultLabel;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
@@ -339,6 +417,10 @@ function findTsColon(lineText: string): number[] {
         ternaryDepths[ternaryDepths.length - 1] === depth
       ) {
         ternaryDepths.pop(); // ternary branch separator, not a type colon
+        continue;
+      }
+      if (pendingLabelColon && depth === 0) {
+        pendingLabelColon = false; // `case X:` / `default:` label colon, not a target
         continue;
       }
       results.push(i);
