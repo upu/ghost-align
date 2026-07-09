@@ -6,7 +6,7 @@ argument-hint: "[released version, e.g. 0.1.0]"
 
 # Post-Release Retrospective
 
-Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `dev-flow:release` in the workflow (`/plan-next` → `/ship` → `dev-flow:release` → `/retro`).
+Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `dev-flow:release` in the workflow (`/plan-next` → `dev-flow:ship` → `dev-flow:release` → `/retro`).
 
 `$ARGUMENTS` is the version just released (e.g. `0.1.0`). If empty, infer it from the latest tag (`git tag --sort=-creatordate | head -1`) and confirm with the user.
 
@@ -49,7 +49,7 @@ Don't force every observation into a mechanism. If something was a genuine one-o
    - **Memory**: write the file + add the one-line `MEMORY.md` pointer directly (no PR — memory lives outside the repo).
    - **Issue**: `gh issue create` with the right type + priority label and milestone, following `/plan-next`'s conventions.
    - **Hook / settings**: propose the exact `settings.json` change via `/update-config` (the harness owns hooks).
-   - **Skill / rule / CLAUDE.md edits**: these are tracked files, so follow this repo's GitHub Flow — branch from latest `origin/main`, edit, PR, merge once CI is green (as `/ship` does). Group related mechanism edits into one PR.
+   - **Skill / rule / CLAUDE.md edits**: these are tracked files, so follow this repo's GitHub Flow — branch from latest `origin/main`, edit, PR, merge once CI is green (as `dev-flow:ship` does). Group related mechanism edits into one PR.
    Confirm before anything outward-facing.
 
 6. **Report** — list each improvement and where it landed (issue number, memory file, PR, hook), and note anything consciously deferred (with a pointer so it isn't lost).
