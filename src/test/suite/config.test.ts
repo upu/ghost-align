@@ -758,6 +758,7 @@ suite("README 言語一覧プロースとの同期", () => {
   // ズレを機械的に検出する。文言の意味までは検証できないが、キーの抜け漏れは防げる。
   function readmeContents(): { file: string; content: string }[] {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
     const root = ext!.extensionPath;
     return ["README.md", "README.ja.md"].map((file) => ({
       file,
@@ -775,16 +776,30 @@ suite("README 言語一覧プロースとの同期", () => {
       );
   }
 
-  test("DEFAULT_OPERATORS_BY_LANGUAGE の全言語が両 README の言語一覧プロースに含まれている", () => {
+  // 言語一覧プロースの行から言語 ID 候補（英小文字+数字の単語）だけを拾う。演算子
+  // トークン（`=` `:` `=>` `<-`）は記号始まりなので混ざらず、`ghostAlign.operators`
+  // のようなドット/大文字混じりの設定キーも取りこぼす（バッククォート内が完全に
+  // 小文字+数字でないと一致しない）。`true`/`false` のような真偽値リテラルだけは
+  // 形が言語 ID と区別できないため明示的に除外する。
+  const NON_LANGUAGE_TOKENS = new Set(["true", "false"]);
+
+  function languageIdsInLine(line: string): string[] {
+    return [...line.matchAll(/`([a-z][a-z0-9]*)`/g)]
+      .map((m) => m[1])
+      .filter((token) => !NON_LANGUAGE_TOKENS.has(token));
+  }
+
+  test("DEFAULT_OPERATORS_BY_LANGUAGE の全言語が両 README の言語一覧プロースに過不足なく含まれている", () => {
+    const expected = Object.keys(DEFAULT_OPERATORS_BY_LANGUAGE).sort();
     for (const { file, content } of readmeContents()) {
       const line = languageListLine(content);
       assert.ok(line, `${file} に言語一覧プロースの行があること`);
-      for (const lang of Object.keys(DEFAULT_OPERATORS_BY_LANGUAGE)) {
-        assert.ok(
-          line!.includes(`\`${lang}\``),
-          `${lang} が ${file} の言語一覧プロースに含まれていること`
-        );
-      }
+      const actual = [...new Set(languageIdsInLine(line!))].sort();
+      assert.deepStrictEqual(
+        actual,
+        expected,
+        `${file} の言語一覧プロースが DEFAULT_OPERATORS_BY_LANGUAGE と一致すること`
+      );
     }
   });
 });
