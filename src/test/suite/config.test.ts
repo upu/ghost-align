@@ -8,12 +8,14 @@ import {
   resolveGhostSettings,
   resolveAlignmentPath,
   resolveOperatorsForLanguage,
+  resolveCsvDelimiter,
   isLanguageDisabled,
   toggleDisabledLanguage,
   isAlignableScheme,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
   DEFAULT_OPERATORS_BY_LANGUAGE,
+  DEFAULT_CSV_DELIMITERS,
 } from "../../config";
 import { mockDocument, mockConfig, findOperatorTarget } from "./testHelpers";
 
@@ -113,6 +115,29 @@ suite("resolveAlignmentPath", () => {
     });
   });
 
+  test("csv.delimiters でユーザーが csv をセミコロンに上書きできる", () => {
+    const config = mockConfig({ "csv.delimiters": { csv: ";" } });
+    assert.deepStrictEqual(resolveAlignmentPath("csv", config), {
+      kind: "csv",
+      delimiter: ";",
+    });
+  });
+
+  test("csv.delimiters に追加した独自 languageId が csv パスに乗る", () => {
+    const config = mockConfig({
+      "csv.delimiters": { "csv (semicolon)": ";" },
+    });
+    assert.deepStrictEqual(
+      resolveAlignmentPath("csv (semicolon)", config),
+      { kind: "csv", delimiter: ";" }
+    );
+  });
+
+  test("csv.delimiters が未設定の独自 languageId は csv パスに乗らず operators パスになる", () => {
+    const path = resolveAlignmentPath("csv (semicolon)", mockConfig({}));
+    assert.strictEqual(path.kind, "operators");
+  });
+
   test("jsdoc.enabled=false なら operators パスの alignJsdoc が false になる", () => {
     const path = resolveAlignmentPath(
       "typescript",
@@ -132,6 +157,64 @@ suite("resolveAlignmentPath", () => {
     assert.strictEqual(
       path.kind === "operators" ? path.alignJsdoc : undefined,
       true
+    );
+  });
+});
+
+suite("resolveCsvDelimiter", () => {
+  test("既定値は csv=カンマ、tsv=タブ", () => {
+    assert.strictEqual(resolveCsvDelimiter(mockConfig({}), "csv"), ",");
+    assert.strictEqual(resolveCsvDelimiter(mockConfig({}), "tsv"), "\t");
+  });
+
+  test("DEFAULT_CSV_DELIMITERS が package.json の既定値と一致する", () => {
+    assert.deepStrictEqual(DEFAULT_CSV_DELIMITERS, { csv: ",", tsv: "\t" });
+  });
+
+  test("csv.delimiters でユーザーが区切り文字を上書きできる", () => {
+    const config = mockConfig({ "csv.delimiters": { csv: ";" } });
+    assert.strictEqual(resolveCsvDelimiter(config, "csv"), ";");
+  });
+
+  test("csv.delimiters に無い languageId は undefined（CSV パス対象外）", () => {
+    assert.strictEqual(
+      resolveCsvDelimiter(mockConfig({}), "typescript"),
+      undefined
+    );
+  });
+
+  test("csv.delimiters に追加した独自 languageId を解決できる", () => {
+    const config = mockConfig({
+      "csv.delimiters": { "csv (semicolon)": ";" },
+    });
+    assert.strictEqual(
+      resolveCsvDelimiter(config, "csv (semicolon)"),
+      ";"
+    );
+  });
+
+  test("2文字以上の値は不正として既定値にフォールバックする（csv/tsv）", () => {
+    const config = mockConfig({ "csv.delimiters": { csv: ";;" } });
+    assert.strictEqual(resolveCsvDelimiter(config, "csv"), ",");
+  });
+
+  test('ダブルクォートは不正として拒否され既定値にフォールバックする', () => {
+    const config = mockConfig({ "csv.delimiters": { csv: '"' } });
+    assert.strictEqual(resolveCsvDelimiter(config, "csv"), ",");
+  });
+
+  test("空文字は不正として既定値にフォールバックする", () => {
+    const config = mockConfig({ "csv.delimiters": { tsv: "" } });
+    assert.strictEqual(resolveCsvDelimiter(config, "tsv"), "\t");
+  });
+
+  test("独自 languageId の不正値は undefined に落ちる（既定値が無いため）", () => {
+    const config = mockConfig({
+      "csv.delimiters": { "csv (semicolon)": ";;" },
+    });
+    assert.strictEqual(
+      resolveCsvDelimiter(config, "csv (semicolon)"),
+      undefined
     );
   });
 });
@@ -711,6 +794,14 @@ suite("package.json との既定値同期", () => {
   test("operators の既定値が resolveOperatorsForLanguage のフォールバックと一致する", () => {
     const props = configProperties();
     assert.deepStrictEqual(props["ghostAlign.operators"]?.default, ["="]);
+  });
+
+  test("csv.delimiters の既定値が DEFAULT_CSV_DELIMITERS と一致する", () => {
+    const props = configProperties();
+    assert.deepStrictEqual(
+      props["ghostAlign.csv.delimiters"]?.default,
+      DEFAULT_CSV_DELIMITERS
+    );
   });
 
   test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {

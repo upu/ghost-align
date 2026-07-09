@@ -21,11 +21,26 @@ suite("findCsvDelimiterPositions", () => {
   test("タブ区切り（TSV）ではタブの位置を返す", () => {
     assert.deepStrictEqual(findCsvDelimiterPositions("a\tb\tc", "\t"), [1, 3]);
   });
+
+  test("セミコロン区切りではクォート内のセミコロンを区切りとして扱わない", () => {
+    assert.deepStrictEqual(
+      findCsvDelimiterPositions('"x;y";zz;w', ";"),
+      [5, 8]
+    );
+  });
 });
 
 suite("computeCsvPaddings", () => {
   test("csv: クォート内カンマを区切りにせず各列の区切りが揃う", () => {
     const placements = computeCsvPaddings(["a,b,c", '"x,y",zz,w'], ",", 4);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 1, padding: 4 },
+      { lineIndex: 0, character: 3, padding: 1 },
+    ]);
+  });
+
+  test("セミコロン区切り: クォート内セミコロンを区切りにせず各列が揃う", () => {
+    const placements = computeCsvPaddings(["a;b;c", '"x;y";zz;w'], ";", 4);
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 1, padding: 4 },
       { lineIndex: 0, character: 3, padding: 1 },
