@@ -752,6 +752,43 @@ suite("README 設定表との同期", () => {
   });
 });
 
+suite("README 言語一覧プロースとの同期", () => {
+  // #317: DEFAULT_OPERATORS_BY_LANGUAGE に言語を追加したのに README の「動作の
+  // 概要」のプロース（`= is aligned by default` の文）を更新し忘れる、という
+  // ズレを機械的に検出する。文言の意味までは検証できないが、キーの抜け漏れは防げる。
+  function readmeContents(): { file: string; content: string }[] {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    const root = ext!.extensionPath;
+    return ["README.md", "README.ja.md"].map((file) => ({
+      file,
+      content: fs.readFileSync(path.join(root, file), "utf8"),
+    }));
+  }
+
+  function languageListLine(content: string): string | undefined {
+    return content
+      .split("\n")
+      .find(
+        (line) =>
+          line.includes("is aligned by default") ||
+          line.includes("既定では `=` を揃えます")
+      );
+  }
+
+  test("DEFAULT_OPERATORS_BY_LANGUAGE の全言語が両 README の言語一覧プロースに含まれている", () => {
+    for (const { file, content } of readmeContents()) {
+      const line = languageListLine(content);
+      assert.ok(line, `${file} に言語一覧プロースの行があること`);
+      for (const lang of Object.keys(DEFAULT_OPERATORS_BY_LANGUAGE)) {
+        assert.ok(
+          line!.includes(`\`${lang}\``),
+          `${lang} が ${file} の言語一覧プロースに含まれていること`
+        );
+      }
+    }
+  });
+});
+
 suite("isAlignableScheme", () => {
   test("通常ファイル・未保存・リモート系・ノートブックセルのスキーマは整列対象", () => {
     assert.strictEqual(isAlignableScheme("file"), true);
