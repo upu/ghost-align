@@ -700,6 +700,56 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: `case X:` のラベルコロンは対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case 1:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `default:` のラベルコロンは対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  default:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case X: return ...;` の行にラベルコロン以外の `:` がなければ対象外", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case 1: return a;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case X:` 行の後続コロン（オブジェクトリテラル等）は対象のまま", () => {
+    // `case 1: obj = { a: 1 };` のラベルコロンは除外し、`a:`（列19）を返す
+    assert.strictEqual(
+      findOperatorColumn("  case 1: obj = { a: 1 };", [":"], "typescript"),
+      19
+    );
+  });
+
+  test("TS: `case` の値部分の三項演算子とラベルコロンをどちらも除外する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  case cond ? 1 : 2:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: `case` で始まらない識別子（`caseValue:`）は通常のコロンとして検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  caseValue: 1,", [":"], "typescript"),
+      11
+    );
+  });
+
+  test("TS: `default` を含むが `default:` ラベルではない行（型注釈）は通常のコロンとして検出する", () => {
+    assert.strictEqual(
+      findOperatorColumn("  defaultValue: 1,", [":"], "typescript"),
+      14
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });

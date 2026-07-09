@@ -470,6 +470,16 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 1);
     assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 4]);
   });
+
+  test("連続する switch の case/default 行はコロン整列のグループにならない（#336）", () => {
+    const doc = mockDocument([
+      "case 1:       return a;",
+      "case 22:      return b;",
+      "default:      return z;",
+    ]);
+    const groups = findAlignmentGroups(doc, [":", "="], "typescript");
+    assert.strictEqual(groups.length, 0);
+  });
 });
 
 suite("findAlignmentGroups（複数行ブロックコメント / テンプレートリテラル）", () => {

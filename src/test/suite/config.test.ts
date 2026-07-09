@@ -317,18 +317,14 @@ suite("resolveOperatorsForLanguage", () => {
     ]);
   });
 
-  test("TS: switch の case ラベルの `:` も既定で揃う（意図した挙動）", () => {
+  test("TS: switch の case ラベルの `:` は既定設定でも揃わない（#336）", () => {
     const operators = resolveOperatorsForLanguage(
       mockConfig({}),
       "typescript"
     );
     const doc = mockDocument(["  case 1:", "  case 22:"]);
     const groups = findAlignmentGroups(doc, operators, "typescript");
-    assert.strictEqual(groups.length, 1);
-    const placements = computePaddings(groups);
-    assert.deepStrictEqual(placements, [
-      { lineIndex: 0, character: 8, padding: 1 },
-    ]);
+    assert.strictEqual(groups.length, 0);
   });
 
   test("ruby / php / rust は既定で `=` と `=>` を揃える", () => {

@@ -289,12 +289,23 @@ export const TS_JS_LANGUAGES = new Set([
  *
  * Block comments and template literals spanning multiple lines are not tracked:
  * this function sees one line at a time, matching the other single-line finders.
+ *
+ * `switch` labels are also excluded: on a line whose trimmed start is `case `
+ * or `default:`, the first depth-0, non-ternary `:` — the label colon itself —
+ * is skipped. Any later `:` on the same line (e.g. an object literal in
+ * `case 1: obj = { a: 1 };`) is still a normal target.
  */
+const CASE_LABEL_RE = /^case\s+/;
+const DEFAULT_LABEL_RE = /^default\s*:/;
+
 function findTsColon(lineText: string): number[] {
   const results: number[] = [];
   const state = initialQuoteState();
   const ternaryDepths: number[] = [];
   let depth = 0;
+  const trimmed = lineText.trimStart();
+  let pendingLabelColon =
+    CASE_LABEL_RE.test(trimmed) || DEFAULT_LABEL_RE.test(trimmed);
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
@@ -339,6 +350,10 @@ function findTsColon(lineText: string): number[] {
         ternaryDepths[ternaryDepths.length - 1] === depth
       ) {
         ternaryDepths.pop(); // ternary branch separator, not a type colon
+        continue;
+      }
+      if (pendingLabelColon && depth === 0) {
+        pendingLabelColon = false; // `case X:` / `default:` label colon, not a target
         continue;
       }
       results.push(i);

@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `ghostAlign.operators` / `ghostAlign.operatorsByLanguage` entries that are an empty string, whitespace-only, or not a string are now silently dropped instead of freezing the extension host — a `""` entry previously sent the operator-matching loop into an infinite loop that could crash the process with an out-of-memory error.
+- TypeScript/JavaScript `:` alignment no longer treats a `switch` statement's `case X:` / `default:` label colon as an alignment target, so consecutive `case`/`default` lines are no longer pulled apart with unintended padding. A colon later on the same line (e.g. an object literal in `case 1: obj = { a: 1 };`) is still aligned as before.
 
 ## [1.2.0] - 2026-07-08
 
