@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Large files (10,000+ lines) on the operator alignment path no longer rescan every line from the top of the file on each scroll to determine the alignment state at the visible range's start. The scan state is now cached at checkpoints every 1,000 lines and resumed from the nearest one, so scrolling deep into a large file no longer re-does the same tens-of-thousands-of-lines prescan on every debounce tick. Alignment results are unchanged.
+
 ### Fixed
 
 - `ghostAlign.operators` / `ghostAlign.operatorsByLanguage` entries that are an empty string, whitespace-only, or not a string are now silently dropped instead of freezing the extension host — a `""` entry previously sent the operator-matching loop into an infinite loop that could crash the process with an out-of-memory error.

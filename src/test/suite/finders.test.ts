@@ -9,6 +9,8 @@ import {
   nextYamlBlockScalarState,
   computeYamlBlockScalarStateBefore,
   isWholeLineComment,
+  computeLineScanStateBefore,
+  LineScanCheckpointCache,
 } from "../../finders";
 import { findOperatorTarget, findOperatorColumn } from "./testHelpers";
 
@@ -1589,6 +1591,96 @@ suite("YAML ブロックスカラー継続状態", () => {
       computeYamlBlockScalarStateBefore(lines.length, (i) => lines[i]),
       null
     );
+  });
+});
+
+suite("LineScanCheckpointCache", () => {
+  // interval=5 のブロックコメントを跨ぐ行構成: 0行目で開き7行目で閉じるので、
+  // 5行目のチェックポイントは「コメント内」、10行目のチェックポイントは「コード」になる。
+  const commentSpanningLines = [
+    "/*", "x", "x", "x", "x", // 0-4: still inside the comment
+    "x", "x", "*/", // 5-7: still inside until the close on line 7
+    "a = 1;", "b = 2;", // 8-9: back to code
+    "c = 3;", "d = 4;", // 10-11
+  ];
+
+  test("チェックポイントから求めた開始状態は、先頭からの全行スキャン(computeLineScanStateBefore)と一致する", () => {
+    const cache = new LineScanCheckpointCache(5);
+    // スクロールを想定し、行き来する順序でも一致することを確認する。
+    for (const target of [12, 3, 7, 5, 0, 10, 12]) {
+      const expected = computeLineScanStateBefore(
+        target,
+        (i) => commentSpanningLines[i],
+        "typescript"
+      );
+      const actual = cache.stateBefore(
+        target,
+        (i) => commentSpanningLines[i],
+        "typescript"
+      );
+      assert.deepStrictEqual(actual, expected, `target=${target}`);
+    }
+  });
+
+  test("編集開始行以降のチェックポイントは破棄され、それ以前のチェックポイントは温存されて再利用される", () => {
+    const lines = commentSpanningLines.slice();
+    const cache = new LineScanCheckpointCache(5);
+    // ウォームアップ: 5, 10 行目にチェックポイントができる。
+    cache.stateBefore(12, (i) => lines[i], "typescript");
+
+    // 10行目を編集してブロックコメントを開かなくする。10行目より前(<=10)の
+    // チェックポイントは温存されるはずなので、5行目のチェックポイントは無効化されず
+    // 温存される一方、10行目のチェックポイント自体はまだ有効（10行目より前の行にしか
+    // 依存しないため）。
+    lines[10] = "e = 5;";
+    cache.invalidateFrom(10);
+
+    let scannedFrom = Infinity;
+    const spyLineAt = (i: number) => {
+      scannedFrom = Math.min(scannedFrom, i);
+      return lines[i];
+    };
+    const actual = cache.stateBefore(12, spyLineAt, "typescript");
+
+    const expected = computeLineScanStateBefore(12, (i) => lines[i], "typescript");
+    assert.deepStrictEqual(actual, expected);
+    // 0行目からの再スキャンではなく、10行目のチェックポイントから再開しているはず。
+    assert.strictEqual(scannedFrom, 10);
+  });
+
+  test("編集開始行より前のチェックポイントを破棄する編集では、0行目から再スキャンされる", () => {
+    const lines = commentSpanningLines.slice();
+    const cache = new LineScanCheckpointCache(5);
+    cache.stateBefore(12, (i) => lines[i], "typescript");
+
+    // 0行目の編集はすべてのチェックポイント(5, 10行目)を無効化する。
+    lines[0] = "/* comment */";
+    cache.invalidateFrom(0);
+
+    let scannedFrom = Infinity;
+    const spyLineAt = (i: number) => {
+      scannedFrom = Math.min(scannedFrom, i);
+      return lines[i];
+    };
+    const actual = cache.stateBefore(12, spyLineAt, "typescript");
+
+    const expected = computeLineScanStateBefore(12, (i) => lines[i], "typescript");
+    assert.deepStrictEqual(actual, expected);
+    assert.strictEqual(scannedFrom, 0);
+  });
+
+  test("言語IDが変わるとチェックポイントは再利用されず、新しい言語で再計算される", () => {
+    // 未終端の `/*` は TypeScript ではブロックコメントとして残り続けるが、
+    // shellscript には C 言語風コメントの概念がないため無視され "code" のままになる。
+    // 言語IDが変わったのにチェックポイントを使い回すと、この差異を見誤る。
+    const lines = ["/*", "x", "x", "x", "x", "x", "x"];
+    const cache = new LineScanCheckpointCache(5);
+    cache.stateBefore(6, (i) => lines[i], "shellscript");
+
+    const actual = cache.stateBefore(6, (i) => lines[i], "typescript");
+    const expected = computeLineScanStateBefore(6, (i) => lines[i], "typescript");
+    assert.deepStrictEqual(actual, expected);
+    assert.strictEqual(expected.doc, "blockComment");
   });
 });
 

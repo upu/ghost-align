@@ -1819,6 +1819,92 @@ export function computeLineScanStateBefore(
   return state;
 }
 
+/** Default line spacing between {@link LineScanCheckpointCache} checkpoints. */
+const LINE_SCAN_CHECKPOINT_INTERVAL = 1000;
+
+/**
+ * Per-document cache of {@link LineScanState} checkpoints, so a large file's
+ * operator path doesn't re-run {@link computeLineScanStateBefore} from line 0
+ * on every scroll. Without it, decorateEditor's visible-range slicing
+ * (LARGE_FILE_LINE_THRESHOLD in decorate.ts) re-prescans every line above the
+ * slice on each debounced re-decoration — O(scroll position) work per scroll,
+ * repeated for as long as the user keeps scrolling through the same deep
+ * position (#337). CsvWidthCache (csv.ts) and MarkdownTableWidthCache
+ * (markdown.ts) solve the analogous problem for their own paths with a
+ * whole-document cache; LineScanState has no natural "whole document"
+ * aggregate to cache the same way (it's a per-line running state, not a
+ * per-column max), so this instead remembers the state every `interval`
+ * lines and resumes a lookup from the nearest one at or before the target
+ * line, capping the rescan to at most `interval` lines regardless of how far
+ * into the file the target is.
+ *
+ * A {@link LineScanState} is treated as immutable once produced by
+ * {@link nextLineScanState} (each call returns a fresh value rather than
+ * mutating its input — see that function's own doc comment), so storing the
+ * reference at a checkpoint is enough; there's no need to clone it.
+ */
+export class LineScanCheckpointCache {
+  private checkpoints: { line: number; state: LineScanState }[] = [];
+  private languageId: string | undefined;
+
+  constructor(private readonly interval: number = LINE_SCAN_CHECKPOINT_INTERVAL) {}
+
+  /**
+   * Discard every checkpoint at or after `startLine` — an edit starting there
+   * may have changed the content any of them scanned through. A checkpoint
+   * exactly at `startLine` only depends on the lines *before* it (0 up to but
+   * not including `startLine`), which the edit cannot have touched, so it is
+   * kept rather than discarded — same reasoning `applyEdit`'s `startLine`
+   * split point uses in CsvWidthCache. No-op if the cache has no checkpoint
+   * in that range yet.
+   */
+  invalidateFrom(startLine: number): void {
+    this.checkpoints = this.checkpoints.filter((cp) => cp.line <= startLine);
+  }
+
+  /**
+   * The {@link LineScanState} as of `targetLine` lines scanned from the top —
+   * the same result computeLineScanStateBefore(targetLine, lineAt,
+   * languageId) would produce — but resuming from the closest checkpoint at
+   * or before `targetLine` instead of always rescanning from line 0. Every
+   * `interval`-line boundary crossed while catching up to `targetLine` is
+   * recorded as a new checkpoint, so a later call (from the same or a deeper
+   * position) can resume from it in turn.
+   *
+   * A change in `languageId` (e.g. the user switches the editor's language
+   * mode without editing the document, so no invalidateFrom call happens)
+   * drops every checkpoint: each one's state was computed under the previous
+   * language's comment/string/CSS/YAML rules, which the new language may
+   * disagree with entirely.
+   */
+  stateBefore(
+    targetLine: number,
+    lineAt: (index: number) => string,
+    languageId: string | undefined
+  ): LineScanState {
+    if (this.languageId !== languageId) {
+      this.checkpoints = [];
+      this.languageId = languageId;
+    }
+    let checkpoint: { line: number; state: LineScanState } | undefined;
+    for (const cp of this.checkpoints) {
+      if (cp.line <= targetLine && (!checkpoint || cp.line > checkpoint.line)) {
+        checkpoint = cp;
+      }
+    }
+    let line = checkpoint ? checkpoint.line : 0;
+    let state = checkpoint ? checkpoint.state : initialLineScanState();
+    while (line < targetLine) {
+      state = nextLineScanState(lineAt(line), state, languageId);
+      line++;
+      if (line % this.interval === 0) {
+        this.checkpoints.push({ line, state });
+      }
+    }
+    return state;
+  }
+}
+
 /**
  * Char index in `lineText` where normal scanning resumes given `state`, or
  * null if the whole line is still inside a block comment/template

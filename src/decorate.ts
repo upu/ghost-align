@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import {
   LineScanState,
-  computeLineScanStateBefore,
+  LineScanCheckpointCache,
   findOperatorTargets,
 } from "./finders";
 import {
@@ -136,6 +136,46 @@ const markdownTableWidthCaches = new WeakMap<
  */
 export function notifyMarkdownDocumentChange(document: vscode.TextDocument) {
   markdownTableWidthCaches.get(document)?.markDirty();
+}
+
+// Per-document LineScanState checkpoint caches for the operator path on
+// large files, mirroring csvWidthCaches/markdownTableWidthCaches above —
+// see LineScanCheckpointCache (finders.ts) for why a checkpoint cache (not a
+// whole-document aggregate like the other two) is the right shape here.
+const lineScanCheckpointCaches = new WeakMap<
+  vscode.TextDocument,
+  LineScanCheckpointCache
+>();
+
+/** Get (or lazily create) a document's LineScanState checkpoint cache. */
+function getLineScanCheckpointCache(
+  document: vscode.TextDocument
+): LineScanCheckpointCache {
+  let cache = lineScanCheckpointCaches.get(document);
+  if (!cache) {
+    cache = new LineScanCheckpointCache();
+    lineScanCheckpointCaches.set(document, cache);
+  }
+  return cache;
+}
+
+/**
+ * Keep a document's operator-path LineScanState checkpoint cache in step
+ * with an edit by discarding every checkpoint the edit may have invalidated
+ * (see LineScanCheckpointCache.invalidateFrom). No-op for documents that
+ * have no cache yet — one is built on first decoration.
+ */
+export function notifyLineScanDocumentChange(
+  document: vscode.TextDocument,
+  changes: readonly { range: vscode.Range; text: string }[]
+) {
+  const cache = lineScanCheckpointCaches.get(document);
+  if (!cache) {
+    return;
+  }
+  for (const change of changes) {
+    cache.invalidateFrom(change.range.start.line);
+  }
 }
 
 // Decoration type: the base style is empty; per-instance renderOptions inject
@@ -284,7 +324,7 @@ export function decorateEditor(
     // fence-state pre-scan above).
     const initialState: LineScanState | undefined =
       path.kind === "operators" && sliceStart > 0
-        ? computeLineScanStateBefore(
+        ? getLineScanCheckpointCache(document).stateBefore(
             sliceStart,
             (i) => document.lineAt(i).text,
             languageId
