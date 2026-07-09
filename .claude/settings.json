@@ -30,7 +30,7 @@
       "Bash(git worktree prune*)",
       "Bash(git branch -D worktree-agent-*)",
       "Bash(rm -rf .claude/worktrees/*)",
-      "Bash(cat docs/changelog-guide.md)",
+      "Bash(cat docs/rules/changelog.md)",
       "Skill(update-config)",
       "Skill(fewer-permission-prompts)",
       "WebFetch(domain:keepachangelog.com)",
