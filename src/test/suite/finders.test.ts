@@ -780,6 +780,16 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: `default` プロパティの値に `//` を含む文字列（URL等）があっても末尾コメントと誤認しない", () => {
+    // `default: "http://x", // note` の値の中の `//` はコメントではない。
+    // 末尾カンマ判定は文字列を認識した上で行末コメントだけを取り除くので、
+    // プロパティとして扱われコロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn('  default: "http://x", // note', [":"], "typescript"),
+      9
+    );
+  });
+
   test("TS: `case` とラベル値の間にブロックコメントが直接続いてもラベルコロンは対象外", () => {
     // `case/*comment*/1:` はコメントが空白の代わりに `case` の直後に来る書き方。
     // 字句上は空白と等価なので、通常の `case 1:` と同じくラベルコロン（列18）を除外する

@@ -323,18 +323,24 @@ const DEFAULT_LABEL_RE = /^default\s*:/;
 /**
  * Best-effort trailing-comment strip used only to steady the `default:`
  * label heuristic against a comment after the line's real trailing comma
- * (`default: 1, // note`). Not string-aware — a `//`/`/* *​/` sequence inside
- * a string literal on the same line can throw this off, but that only
- * affects which side of the label/property heuristic such a rare line falls
- * on, not the main character-by-character scan below.
+ * (`default: 1, // note`).
  *
- * The block-comment strip uses `lastIndexOf` to find only the *trailing*
- * `/* *​/`, not a greedy regex — a greedy `.*` would span from the first `/*`
- * on the line to the last `*​/`, over-stripping a line with an earlier inline
- * comment too (`fn(/*x*​/), /* note *​/` must only lose the second comment).
+ * The `//` strip reuses {@link findTrailingComment}, the same string- and
+ * URL-aware (`http://`) scanner the `//` operator target itself is found
+ * with, so a `//` inside a string literal doesn't get mistaken for a comment
+ * here either. The block-comment strip uses `lastIndexOf` to find only the
+ * *trailing* `/* *​/`, not a greedy regex — a greedy `.*` would span from the
+ * first `/*` on the line to the last `*​/`, over-stripping a line with an
+ * earlier inline comment too (`fn(/*x*​/), /* note *​/` must only lose the
+ * second comment). That part is still a plain string search, not
+ * quote-aware, so a `*​/`-shaped sequence inside a string literal remains a
+ * known (rarer) edge case.
  */
 function stripTrailingCommentForLabelCheck(text: string): string {
-  const withoutLineComment = text.replace(/\/\/.*$/, "").trimEnd();
+  const lineCommentAt = findTrailingComment(text, "//");
+  const withoutLineComment = (
+    lineCommentAt === -1 ? text : text.slice(0, lineCommentAt)
+  ).trimEnd();
   const blockStart = withoutLineComment.endsWith("*/")
     ? withoutLineComment.lastIndexOf("/*")
     : -1;
