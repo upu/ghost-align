@@ -6,7 +6,7 @@ argument-hint: "[released version, e.g. 0.1.0]"
 
 # Post-Release Retrospective
 
-Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `/release` in the workflow (`/plan-next` → `/ship` → `/release` → `/retro`).
+Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `dev-flow:release` in the workflow (`/plan-next` → `/ship` → `dev-flow:release` → `/retro`).
 
 `$ARGUMENTS` is the version just released (e.g. `0.1.0`). If empty, infer it from the latest tag (`git tag --sort=-creatordate | head -1`) and confirm with the user.
 
