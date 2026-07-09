@@ -759,6 +759,26 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: `case` とラベル値の間にブロックコメントが直接続いてもラベルコロンは対象外", () => {
+    // `case/*comment*/1:` はコメントが空白の代わりに `case` の直後に来る書き方。
+    // 字句上は空白と等価なので、通常の `case 1:` と同じくラベルコロン（列18）を除外する
+    assert.strictEqual(
+      findOperatorColumn("  case/*comment*/1:", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("TS: 既知の制約 — 末尾カンマのない `default` プロパティ（型メンバー等）はラベルと区別できない", () => {
+    // `default: string;` はインターフェースのメンバーだが、switch の
+    // `default: return z;` も同じく `;` で終わるため、`;` を手がかりには
+    // できない（行単体の情報だけでは switch 本体とオブジェクト/型リテラルの
+    // 区別がつかない）。現状の既知の制約として、この形はラベル扱いになる
+    assert.strictEqual(
+      findOperatorColumn("  default: string;", [":"], "typescript"),
+      null
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });

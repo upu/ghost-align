@@ -293,7 +293,11 @@ export const TS_JS_LANGUAGES = new Set([
  * `switch` labels are also excluded: on a line whose trimmed start is `case `
  * or `default:`, the first depth-0, non-ternary `:` — the label colon itself —
  * is skipped. Any later `:` on the same line (e.g. an object literal in
- * `case 1: obj = { a: 1 };`) is still a normal target.
+ * `case 1: obj = { a: 1 };`) is still a normal target. `case` is recognized
+ * whether followed by whitespace (`case 1:`) or directly by a block comment
+ * (`case/*c*​/1:`, which lexically behaves like whitespace); either way, the
+ * required separation from the keyword rules out a property key literally
+ * named `case` (`case: 1`, colon directly after the word).
  *
  * `default:` alone is ambiguous with an object/type property literally named
  * `default` (`default: 1,`), since both share the same "word, colon" shape at
@@ -301,9 +305,15 @@ export const TS_JS_LANGUAGES = new Set([
  * switch body from an object literal. As a heuristic, a line ending in `,`
  * (after trimming trailing whitespace) is treated as that property instead of
  * a label — a switch `default:` label's line never ends in a trailing comma,
- * while a non-last object/type property does.
+ * while a non-last object/type property does. This is necessarily incomplete:
+ * a semicolon can't be used as the same signal, since ordinary switch bodies
+ * routinely end in `;` too (`default: return z;`), so a `;`-terminated line
+ * with no other content (e.g. an interface member `default: string;`) is
+ * still read as a label. Precisely resolving that needs cross-line context
+ * (tracking whether the enclosing `{...}` is a switch body or an object/type
+ * literal), which is out of scope for this line-local finder.
  */
-const CASE_LABEL_RE = /^case\s+/;
+const CASE_LABEL_RE = /^case(?:\s|\/\*)/;
 const DEFAULT_LABEL_RE = /^default\s*:/;
 
 function findTsColon(lineText: string): number[] {
