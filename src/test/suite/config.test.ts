@@ -226,6 +226,36 @@ suite("resolveOperatorsForLanguage", () => {
     );
   });
 
+  test("グローバル operators の空文字・空白のみ・非文字列は静かに除外される", () => {
+    const config = mockConfig({
+      operators: ["", "  ", "=", 42, null, undefined, "\t"],
+    });
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(config, "plaintext"),
+      ["="]
+    );
+  });
+
+  test("operatorsByLanguage の空文字・空白のみ・非文字列も静かに除外される", () => {
+    const config = mockConfig({
+      operatorsByLanguage: {
+        ...DEFAULT_OPERATORS_BY_LANGUAGE,
+        python: ["", "=", "  ", 1, null],
+      },
+    });
+    assert.deepStrictEqual(resolveOperatorsForLanguage(config, "python"), [
+      "=",
+    ]);
+  });
+
+  test("不正な演算子だけの設定は空配列になり、ハングせず整列対象なしとして扱われる", () => {
+    const config = mockConfig({ operators: ["", "   ", 0, false] });
+    assert.deepStrictEqual(
+      resolveOperatorsForLanguage(config, "plaintext"),
+      []
+    );
+  });
+
   test("alignUnknownLanguages=false なら operatorsByLanguage に無い言語は整列されない", () => {
     assert.deepStrictEqual(
       resolveOperatorsForLanguage(

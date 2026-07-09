@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `ghostAlign.operators` / `ghostAlign.operatorsByLanguage` entries that are an empty string, whitespace-only, or not a string are now silently dropped instead of freezing the extension host — a `""` entry previously sent the operator-matching loop into an infinite loop that could crash the process with an out-of-memory error.
+
 ## [1.2.0] - 2026-07-08
 
 ### Added

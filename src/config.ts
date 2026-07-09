@@ -74,13 +74,33 @@ export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
 };
 
 /**
+ * Drop operator entries that would never match anything sensible: non-string
+ * values, and strings that are empty or whitespace-only (a `settings.json`
+ * typo like `""` or `"  "` is a realistic user mistake since these arrays are
+ * hand-edited). This is the single sanitization point for operator settings
+ * — see {@link resolveOperatorsForLanguage} — so both `ghostAlign.operators`
+ * and `ghostAlign.operatorsByLanguage` entries are safe by the time they
+ * reach the alignment pipeline (#335: an empty-string operator previously
+ * reached findLiteralOccurrences in finders.ts and looped forever).
+ */
+function sanitizeOperators(operators: unknown): string[] {
+  if (!Array.isArray(operators)) {
+    return [];
+  }
+  return operators.filter(
+    (op): op is string => typeof op === "string" && op.trim() !== ""
+  );
+}
+
+/**
  * Resolve the operator list for a given language. The per-language map takes
  * precedence; if the language is not listed, fall back to the global
  * `operators` setting (default `["="]`) — unless `alignUnknownLanguages` is
  * off, in which case unlisted languages are not aligned at all. A language
  * the user added to `operatorsByLanguage` counts as listed (VS Code merges
  * the user's object with the default map), so the opt-out never mutes an
- * explicit entry.
+ * explicit entry. Both sources are sanitized via {@link sanitizeOperators}
+ * before being returned.
  */
 export function resolveOperatorsForLanguage(
   config: { get<T>(key: string, defaultValue: T): T },
@@ -91,12 +111,12 @@ export function resolveOperatorsForLanguage(
     DEFAULT_OPERATORS_BY_LANGUAGE
   );
   if (byLang && Object.prototype.hasOwnProperty.call(byLang, languageId)) {
-    return byLang[languageId];
+    return sanitizeOperators(byLang[languageId]);
   }
   if (!config.get<boolean>("alignUnknownLanguages", true)) {
     return [];
   }
-  return config.get<string[]>("operators", ["="]);
+  return sanitizeOperators(config.get<string[]>("operators", ["="]));
 }
 
 /**

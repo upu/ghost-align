@@ -1328,6 +1328,12 @@ suite("findOperatorTargets", () => {
     assert.deepStrictEqual(findOperatorTargets("foo()", ["=", "#"]), []);
   });
 
+  test("空文字の演算子を渡してもハングせず、マッチなしとして終了する", () => {
+    // config 側で空文字は除外される想定だが、最後の防衛線としてここでも
+    // 無限ループ（i += op.length - 1 が負になる事故）にならないことを保証する。
+    assert.deepStrictEqual(findOperatorTargets("ab", [""]), []);
+  });
+
   test("複合代入は第1カラムでも insert/align を分けて返す", () => {
     assert.deepStrictEqual(
       findOperatorTargets("x += 1  # a", ["=", "#"], "python"),
