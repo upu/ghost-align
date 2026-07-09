@@ -9,6 +9,7 @@ import {
   decorateEditor,
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
+  notifyLineScanDocumentChange,
 } from "./decorate";
 
 // Memento key under which the toggle state is persisted across reloads
@@ -136,6 +137,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.workspace.onDidChangeTextDocument((e) => {
       notifyCsvDocumentChange(e.document, e.contentChanges);
       notifyMarkdownDocumentChange(e.document);
+      notifyLineScanDocumentChange(e.document, e.contentChanges);
       const shown = vscode.window.visibleTextEditors.some(
         (editor) => editor.document === e.document
       );
