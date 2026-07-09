@@ -51,5 +51,5 @@ README と同じく、**英語版 `CHANGELOG.md` が正**で、日本語版 `CHA
 
 - `CHANGELOG.md` / `CHANGELOG.ja.md` 冒頭 — 準拠規約の宣言
 - `.claude/skills/ship/SKILL.md` step 4 — `/ship` での Unreleased 追記手順
-- dev-flow プラグインの `skills/release/SKILL.md` — `dev-flow:release` でのリリース時確定手順（版確定・bump・タグ）
+- `upu/agent-marketplace` リポジトリの dev-flow プラグイン（`skills/release/SKILL.md`）— `dev-flow:release` でのリリース時確定手順（版確定・bump・タグ）
 - `.github/pull_request_template.md` — PR のチェック項目（追記 / N/A）
