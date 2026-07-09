@@ -62,7 +62,7 @@ const longName = 3;
 - 行末コメント（`//` / `#` / `--` / `;`）の整列にも対応しています（`ghostAlign.operators` などに `"//"` / `"#"` / `"--"` / `";"` を指定するオプトイン。文字列内・`http://` などの URL・行全体がコメントの行は対象外。`//` 以外のマーカーは直前が空白であることも条件で、例えば `x--y` の `--` や `a;b` の `;` のようにコードと直接繋がったマーカーをコメントと誤認しません）。
 - 1行だけ極端に長い行があると他の行に大量のゴーストが入りますが、`ghostAlign.maxPadding` で上限を設定すると、外れ値の行を除外して残りの行だけで揃えます（既定は無制限）。
 - Markdown では、テーブルの列（`|` 区切り）が縦に揃って見えるようにします（`ghostAlign.markdownTable.enabled` で無効化できます）。
-- CSV / TSV のドキュメント（言語 ID が `csv` / `tsv` の場合。Rainbow CSV などの拡張機能が提供します — VS Code 単体では `.csv` はプレーンテキストとして開かれます）では、区切り文字が縦に揃って見えるように列を整列します。ダブルクォートで囲まれたフィールド内のカンマ（RFC 4180、`""` エスケープを含む）は区切りとして扱いません。`ghostAlign.csv.enabled` で無効化できます。
+- CSV / TSV のドキュメント（言語 ID が `csv` / `tsv` の場合。Rainbow CSV などの拡張機能が提供します — VS Code 単体では `.csv` はプレーンテキストとして開かれます）では、区切り文字が縦に揃って見えるように列を整列します。ダブルクォートで囲まれたフィールド内に現れる区切り文字（RFC 4180、`""` エスケープを含む）は区切りとして扱いません。区切り文字は `ghostAlign.csv.delimiters` で言語 ID ごとに設定できます（例: `{ "csv": ";" }` でセミコロン区切りの CSV に対応。`"csv (semicolon)"` のような他の拡張機能の言語 ID を追加すれば、その CSV バリアントも整列できます）。`ghostAlign.csv.enabled` で無効化できます。
 - タブを含む行でも、タブ幅（`editor.tabSize`）を考慮して視覚的な位置で揃えます。
 
 ## インストール
@@ -101,6 +101,7 @@ Marketplace のページ: <https://marketplace.visualstudio.com/items?itemName=u
 | `ghostAlign.jsdoc.enabled` | boolean | `true` | JavaScript/TypeScript で、連続する JSDoc `@param` 行のパラメータ名カラムと説明文カラムを揃えます。 |
 | `ghostAlign.markdownTable.enabled` | boolean | `true` | Markdown テーブルの列整列。`false` にするとテーブル整列だけを無効化します（Markdown を丸ごと無効にするには `ghostAlign.disabledLanguages` を使います）。 |
 | `ghostAlign.csv.enabled` | boolean | `true` | CSV/TSV の列整列。`false` にすると CSV/TSV の整列だけを無効化します（言語ごと無効にするには `ghostAlign.disabledLanguages` を使います）。 |
+| `ghostAlign.csv.delimiters` | object | `{ "csv": ",", "tsv": "\t" }` | 言語 ID ごとの CSV/TSV 区切り文字の上書き。ここに列挙された言語は、指定した区切り文字で CSV/TSV 整列パスに乗ります。他の拡張機能が提供する言語 ID（例: Rainbow CSV の `csv (semicolon)`）を追加すれば、その言語も整列できます。値は 1 文字の文字列のみ有効で、`"`（RFC 4180 のクォート文字）は指定できません。不正な値は `csv`/`tsv` では組み込みの既定値にフォールバックし、それ以外の言語 ID では未指定として扱われます。 |
 | `ghostAlign.maxPadding` | number | `0` | 1行・1カラムあたりに挿入するゴースト文字数の上限。演算子と JSDoc `@param` の整列では、極端に長い外れ値の行を除外して残りの行だけで揃えます。Markdown テーブルと CSV/TSV の整列では、外れ値セルを含む列だけが整列をスキップされます（表の形は保たれ、以降の列は整列を続けます）。`0` は無制限。 |
 | `ghostAlign.ghostColor` | string | `"rgba(128, 128, 128, 0.25)"` | ゴーストパディングの色（任意の CSS カラー文字列）。前景色・背景色の両方に適用され、実際の空白と区別できます。`"transparent"` で着色を無効化できます。設定 UI で空にすると既定値に戻ります。 |
 

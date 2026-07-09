@@ -242,6 +242,17 @@
           "default": true,
           "description": "Align CSV/TSV columns so the delimiters line up. Set to false to turn off only the CSV/TSV alignment; to disable Ghost Align for those languages entirely, use ghostAlign.disabledLanguages."
         },
+        "ghostAlign.csv.delimiters": {
+          "type": "object",
+          "default": {
+            "csv": ",",
+            "tsv": "\t"
+          },
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Per-language CSV/TSV delimiter overrides keyed by languageId (e.g. \"csv\", \"tsv\"). A language listed here takes the CSV/TSV alignment path using its delimiter; add an entry for a language ID contributed by another extension (e.g. Rainbow CSV's \"csv (semicolon)\") to align it too. Each value must be exactly one character and not a double quote (the RFC 4180 quoting character); an invalid value falls back to the built-in default for csv/tsv, or is treated as not listed for any other language ID."
+        },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
           "default": true,

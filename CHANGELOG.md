@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- New `ghostAlign.csv.delimiters` setting to override the CSV/TSV delimiter per language ID (default `{ "csv": ",", "tsv": "\t" }`). Add an entry for another extension's CSV variant language ID (e.g. Rainbow CSV's `csv (semicolon)`) to align it too, or override `csv`/`tsv` itself (e.g. `{ "csv": ";" }` for semicolon-separated CSV).
+
 ### Changed
 
 - Large files (10,000+ lines) on the operator alignment path no longer rescan every line from the top of the file on each scroll to determine the alignment state at the visible range's start. The scan state is now cached at checkpoints every 1,000 lines and resumed from the nearest one, so scrolling deep into a large file no longer re-does the same tens-of-thousands-of-lines prescan on every debounce tick. Alignment results are unchanged.

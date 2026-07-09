@@ -156,11 +156,54 @@ export function toggleDisabledLanguage(
 /** Language IDs that use the Markdown table alignment path instead of operators. */
 const MARKDOWN_LANGUAGES = new Set(["markdown"]);
 
-/** Delimiter used by each CSV-family language ID. */
-const CSV_DELIMITERS = new Map<string, string>([
-  ["csv", ","],
-  ["tsv", "\t"],
-]);
+// Default per-language CSV/TSV delimiters. Keep in sync with package.json
+// (verified by a test that deep-compares this against the package.json default).
+export const DEFAULT_CSV_DELIMITERS: Record<string, string> = {
+  csv: ",",
+  tsv: "\t",
+};
+
+/**
+ * Validate a `csv.delimiters` entry: only a single-character string is
+ * accepted. `"` is rejected even though it is one character, since it is the
+ * RFC 4180 quoting character findCsvDelimiterPositions relies on — treating
+ * it as the delimiter would make quote-state tracking meaningless.
+ */
+function sanitizeCsvDelimiter(delimiter: unknown): string | undefined {
+  return typeof delimiter === "string" && delimiter.length === 1 && delimiter !== '"'
+    ? delimiter
+    : undefined;
+}
+
+/**
+ * Resolve the CSV/TSV delimiter for `languageId` from `ghostAlign.csv.delimiters`,
+ * or undefined if the language has no entry in the merged default+user map
+ * (i.e. it is not a CSV-family language at all, so it should not take the
+ * CSV path). A language present in the map with an invalid value falls back
+ * to the built-in default for `csv`/`tsv`; for a language the user added
+ * themselves with no built-in default, an invalid value resolves to
+ * undefined — same as if the entry were absent — so it falls through to the
+ * operators path instead of aligning on a bogus delimiter. The setting value
+ * itself is read as unknown: a hand-edited `settings.json` could set
+ * `csv.delimiters` to `null` or an array instead of an object, and that must
+ * not silently drop csv/tsv out of the CSV path, so a non-object value is
+ * treated the same as an unset one (falls back to DEFAULT_CSV_DELIMITERS).
+ */
+export function resolveCsvDelimiter(
+  config: { get<T>(key: string, defaultValue: T): T },
+  languageId: string
+): string | undefined {
+  const raw = config.get<unknown>("csv.delimiters", DEFAULT_CSV_DELIMITERS);
+  const byLang: Record<string, unknown> =
+    raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : DEFAULT_CSV_DELIMITERS;
+  if (!Object.prototype.hasOwnProperty.call(byLang, languageId)) {
+    return undefined;
+  }
+  const sanitized = sanitizeCsvDelimiter(byLang[languageId]);
+  return sanitized !== undefined ? sanitized : DEFAULT_CSV_DELIMITERS[languageId];
+}
 
 /**
  * The slice of vscode.WorkspaceConfiguration the resolvers need. `inspect`
@@ -255,7 +298,7 @@ export function resolveAlignmentPath(
       ? { kind: "markdown" }
       : { kind: "none" };
   }
-  const delimiter = CSV_DELIMITERS.get(languageId);
+  const delimiter = resolveCsvDelimiter(config, languageId);
   if (delimiter !== undefined) {
     return resolveFeatureEnabled(config, "csv.enabled")
       ? { kind: "csv", delimiter }
