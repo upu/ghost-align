@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-09
+
 ### Added
 
 - New `ghostAlign.csv.delimiters` setting to override the CSV/TSV delimiter per language ID (default `{ "csv": ",", "tsv": "\t" }`). Add an entry for another extension's CSV variant language ID (e.g. Rainbow CSV's `csv (semicolon)`) to align it too, or override `csv`/`tsv` itself (e.g. `{ "csv": ";" }` for semicolon-separated CSV).
@@ -226,7 +228,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
