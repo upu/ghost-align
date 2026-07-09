@@ -1159,6 +1159,12 @@ function findOccurrences(
  * `->` or `::` is excluded from string and comment content exactly the same
  * way the built-in tokens already are, instead of a plain `indexOf` that
  * matched anywhere on the line regardless of context.
+ *
+ * An empty `op` never matches (last-line-of-defense guard; the normal path
+ * already filters empty/blank/non-string operators out in
+ * resolveOperatorsForLanguage). Without it `lineText.startsWith("", i)` is
+ * always true and `i += op.length - 1` becomes `i -= 1`, canceling the loop's
+ * own `i++` and looping forever while pushing to `results` (see #335).
  */
 function findLiteralOccurrences(
   lineText: string,
@@ -1191,7 +1197,7 @@ function findLiteralOccurrences(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (lineText.startsWith(op, i)) {
+    if (op.length > 0 && lineText.startsWith(op, i)) {
       results.push({ insert: i, align: i });
       i += op.length - 1; // loop's i++ advances past the matched token
     }
