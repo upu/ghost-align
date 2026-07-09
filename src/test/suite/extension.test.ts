@@ -75,6 +75,7 @@ suite("ghostAlign.copyAligned コマンド", () => {
     const entry = editorContextMenus.find((m) => m.command === "ghostAlign.copyAligned");
     assert.ok(entry, "ghostAlign.copyAligned が editor/context メニューに存在すること");
     assert.strictEqual(entry!.group, "9_cutcopypaste");
+    assert.strictEqual(entry!.when, "editorTextFocus");
   });
 });
 
