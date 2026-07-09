@@ -294,6 +294,14 @@ export const TS_JS_LANGUAGES = new Set([
  * or `default:`, the first depth-0, non-ternary `:` — the label colon itself —
  * is skipped. Any later `:` on the same line (e.g. an object literal in
  * `case 1: obj = { a: 1 };`) is still a normal target.
+ *
+ * `default:` alone is ambiguous with an object/type property literally named
+ * `default` (`default: 1,`), since both share the same "word, colon" shape at
+ * line start and this function has no cross-line brace context to tell a
+ * switch body from an object literal. As a heuristic, a line ending in `,`
+ * (after trimming trailing whitespace) is treated as that property instead of
+ * a label — a switch `default:` label's line never ends in a trailing comma,
+ * while a non-last object/type property does.
  */
 const CASE_LABEL_RE = /^case\s+/;
 const DEFAULT_LABEL_RE = /^default\s*:/;
@@ -304,8 +312,9 @@ function findTsColon(lineText: string): number[] {
   const ternaryDepths: number[] = [];
   let depth = 0;
   const trimmed = lineText.trimStart();
-  let pendingLabelColon =
-    CASE_LABEL_RE.test(trimmed) || DEFAULT_LABEL_RE.test(trimmed);
+  const looksLikeDefaultLabel =
+    DEFAULT_LABEL_RE.test(trimmed) && !trimmed.trimEnd().endsWith(",");
+  let pendingLabelColon = CASE_LABEL_RE.test(trimmed) || looksLikeDefaultLabel;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {

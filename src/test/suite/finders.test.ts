@@ -750,6 +750,15 @@ suite("findOperatorColumn", () => {
     );
   });
 
+  test("TS: `default` という名前のプロパティキー（末尾カンマあり）は通常のコロンとして検出する", () => {
+    // `default: 1,` は switch のラベルではなくオブジェクト/型のプロパティ。
+    // 末尾カンマを手がかりにラベル扱いせず、コロン（列9）を返す
+    assert.strictEqual(
+      findOperatorColumn("  default: 1,", [":"], "typescript"),
+      9
+    );
+  });
+
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });
