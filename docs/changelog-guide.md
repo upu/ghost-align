@@ -34,7 +34,7 @@ README と同じく、**英語版 `CHANGELOG.md` が正**で、日本語版 `CHA
 ## 運用フロー
 
 1. **各 PR で `[Unreleased]` に積む** — ユーザー影響のある変更は、PR の中で `CHANGELOG.md`（英語）と `CHANGELOG.ja.md`（日本語）両方の `## [Unreleased]` セクションに該当グループの1行を追記します。
-2. **リリース時に確定** — `[Unreleased]` を `## [x.y.z] - YYYY-MM-DD`（ISO 8601 日付）にリネームし、新しい空の `[Unreleased]` を作り直します。最新版が先頭になるようにし、末尾の compare リンクを更新します。この確定作業は `/release x.y.z` スキルに集約されています（`npm run prepare-release` による両 CHANGELOG の確定・`package.json` の version bump・PR〜マージまで。マージ後のタグ作成・GitHub Release・Marketplace 公開は release.yml が自動で行う）。
+2. **リリース時に確定** — `[Unreleased]` を `## [x.y.z] - YYYY-MM-DD`（ISO 8601 日付）にリネームし、新しい空の `[Unreleased]` を作り直します。最新版が先頭になるようにし、末尾の compare リンクを更新します。この確定作業は dev-flow プラグインの `dev-flow:release x.y.z` スキルに集約されています（両 CHANGELOG の確定・`package.json` の version bump・PR〜マージまで。マージ後のタグ作成・GitHub Release・Marketplace 公開は release.yml が自動で行う）。
 
 ## 書く / 書かない の基準
 
@@ -51,5 +51,5 @@ README と同じく、**英語版 `CHANGELOG.md` が正**で、日本語版 `CHA
 
 - `CHANGELOG.md` / `CHANGELOG.ja.md` 冒頭 — 準拠規約の宣言
 - `.claude/skills/ship/SKILL.md` step 4 — `/ship` での Unreleased 追記手順
-- `.claude/skills/release/SKILL.md` — `/release` でのリリース時確定手順（版確定・bump・タグ）
+- dev-flow プラグインの `skills/release/SKILL.md` — `dev-flow:release` でのリリース時確定手順（版確定・bump・タグ）
 - `.github/pull_request_template.md` — PR のチェック項目（追記 / N/A）
