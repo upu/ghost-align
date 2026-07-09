@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-07-09
+
 ### Added
 
 - CSV/TSV の区切り文字を言語 ID ごとに上書きできる新設定 `ghostAlign.csv.delimiters` を追加（既定値 `{ "csv": ",", "tsv": "\t" }`）。Rainbow CSV の `csv (semicolon)` など他の拡張機能が提供する CSV バリアントの言語 ID を追加すればその言語も整列できるほか、`csv`/`tsv` 自体の区切り文字を上書きすることもできる（例: `{ "csv": ";" }` でセミコロン区切りの CSV に対応）。
@@ -226,7 +228,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
 [1.0.0]: https://github.com/upu/ghost-align/releases/tag/v1.0.0
