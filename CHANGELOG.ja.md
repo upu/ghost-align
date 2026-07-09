@@ -12,6 +12,7 @@
 ### Added
 
 - CSV/TSV の区切り文字を言語 ID ごとに上書きできる新設定 `ghostAlign.csv.delimiters` を追加（既定値 `{ "csv": ",", "tsv": "\t" }`）。Rainbow CSV の `csv (semicolon)` など他の拡張機能が提供する CSV バリアントの言語 ID を追加すればその言語も整列できるほか、`csv`/`tsv` 自体の区切り文字を上書きすることもできる（例: `{ "csv": ";" }` でセミコロン区切りの CSV に対応）。
+- `Ghost Align: Copy with Alignment` をコマンドパレットだけでなく、エディタの右クリックメニュー（コピー/切り取り/貼り付けのグループ）からも実行できるようにした。
 
 ### Changed
 

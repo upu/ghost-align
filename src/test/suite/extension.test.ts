@@ -66,6 +66,17 @@ suite("ghostAlign.copyAligned コマンド", () => {
       "ghostAlign.copyAligned コマンドが package.json に存在すること"
     );
   });
+
+  test("package.json にエディタ右クリックメニュー用の貢献が登録されている", () => {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const editorContextMenus: { command: string; group?: string; when?: string }[] =
+      ext!.packageJSON?.contributes?.menus?.["editor/context"] ?? [];
+    const entry = editorContextMenus.find((m) => m.command === "ghostAlign.copyAligned");
+    assert.ok(entry, "ghostAlign.copyAligned が editor/context メニューに存在すること");
+    assert.strictEqual(entry!.group, "9_cutcopypaste");
+    assert.strictEqual(entry!.when, "editorTextFocus");
+  });
 });
 
 suite("ghostAlign.toggleLanguage コマンド", () => {

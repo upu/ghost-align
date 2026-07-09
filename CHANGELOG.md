@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - New `ghostAlign.csv.delimiters` setting to override the CSV/TSV delimiter per language ID (default `{ "csv": ",", "tsv": "\t" }`). Add an entry for another extension's CSV variant language ID (e.g. Rainbow CSV's `csv (semicolon)`) to align it too, or override `csv`/`tsv` itself (e.g. `{ "csv": ";" }` for semicolon-separated CSV).
+- `Ghost Align: Copy with Alignment` is now also available from the editor's right-click context menu (in the copy/cut/paste group), not just the Command Palette.
 
 ### Changed
 

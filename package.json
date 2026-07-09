@@ -46,13 +46,23 @@
       },
       {
         "command": "ghostAlign.copyAligned",
-        "title": "Ghost Align: Copy with Alignment"
+        "title": "Ghost Align: Copy with Alignment",
+        "shortTitle": "Copy with Alignment"
       },
       {
         "command": "ghostAlign.toggleLanguage",
         "title": "Ghost Align: Disable/Enable for Current Language"
       }
     ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ghostAlign.copyAligned",
+          "group": "9_cutcopypaste",
+          "when": "editorTextFocus"
+        }
+      ]
+    },
     "configuration": {
       "title": "Ghost Align",
       "properties": {
