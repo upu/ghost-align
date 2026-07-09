@@ -297,7 +297,9 @@ export const TS_JS_LANGUAGES = new Set([
  * whether followed by whitespace (`case 1:`) or directly by a block comment
  * (`case/*c*​/1:`, which lexically behaves like whitespace); either way, the
  * required separation from the keyword rules out a property key literally
- * named `case` (`case: 1`, colon directly after the word).
+ * named `case` (`case: 1`, colon directly after the word) — including one
+ * with stray whitespace before its colon (`case : 1`, still no expression
+ * between the word and `:`, so it can't be a real case label either).
  *
  * `default:` alone is ambiguous with an object/type property literally named
  * `default` (`default: 1,`), since both share the same "word, colon" shape at
@@ -322,6 +324,12 @@ export const TS_JS_LANGUAGES = new Set([
  * in practice, unlike a trailing end-of-line comment.
  */
 const CASE_LABEL_RE = /^case(?:\s|\/\*)/;
+// `case` immediately followed by only whitespace and then `:` — no
+// expression at all between the keyword and the colon, so this can't be a
+// real case label (`case 1:`) and must be a property key literally named
+// `case` (`case: 1` / `case : 1`). `\s*` (not `\s+`) also covers `case:`
+// with zero whitespace, matching CASE_LABEL_RE's own no-separator exclusion.
+const CASE_PROPERTY_COLON_RE = /^case\s*:/;
 const DEFAULT_LABEL_RE = /^default\s*:/;
 
 /**
@@ -359,10 +367,12 @@ function findTsColon(lineText: string): number[] {
   const ternaryDepths: number[] = [];
   let depth = 0;
   const trimmed = lineText.trimStart();
+  const looksLikeCaseLabel =
+    CASE_LABEL_RE.test(trimmed) && !CASE_PROPERTY_COLON_RE.test(trimmed);
   const looksLikeDefaultLabel =
     DEFAULT_LABEL_RE.test(trimmed) &&
     !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
-  let pendingLabelColon = CASE_LABEL_RE.test(trimmed) || looksLikeDefaultLabel;
+  let pendingLabelColon = looksLikeCaseLabel || looksLikeDefaultLabel;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
