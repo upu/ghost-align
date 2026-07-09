@@ -303,18 +303,37 @@ export const TS_JS_LANGUAGES = new Set([
  * `default` (`default: 1,`), since both share the same "word, colon" shape at
  * line start and this function has no cross-line brace context to tell a
  * switch body from an object literal. As a heuristic, a line ending in `,`
- * (after trimming trailing whitespace) is treated as that property instead of
- * a label — a switch `default:` label's line never ends in a trailing comma,
- * while a non-last object/type property does. This is necessarily incomplete:
- * a semicolon can't be used as the same signal, since ordinary switch bodies
- * routinely end in `;` too (`default: return z;`), so a `;`-terminated line
- * with no other content (e.g. an interface member `default: string;`) is
- * still read as a label. Precisely resolving that needs cross-line context
- * (tracking whether the enclosing `{...}` is a switch body or an object/type
- * literal), which is out of scope for this line-local finder.
+ * (after stripping a trailing `//`/`/* *​/` comment, then trailing whitespace)
+ * is treated as that property instead of a label — a switch `default:` label's
+ * line never ends in a trailing comma, while a non-last object/type property
+ * does. This is necessarily incomplete: a semicolon can't be used as the same
+ * signal, since ordinary switch bodies routinely end in `;` too
+ * (`default: return z;`), so a `;`-terminated line with no other content
+ * (e.g. an interface member `default: string;`) is still read as a label.
+ * Precisely resolving that needs cross-line context (tracking whether the
+ * enclosing `{...}` is a switch body or an object/type literal), which is out
+ * of scope for this line-local finder (#345). Likewise out of scope: a
+ * comment wedged directly between `default`/`case` and the label `:` itself
+ * (`default/*c*​/:`, `case/*c*​/: 1,`) — pathological formatting nobody writes
+ * in practice, unlike a trailing end-of-line comment.
  */
 const CASE_LABEL_RE = /^case(?:\s|\/\*)/;
 const DEFAULT_LABEL_RE = /^default\s*:/;
+
+/**
+ * Best-effort trailing-comment strip used only to steady the `default:`
+ * label heuristic against a comment after the line's real trailing comma
+ * (`default: 1, // note`). Not string-aware — a `//`/`/* *​/` sequence inside
+ * a string literal on the same line can throw this off, but that only
+ * affects which side of the label/property heuristic such a rare line falls
+ * on, not the main character-by-character scan below.
+ */
+function stripTrailingCommentForLabelCheck(text: string): string {
+  return text
+    .replace(/\/\/.*$/, "")
+    .replace(/\/\*.*\*\/\s*$/, "")
+    .trimEnd();
+}
 
 function findTsColon(lineText: string): number[] {
   const results: number[] = [];
@@ -323,7 +342,8 @@ function findTsColon(lineText: string): number[] {
   let depth = 0;
   const trimmed = lineText.trimStart();
   const looksLikeDefaultLabel =
-    DEFAULT_LABEL_RE.test(trimmed) && !trimmed.trimEnd().endsWith(",");
+    DEFAULT_LABEL_RE.test(trimmed) &&
+    !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
   let pendingLabelColon = CASE_LABEL_RE.test(trimmed) || looksLikeDefaultLabel;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
