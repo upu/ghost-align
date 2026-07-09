@@ -34,7 +34,7 @@ npm run check-types  # 型チェックのみ（tsc --noEmit）
 - `scripts/esbuild.js` — 本番バンドルのビルドスクリプト
 - `.vscode/launch.json` — デバッグ設定
 
-テストは `src/test/suite/` 配下にソースモジュール対応で分割（`finders.test.ts` / `paddings.test.ts` / `markdown.test.ts` / `csv.test.ts` / `jsdoc.test.ts` / `copyAligned.test.ts`）。`extension.test.ts` は `config.ts` / `decorate.ts` / `extension.ts` をまとめて扱う（config/decorate 分割済みだがテストファイルはまだ未分割）。共有モック類は `testHelpers.ts`。
+テストは `src/test/suite/` 配下にソースモジュール対応で分割（`finders.test.ts` / `paddings.test.ts` / `markdown.test.ts` / `csv.test.ts` / `jsdoc.test.ts` / `copyAligned.test.ts` / `config.test.ts` / `decorate.test.ts` / `extension.test.ts`）。共有モック類は `testHelpers.ts`。
 
 ## アーキテクチャ
 
