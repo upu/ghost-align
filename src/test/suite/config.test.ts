@@ -217,6 +217,18 @@ suite("resolveCsvDelimiter", () => {
       undefined
     );
   });
+
+  test("csv.delimiters 自体が不正な型（null）でも csv/tsv は既定値にフォールバックする", () => {
+    const config = mockConfig({ "csv.delimiters": null });
+    assert.strictEqual(resolveCsvDelimiter(config, "csv"), ",");
+    assert.strictEqual(resolveCsvDelimiter(config, "tsv"), "\t");
+  });
+
+  test("csv.delimiters 自体が不正な型（配列）でも csv/tsv は既定値にフォールバックする", () => {
+    const config = mockConfig({ "csv.delimiters": [";"] });
+    assert.strictEqual(resolveCsvDelimiter(config, "csv"), ",");
+    assert.strictEqual(resolveCsvDelimiter(config, "tsv"), "\t");
+  });
 });
 
 suite("resolveOperatorsForLanguage", () => {

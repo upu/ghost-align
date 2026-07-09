@@ -183,17 +183,22 @@ function sanitizeCsvDelimiter(delimiter: unknown): string | undefined {
  * to the built-in default for `csv`/`tsv`; for a language the user added
  * themselves with no built-in default, an invalid value resolves to
  * undefined — same as if the entry were absent — so it falls through to the
- * operators path instead of aligning on a bogus delimiter.
+ * operators path instead of aligning on a bogus delimiter. The setting value
+ * itself is read as unknown: a hand-edited `settings.json` could set
+ * `csv.delimiters` to `null` or an array instead of an object, and that must
+ * not silently drop csv/tsv out of the CSV path, so a non-object value is
+ * treated the same as an unset one (falls back to DEFAULT_CSV_DELIMITERS).
  */
 export function resolveCsvDelimiter(
   config: { get<T>(key: string, defaultValue: T): T },
   languageId: string
 ): string | undefined {
-  const byLang = config.get<Record<string, string>>(
-    "csv.delimiters",
-    DEFAULT_CSV_DELIMITERS
-  );
-  if (!byLang || !Object.prototype.hasOwnProperty.call(byLang, languageId)) {
+  const raw = config.get<unknown>("csv.delimiters", DEFAULT_CSV_DELIMITERS);
+  const byLang: Record<string, unknown> =
+    raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : DEFAULT_CSV_DELIMITERS;
+  if (!Object.prototype.hasOwnProperty.call(byLang, languageId)) {
     return undefined;
   }
   const sanitized = sanitizeCsvDelimiter(byLang[languageId]);
