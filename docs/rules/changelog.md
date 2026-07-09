@@ -1,6 +1,6 @@
 # CHANGELOG 運用ガイド
 
-このリポジトリの変更履歴 [`CHANGELOG.md`](../CHANGELOG.md) / [`CHANGELOG.ja.md`](../CHANGELOG.ja.md) の書き方・運用方針をまとめたコントリビューター向け資料です（本体の変更履歴そのものではありません）。
+このリポジトリの変更履歴 [`CHANGELOG.md`](../../CHANGELOG.md) / [`CHANGELOG.ja.md`](../../CHANGELOG.ja.md) の書き方・運用方針をまとめたコントリビューター向け資料です（本体の変更履歴そのものではありません）。
 
 ## 準拠する規約
 
@@ -50,6 +50,7 @@ README と同じく、**英語版 `CHANGELOG.md` が正**で、日本語版 `CHA
 この運用は次の箇所にも反映されています。
 
 - `CHANGELOG.md` / `CHANGELOG.ja.md` 冒頭 — 準拠規約の宣言
-- `.claude/skills/ship/SKILL.md` step 4 — `/ship` での Unreleased 追記手順
+- `.claude/rules/changelog.md` — `CHANGELOG.md` / `CHANGELOG.ja.md` を編集する際に Claude へこのファイルを読ませるトリガー
+- `.claude/skills/ship/SKILL.md` step 5 — `/ship` での Unreleased 追記手順
 - `upu/agent-marketplace` リポジトリの dev-flow プラグイン（`skills/release/SKILL.md`）— `dev-flow:release` でのリリース時確定手順（版確定・bump・タグ）
 - `.github/pull_request_template.md` — PR のチェック項目（追記 / N/A）
