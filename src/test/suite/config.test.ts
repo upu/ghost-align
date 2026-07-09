@@ -914,3 +914,56 @@ suite("package.json との既定値同期", () => {
     assert.ok(message && message.includes("ghostAlign.jsdoc.enabled"));
   });
 });
+
+suite("docs/features.md との同期", () => {
+  // #342: 開発用ドキュメント docs/features.md が package.json の設定キー・
+  // コマンド ID からズレていないかを機械的に検証する。README 設定表の同期テスト
+  // （#280）と同型。文言の鮮度はここでは検証できない。
+  function featuresContent(): string {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const root = ext!.extensionPath;
+    return fs.readFileSync(path.join(root, "docs", "features.md"), "utf8");
+  }
+
+  function configProperties(): Record<string, unknown> {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+  }
+
+  function commandIds(): string[] {
+    const ext = vscode.extensions.getExtension("upu.ghost-align");
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const commands: { command: string }[] =
+      ext!.packageJSON?.contributes?.commands ?? [];
+    return commands.map((c) => c.command);
+  }
+
+  // バッククォートで囲まれた完全一致のみを出現とみなす。単純な部分文字列一致だと
+  // `ghostAlign.showStatusBar` が `ghostAlign.showStatusBarXXX` のような誤字・
+  // 改名にも一致してしまい、同期テストとして機能しない。
+  function hasBacktickedOccurrence(content: string, token: string): boolean {
+    return content.includes("`" + token + "`");
+  }
+
+  test("全 ghostAlign.* 設定キーが docs/features.md に出現する", () => {
+    const content = featuresContent();
+    for (const key of Object.keys(configProperties())) {
+      assert.ok(
+        hasBacktickedOccurrence(content, key),
+        `${key} が docs/features.md に記載されていること`
+      );
+    }
+  });
+
+  test("全コマンド ID が docs/features.md に出現する", () => {
+    const content = featuresContent();
+    for (const id of commandIds()) {
+      assert.ok(
+        hasBacktickedOccurrence(content, id),
+        `${id} が docs/features.md に記載されていること`
+      );
+    }
+  });
+});
