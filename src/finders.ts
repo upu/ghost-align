@@ -327,12 +327,20 @@ const DEFAULT_LABEL_RE = /^default\s*:/;
  * a string literal on the same line can throw this off, but that only
  * affects which side of the label/property heuristic such a rare line falls
  * on, not the main character-by-character scan below.
+ *
+ * The block-comment strip uses `lastIndexOf` to find only the *trailing*
+ * `/* *​/`, not a greedy regex — a greedy `.*` would span from the first `/*`
+ * on the line to the last `*​/`, over-stripping a line with an earlier inline
+ * comment too (`fn(/*x*​/), /* note *​/` must only lose the second comment).
  */
 function stripTrailingCommentForLabelCheck(text: string): string {
-  return text
-    .replace(/\/\/.*$/, "")
-    .replace(/\/\*.*\*\/\s*$/, "")
-    .trimEnd();
+  const withoutLineComment = text.replace(/\/\/.*$/, "").trimEnd();
+  const blockStart = withoutLineComment.endsWith("*/")
+    ? withoutLineComment.lastIndexOf("/*")
+    : -1;
+  return blockStart === -1
+    ? withoutLineComment
+    : withoutLineComment.slice(0, blockStart).trimEnd();
 }
 
 function findTsColon(lineText: string): number[] {
