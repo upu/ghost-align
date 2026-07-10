@@ -25,6 +25,14 @@ export default tseslint.config(
       // Only comments need the exemption; irregular whitespace in real code
       // stays an error.
       "no-irregular-whitespace": ["error", { skipComments: true }],
+      // The codebase already names intentionally-unused parameters with a
+      // leading underscore (e.g. mock methods that must match a vscode.*
+      // signature but only use some of its parameters). Without this,
+      // no-unused-vars only forgives an unused arg when a later, used arg
+      // follows it (its default "after-used" behavior) — an unused arg with
+      // nothing after it, like `_key` in an otherwise-empty parameter list,
+      // still errors even with the underscore.
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }],
     },
   },
   {
