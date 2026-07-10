@@ -1,12 +1,12 @@
 ---
 name: retro
-description: Run a post-release retrospective for this extension and turn the lessons into mechanism changes. Look back at the release that just shipped — what went well and is worth codifying, what caused friction and needs a countermeasure, plus Claude's own observations and ways to use Claude Code better — then route each agreed improvement to the right place (GitHub issue / memory / hook / rule / skill / CLAUDE.md). Use this after a release (a milestone closed or a vX.Y.Z tag pushed) or whenever the user wants to reflect (e.g. "リリースの振り返り", "ふりかえりしよう", "KPT", "retrospective", "今回の開発どうだった"). This is backward-looking process kaizen — distinct from /plan-next, which plans forward-looking product features.
+description: Run a post-release retrospective for this extension and turn the lessons into mechanism changes. Look back at the release that just shipped — what went well and is worth codifying, what caused friction and needs a countermeasure, plus Claude's own observations and ways to use Claude Code better — then route each agreed improvement to the right place (GitHub issue / memory / hook / rule / skill / CLAUDE.md). Use this after a release (a milestone closed or a vX.Y.Z tag pushed) or whenever the user wants to reflect (e.g. "リリースの振り返り", "ふりかえりしよう", "KPT", "retrospective", "今回の開発どうだった"). This is backward-looking process kaizen — distinct from dev-flow:plan-next, which plans forward-looking product features.
 argument-hint: "[released version, e.g. 0.1.0]"
 ---
 
 # Post-Release Retrospective
 
-Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `dev-flow:release` in the workflow (`/plan-next` → `dev-flow:ship` → `dev-flow:release` → `/retro`).
+Look back at the release that just shipped and convert what you learn into durable improvements to how the project works. The point is not to vent or to write a feel-good summary — it is to notice what the release actually taught us and to land each lesson in the mechanism that will make next time better. This skill sits after `dev-flow:release` in the workflow (`dev-flow:plan-next` → `dev-flow:ship` → `dev-flow:release` → `/retro`).
 
 `$ARGUMENTS` is the version just released (e.g. `0.1.0`). If empty, infer it from the latest tag (`git tag --sort=-creatordate | head -1`) and confirm with the user.
 
@@ -22,7 +22,7 @@ The value of a retrospective is lost if good ideas stay as talk. Each agreed imp
 | A guardrail specific to certain files/paths | **path-scoped rule** (`.claude/rules/*.md` with `paths` frontmatter) | scoped and version-controlled — preferred over inline settings globs (see `.claude/rules/readme-user-facing.md` for the shape) |
 | A project-wide principle or constraint | **CLAUDE.md** | always in context for this repo |
 | An independent, delegable investigation that recurs | **agent** (`.claude/agents/`) | can run in parallel / be handed off |
-| A concrete piece of deferred work | **GitHub issue** (label + milestone, per `/plan-next`) | this repo is issue-driven; nothing gets lost |
+| A concrete piece of deferred work | **GitHub issue** (label + milestone, per `dev-flow:plan-next`) | this repo is issue-driven; nothing gets lost |
 
 Don't force every observation into a mechanism. If something was a genuine one-off, naming it in the discussion is enough — over-codifying adds noise that future-you has to read past.
 
@@ -47,7 +47,7 @@ Don't force every observation into a mechanism. If something was a genuine one-o
 
 5. **Apply after approval** — once the user signs off, make each change in its place:
    - **Memory**: write the file + add the one-line `MEMORY.md` pointer directly (no PR — memory lives outside the repo).
-   - **Issue**: `gh issue create` with the right type + priority label and milestone, following `/plan-next`'s conventions.
+   - **Issue**: `gh issue create` with the right type + priority label and milestone, following `dev-flow:plan-next`'s conventions.
    - **Hook / settings**: propose the exact `settings.json` change via `/update-config` (the harness owns hooks).
    - **Skill / rule / CLAUDE.md edits**: these are tracked files, so follow this repo's GitHub Flow — branch from latest `origin/main`, edit, PR, merge once CI is green (as `dev-flow:ship` does). Group related mechanism edits into one PR.
    Confirm before anything outward-facing.
@@ -56,7 +56,7 @@ Don't force every observation into a mechanism. If something was a genuine one-o
 
 ## Notes
 
-- **Not `/plan-next`.** `/plan-next` decides *what product features to build next*; `/retro` improves *how we work* based on the release just finished. A retro can still produce issues, but they're process/tooling improvements, not features. When the user wants to pick the next version's scope, hand off to `/plan-next`.
-- One concern per artifact, so each can be acted on independently — same reason `/plan-next` files one issue per item.
+- **Not `dev-flow:plan-next`.** `dev-flow:plan-next` decides *what product features to build next*; `/retro` improves *how we work* based on the release just finished. A retro can still produce issues, but they're process/tooling improvements, not features. When the user wants to pick the next version's scope, hand off to `dev-flow:plan-next`.
+- One concern per artifact, so each can be acted on independently — same reason `dev-flow:plan-next` files one issue per item.
 - Prefer the lightest durable mechanism. A hook that fires every time beats a memory note that hopes Claude remembers; but a one-line preference doesn't need a hook. Match the weight to how often and how strictly the lesson must apply.
 - If the retro surfaces work that's too big for this session, file it as an issue (no milestone if it's not slotted yet) rather than letting it evaporate — this repo's default is issue-driven.
