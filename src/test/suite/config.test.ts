@@ -11,6 +11,7 @@ import {
   resolveCsvDelimiter,
   isLanguageDisabled,
   toggleDisabledLanguage,
+  resolveDisabledLanguagesTarget,
   isAlignableScheme,
   DEFAULT_GHOST_CHAR,
   DEFAULT_GHOST_COLOR,
@@ -681,6 +682,45 @@ suite("toggleDisabledLanguage", () => {
     const original = ["yaml"];
     toggleDisabledLanguage(original, "shellscript");
     assert.deepStrictEqual(original, ["yaml"]);
+  });
+});
+
+suite("resolveDisabledLanguagesTarget", () => {
+  test("workspace 設定に disabledLanguages が明示されていれば workspace を返す", () => {
+    const config = {
+      get<T>(_key: string, defaultValue: T): T {
+        return defaultValue;
+      },
+      inspect<T>(_key: string) {
+        return { workspaceValue: [] as unknown as T };
+      },
+    };
+    assert.strictEqual(resolveDisabledLanguagesTarget(config), "workspace");
+  });
+
+  test("workspace 設定が無く global のみ明示されていれば global を返す", () => {
+    const config = {
+      get<T>(_key: string, defaultValue: T): T {
+        return defaultValue;
+      },
+      inspect<T>(_key: string) {
+        return { globalValue: ["yaml"] as unknown as T };
+      },
+    };
+    assert.strictEqual(resolveDisabledLanguagesTarget(config), "global");
+  });
+
+  test("何も明示されていなければ global を返す", () => {
+    assert.strictEqual(resolveDisabledLanguagesTarget(mockConfig({})), "global");
+  });
+
+  test("inspect が使えない config では global にフォールバックする", () => {
+    const config = {
+      get<T>(_key: string, defaultValue: T): T {
+        return defaultValue;
+      },
+    };
+    assert.strictEqual(resolveDisabledLanguagesTarget(config), "global");
   });
 });
 

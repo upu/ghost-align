@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Ghost Align: Disable/Enable for Current Language` now updates whichever scope is actually in effect. Previously it always wrote to the global setting, so a workspace-level `ghostAlign.disabledLanguages` (e.g. from `.vscode/settings.json`) silently overrode it and the toggle appeared to do nothing even though a confirmation message was shown.
+
 ## [1.3.0] - 2026-07-09
 
 ### Added

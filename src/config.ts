@@ -153,6 +153,22 @@ export function toggleDisabledLanguage(
   return { next: [...disabledLanguages, languageId], disabled: true };
 }
 
+/**
+ * Which scope `ghostAlign.toggleLanguage` should write `disabledLanguages`
+ * to. VS Code resolves the effective value with workspace taking precedence
+ * over global, so writing to Global while a workspace value exists silently
+ * has no visible effect (#362) — this decides "workspace" whenever the user
+ * (or `.vscode/settings.json`) has an explicit workspace-level value,
+ * otherwise "global" as before. workspaceFolder-scoped values are not
+ * consulted here (multi-root handling is left for a future issue).
+ */
+export function resolveDisabledLanguagesTarget(
+  config: GhostAlignConfig
+): "workspace" | "global" {
+  const inspected = config.inspect?.<string[]>("disabledLanguages");
+  return inspected?.workspaceValue !== undefined ? "workspace" : "global";
+}
+
 /** Language IDs that use the Markdown table alignment path instead of operators. */
 const MARKDOWN_LANGUAGES = new Set(["markdown"]);
 
