@@ -480,6 +480,79 @@ suite("findAlignmentGroups", () => {
     const groups = findAlignmentGroups(doc, [":", "="], "typescript");
     assert.strictEqual(groups.length, 0);
   });
+
+  test("TS: switch でラップされていても case/default 行は対象外のまま（#345 の回帰確認）", () => {
+    // #345 の修正で switch 本体かどうかをブレーススタックで追跡するようになった。
+    // 実際の switch 文を外側の `{`（関数本体）でラップしても、switch 本体の
+    // 検出自体が壊れて case/default のラベルコロンが誤って整列対象にならないことを確認する
+    const doc = mockDocument([
+      "function f(x) {",
+      "  switch (x) {",
+      "    case 1:       return a;",
+      "    case 22:      return b;",
+      "    default:      return z;",
+      "  }",
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":", "="], "typescript");
+    assert.strictEqual(groups.length, 0);
+  });
+
+  test("TS: インターフェースの `default` メンバー（末尾 `;`）はコロン整列の対象になる（#345）", () => {
+    const doc = mockDocument([
+      "interface Foo {",
+      "  a: number;",
+      "  default: string;",
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [1, 2]);
+  });
+
+  test("TS: オブジェクトリテラルの末尾カンマなし最終プロパティ `default` はコロン整列の対象になる（#345）", () => {
+    const doc = mockDocument([
+      "const config = {",
+      "  a: 1,",
+      "  default: 2",
+      "};",
+    ]);
+    const groups = findAlignmentGroups(doc, [":"], "typescript");
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [1, 2]);
+  });
+
+  test("TS: switch の条件と `{` の間にブロックコメントがあっても switch 本体として検出する（#345）", () => {
+    const doc = mockDocument([
+      "switch (x) /* start */ {",
+      "  case 1:       return a;",
+      "  default:      return z;",
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":", "="], "typescript");
+    assert.strictEqual(groups.length, 0);
+  });
+
+  test("TS: switch の case ブロック内に入れ子のオブジェクトリテラルがあっても `default` プロパティと外側の switch ラベルを区別する（#345）", () => {
+    // ネストした非switchの `{`（case のブロックとオブジェクトリテラル）は
+    // ブレーススタックに積まれ、閉じれば switch 本体のコンテキストへ正しく戻る
+    const doc = mockDocument([
+      "switch (x) {",
+      "  case 1: {",
+      "    const cfg = {",
+      "      a: 1,",
+      "      default: 2,",
+      "    };",
+      "  }",
+      "  case 22:      return b;",
+      "  default:      return z;",
+      "}",
+    ]);
+    const groups = findAlignmentGroups(doc, [":", "="], "typescript");
+    // 入れ子のオブジェクトリテラル(3,4行目)はコロン整列の対象になる
+    assert.strictEqual(groups.length, 1);
+    assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [3, 4]);
+  });
 });
 
 suite("findAlignmentGroups（複数行ブロックコメント / テンプレートリテラル）", () => {

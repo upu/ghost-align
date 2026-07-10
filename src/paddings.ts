@@ -151,9 +151,10 @@ export type LineSource = {
  *
  * `initialState` seeds the cross-line scan state (plain code / inside a
  * block comment or template literal; CSS/SCSS/LESS rule-block depth; YAML
- * block-scalar indent) that line 0 of `document` starts in, so a
- * visible-range slice of a large file can resume whatever a construct
- * opened above it left behind — see {@link LineScanState} in finders.ts.
+ * block-scalar indent; TS/JS switch-body brace stack) that line 0 of
+ * `document` starts in, so a visible-range slice of a large file can resume
+ * whatever a construct opened above it left behind — see {@link
+ * LineScanState} in finders.ts.
  * Each line's targets are found relative to that state, which is then
  * advanced across the loop via nextLineScanState, so an operator inside an
  * unclosed block comment/template literal, a multi-line CSS selector
@@ -208,7 +209,8 @@ export function findAlignmentGroups(
       operators,
       languageId,
       state.doc,
-      state.cssBlockDepth > 0
+      state.cssBlockDepth > 0,
+      state.tsBraces[state.tsBraces.length - 1]
     );
     state = nextLineScanState(lineText, state, languageId);
 
