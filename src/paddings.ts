@@ -355,7 +355,7 @@ export function computeColumnPlan(
   advance: (afterPosition: number) => number
 ): (number | null)[] {
   const columnCount = rowWidths.reduce((max, w) => Math.max(max, w.length), 0);
-  const pos = new Array(rowWidths.length).fill(0);
+  const pos = new Array<number>(rowWidths.length).fill(0);
   const plan: (number | null)[] = [];
   for (let k = 0; k < columnCount; k++) {
     const activeIdx: number[] = [];

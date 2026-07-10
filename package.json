@@ -289,6 +289,7 @@
     "watch": "node scripts/esbuild.js --watch",
     "compile": "tsc -p ./",
     "check-types": "tsc --noEmit",
+    "lint": "eslint src scripts eslint.config.mjs",
     "check:package": "npm run build && node scripts/check-package-contents.js",
     "test": "vscode-test",
     "test:scripts": "node --test \"scripts/*.test.js\"",
@@ -298,6 +299,7 @@
     "package:install": "npm run package && npm run install:vsix"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/mocha": "^10.0.10",
     "@types/node": "^26.1.1",
     "@types/vscode": "^1.125.0",
@@ -305,6 +307,9 @@
     "@vscode/test-electron": "^3.0.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
-    "typescript": "^6.0.3"
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.63.0"
   }
 }

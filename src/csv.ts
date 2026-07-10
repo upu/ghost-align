@@ -138,7 +138,7 @@ export function computeCsvPaddingsFromMax(
   tabSize: number
 ): Placement[] {
   const advance = delimiterAdvance(delimiter, tabSize);
-  const pos = new Array(rows.length).fill(0);
+  const pos = new Array<number>(rows.length).fill(0);
   const placements: Placement[] = [];
   for (let k = 0; k < plan.length; k++) {
     const target = plan[k];
