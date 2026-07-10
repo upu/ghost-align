@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- 「Ghost Align: Disable/Enable for Current Language」が、実効値として使われているスコープを正しく更新するようになりました。従来は常にグローバル設定へ書き込んでいたため、`.vscode/settings.json` などで workspace レベルの `ghostAlign.disabledLanguages` が設定されていると、その値に上書きされて無反応になっていました（確認メッセージ自体は表示されるため気付きにくい問題でした）。
+
 ## [1.3.0] - 2026-07-09
 
 ### Added

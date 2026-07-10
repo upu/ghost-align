@@ -1,5 +1,10 @@
 import * as vscode from "vscode";
-import { isAlignableScheme, resolveGhostSettings, toggleDisabledLanguage } from "./config";
+import {
+  isAlignableScheme,
+  resolveDisabledLanguagesTarget,
+  resolveGhostSettings,
+  toggleDisabledLanguage,
+} from "./config";
 import {
   LARGE_FILE_LINE_THRESHOLD,
   buildCopyAlignedText,
@@ -108,11 +113,15 @@ export function activate(context: vscode.ExtensionContext) {
         config.get<string[]>("disabledLanguages", []),
         languageId
       );
-      await config.update(
-        "disabledLanguages",
-        next,
-        vscode.ConfigurationTarget.Global
-      );
+      // A workspace value (e.g. from .vscode/settings.json) always beats a
+      // global one when VS Code resolves the effective setting, so writing
+      // to Global while such a value exists would have no visible effect
+      // (#362) — write back to whichever scope is actually in effect.
+      const target =
+        resolveDisabledLanguagesTarget(config) === "workspace"
+          ? vscode.ConfigurationTarget.Workspace
+          : vscode.ConfigurationTarget.Global;
+      await config.update("disabledLanguages", next, target);
       vscode.window.showInformationMessage(
         `Ghost Align: ${disabled ? "disabled" : "enabled"} for ${languageId}`
       );
