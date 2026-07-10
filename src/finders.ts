@@ -303,25 +303,40 @@ export const TS_JS_LANGUAGES = new Set([
  *
  * `default:` alone is ambiguous with an object/type property literally named
  * `default` (`default: 1,`), since both share the same "word, colon" shape at
- * line start and this function has no cross-line brace context to tell a
- * switch body from an object literal. As a heuristic, a line ending in `,`
- * (after stripping a trailing `//`/`/* *​/` comment, then trailing whitespace)
- * is treated as that property instead of a label — a switch `default:` label's
- * line never ends in a trailing comma, while a non-last object/type property
- * does. This is necessarily incomplete: only a *trailing comma* flips the
- * heuristic to "property, not label" — any `default:` line without one is
- * still read as a label, including a `default` property with no trailing
- * comma at all (a last member like `default: 1`), not just one ending in
- * `;`. A semicolon in particular can't be used as its own "not a label"
- * signal, since ordinary switch bodies routinely end in `;` too
- * (`default: return z;`), so a `;`-terminated line with no other content
- * (e.g. an interface member `default: string;`) is still read as a label.
- * Precisely resolving that needs cross-line context (tracking whether the
- * enclosing `{...}` is a switch body or an object/type literal), which is out
- * of scope for this line-local finder (#345). Likewise out of scope: a
- * comment wedged directly between `default`/`case` and the label `:` itself
- * (`default/*c*​/:`, `case/*c*​/: 1,`) — pathological formatting nobody writes
- * in practice, unlike a trailing end-of-line comment.
+ * line start. Two signals resolve this, in order:
+ *
+ * 1. Cross-line brace context (`tsBraceTop`, from {@link LineScanState}'s
+ *    `tsBraces` stack — see {@link nextTsBraceState}): when the innermost
+ *    `{...}` enclosing this line is definitely *not* a `switch (...) {` body
+ *    (`tsBraceTop === "other"`, e.g. an `interface`/`type`/object-literal
+ *    brace opened on an earlier line), `default`/`case` can never be a real
+ *    label there — labels only exist directly inside a switch body — so the
+ *    line's colon is always a normal property/member target regardless of a
+ *    trailing comma (#345).
+ * 2. Otherwise (`tsBraceTop` is `"switch"`, or `undefined` because no
+ *    cross-line context was supplied, e.g. a single-line call site), fall
+ *    back to the same trailing-comma heuristic as before: a line ending in
+ *    `,` (after stripping a trailing `//`/`/* *​/` comment, then trailing
+ *    whitespace) is treated as a property instead of a label. This is still
+ *    necessarily incomplete on its own — a `default: 1` last member with no
+ *    trailing comma, or `;`-terminated (`default: string;`), reads as a
+ *    label — but only matters when `tsBraceTop` couldn't rule out a switch.
+ *
+ * {@link nextTsBraceState} only recognizes `switch (...) {` when the
+ * `switch` keyword, its whole condition, and the opening `{` all appear on
+ * the same source line (the near-universal style, e.g. Prettier's own
+ * output). A `switch` whose condition or brace is pushed to a following line
+ * (Allman-style `switch (x)\n{`, or a multi-line condition) is not
+ * recognized as a switch body, so its `default`/`case` labels fall through
+ * to the heuristic above like an untracked context would — a known,
+ * accepted limitation for a rare formatting style, consistent with this
+ * file's other single-line-only pattern matching (block comments, template
+ * literals).
+ *
+ * Likewise out of scope: a comment wedged directly between `default`/`case`
+ * and the label `:` itself (`default/*c*​/:`, `case/*c*​/: 1,`) — pathological
+ * formatting nobody writes in practice, unlike a trailing end-of-line
+ * comment.
  */
 const CASE_LABEL_RE = /^case(?:\s|\/\*)/;
 // `case` immediately followed by only whitespace and then `:` — no
@@ -361,15 +376,112 @@ function stripTrailingCommentForLabelCheck(text: string): string {
     : withoutLineComment.slice(0, blockStart).trimEnd();
 }
 
-function findTsColon(lineText: string): number[] {
+/**
+ * The kind of a same-line-detected `{` opener tracked by {@link
+ * nextTsBraceState}: `"switch"` for a `switch (...) {` body, `"other"` for
+ * every other `{` (object literal, `interface`/`type` body, block statement,
+ * function/class body, ...) — none of which can validly contain a real
+ * `case`/`default` label, so any of them ties a break in the ambiguity
+ * {@link findTsColon}'s own label heuristic can't resolve on its own (#345).
+ */
+export type TsBraceKind = "switch" | "other";
+
+/** Cross-line stack of {@link TsBraceKind}, innermost brace last — the `tsBraces` field of {@link LineScanState}. */
+export type TsBraceState = TsBraceKind[];
+
+/**
+ * Whether the `(` at `parenIndex` in `lineText` immediately follows the
+ * `switch` keyword (only whitespace, if anything, in between), and that
+ * `switch` is not itself a property/method access (`.switch(`, `?.switch(`).
+ * `switch` is a reserved word, so it can never be a variable/function
+ * identifier — this pattern can only mean the switch statement's own
+ * condition-opening paren once member access is excluded.
+ */
+const SWITCH_KEYWORD_BEFORE_PAREN_RE = /(?:^|[^.\w$])switch\s*$/;
+function isSwitchKeywordBeforeParen(lineText: string, parenIndex: number): boolean {
+  return SWITCH_KEYWORD_BEFORE_PAREN_RE.test(lineText.slice(0, parenIndex));
+}
+
+/**
+ * The {@link TsBraceState} that follows `lineText`, given the state it
+ * started in. Recognizes `switch (...) {` — including a parenthesized
+ * condition with its own nested `(...)` (e.g. `switch (getValue(x)) {`) —
+ * only when the keyword, condition, and opening `{` all appear on this one
+ * line: `switchParenDepth` tracks the switch's own condition parens (started
+ * only once {@link isSwitchKeywordBeforeParen} matches, so unrelated parens
+ * elsewhere on the line never affect it), and once that condition's closing
+ * `)` is reached, `awaitingSwitchBrace` stays true across any whitespace/
+ * comments until either a `{` (pushed as `"switch"`) or any other code
+ * character (the pattern broke; not a switch after all) is seen. Every other
+ * `{` is pushed as `"other"`. A `switch` whose condition/brace spans
+ * multiple lines is not recognized this way — see {@link findTsColon}'s own
+ * doc comment for that tradeoff.
+ */
+export function nextTsBraceState(lineText: string, state: TsBraceState): TsBraceState {
+  const stack = state.slice();
+  const quoteState = initialQuoteState();
+  let switchParenDepth = 0;
+  let awaitingSwitchBrace = false;
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+      continue;
+    }
+    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
+    if (comment === "break") {
+      break; // comment to the end of the line
+    }
+    if (comment !== false) {
+      i = comment; // loop's i++ advances past the closing `/`
+      continue;
+    }
+    if (ch === "(") {
+      if (switchParenDepth > 0) {
+        switchParenDepth++;
+      } else if (isSwitchKeywordBeforeParen(lineText, i)) {
+        switchParenDepth = 1;
+      }
+      continue;
+    }
+    if (ch === ")") {
+      if (switchParenDepth > 0) {
+        switchParenDepth--;
+        if (switchParenDepth === 0) {
+          awaitingSwitchBrace = true;
+        }
+      }
+      continue;
+    }
+    if (ch === "{") {
+      stack.push(awaitingSwitchBrace ? "switch" : "other");
+      awaitingSwitchBrace = false;
+      continue;
+    }
+    if (ch === "}") {
+      stack.pop();
+      awaitingSwitchBrace = false;
+      continue;
+    }
+    if (ch !== " " && ch !== "\t") {
+      awaitingSwitchBrace = false; // any other code character breaks a pending switch-brace pattern
+    }
+  }
+  return stack;
+}
+
+function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
   const results: number[] = [];
   const state = initialQuoteState();
   const ternaryDepths: number[] = [];
   let depth = 0;
   const trimmed = lineText.trimStart();
+  const notInSwitchBody = tsBraceTop === "other";
   const looksLikeCaseLabel =
-    CASE_LABEL_RE.test(trimmed) && !CASE_PROPERTY_COLON_RE.test(trimmed);
+    !notInSwitchBody &&
+    CASE_LABEL_RE.test(trimmed) &&
+    !CASE_PROPERTY_COLON_RE.test(trimmed);
   const looksLikeDefaultLabel =
+    !notInSwitchBody &&
     DEFAULT_LABEL_RE.test(trimmed) &&
     !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
   let pendingLabelColon = looksLikeCaseLabel || looksLikeDefaultLabel;
@@ -1339,7 +1451,8 @@ function findOccurrences(
   lineText: string,
   op: string,
   languageId?: string,
-  cssInsideBlock: boolean = true
+  cssInsideBlock: boolean = true,
+  tsBraceTop?: TsBraceKind
 ): OperatorTarget[] {
   if (op === "=") {
     return findAssignmentEquals(lineText, languageId);
@@ -1349,7 +1462,7 @@ function findOccurrences(
     if (languageId && CSS_LANGUAGES.has(languageId)) {
       indices = findCssColon(lineText, languageId, cssInsideBlock);
     } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
-      indices = findTsColon(lineText);
+      indices = findTsColon(lineText, tsBraceTop);
     } else {
       indices = findColonOutsideString(lineText, languageId);
     }
@@ -1894,29 +2007,33 @@ export function computeLineStateBefore(
 // computeDocumentPlacements, decorateEditor) don't care about that per-language
 // distinction — they only need one bundle to hold, advance, and pre-scan.
 // LineScanState is that bundle: adding a 4th cross-line construct (e.g. #225's
-// Ruby/PHP heredoc) means adding one field here plus one branch in
-// nextLineScanState, without touching any of those callers' signatures.
+// Ruby/PHP heredoc, or #345's TS/JS switch-body brace stack) means adding one
+// field here plus one branch in nextLineScanState, without touching any of
+// those callers' signatures.
 
 /** Bundles every per-language cross-line scan state a single document position can be in. */
 export type LineScanState = {
   doc: DocScanState;
   cssBlockDepth: number;
   yamlBlockScalar: YamlBlockScalarState;
+  tsBraces: TsBraceState;
 };
 
 /** The {@link LineScanState} for the top of a document (or a slice with nothing above it). */
 export function initialLineScanState(): LineScanState {
-  return { doc: "code", cssBlockDepth: 0, yamlBlockScalar: null };
+  return { doc: "code", cssBlockDepth: 0, yamlBlockScalar: null, tsBraces: [] };
 }
 
 /**
  * The {@link LineScanState} that follows `lineText`, given the state it
  * started in. Each field advances via its own existing per-language rule
- * (nextDocScanState / nextCssBlockDepth / nextYamlBlockScalarState), gated the
- * same way findAlignmentGroups already gated them before this consolidation:
- * CSS block depth only moves for {@link CSS_LANGUAGES}, YAML block-scalar
- * state only for `"yaml"` — otherwise a language whose own syntax uses `{}`
- * or indentation differently would desync the other languages' trackers.
+ * (nextDocScanState / nextCssBlockDepth / nextYamlBlockScalarState /
+ * nextTsBraceState), gated the same way findAlignmentGroups already gated
+ * them before this consolidation: CSS block depth only moves for
+ * {@link CSS_LANGUAGES}, YAML block-scalar state only for `"yaml"`, TS brace
+ * state only for {@link TS_JS_LANGUAGES} — otherwise a language whose own
+ * syntax uses `{}` or indentation differently would desync the other
+ * languages' trackers.
  */
 export function nextLineScanState(
   lineText: string,
@@ -1933,6 +2050,10 @@ export function nextLineScanState(
       languageId === "yaml"
         ? nextYamlBlockScalarState(lineText, state.yamlBlockScalar)
         : state.yamlBlockScalar,
+    tsBraces:
+      languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
+        ? nextTsBraceState(lineText, state.tsBraces)
+        : state.tsBraces,
   };
 }
 
@@ -2089,13 +2210,22 @@ export type ColumnTarget = OperatorTarget & { opIndex: number };
  * multi-line selector. Defaults to `true` (declaration context), matching
  * this function's previous behavior for callers that scan a single line
  * without surrounding document context.
+ *
+ * `tsBraceTop` (the top of {@link LineScanState}'s `tsBraces` stack, i.e.
+ * `state.tsBraces[state.tsBraces.length - 1]`) only affects the `:` operator
+ * on TS/JS lines: it tells {@link findTsColon} whether the line's innermost
+ * enclosing `{...}` is definitely not a `switch (...) {` body, so a leading
+ * `default`/`case` can't be a real label there (#345). Defaults to
+ * `undefined` (no cross-line context), matching this function's previous
+ * behavior for callers that scan a single line in isolation.
  */
 export function findOperatorTargets(
   lineText: string,
   operators: string[],
   languageId?: string,
   initialState: DocScanState = "code",
-  cssInsideBlock: boolean = true
+  cssInsideBlock: boolean = true,
+  tsBraceTop?: TsBraceKind
 ): ColumnTarget[] {
   let text = lineText;
   let offset = 0;
@@ -2110,7 +2240,7 @@ export function findOperatorTargets(
   const columns: ColumnTarget[] = [];
   let minIndex = 0;
   for (let opIndex = 0; opIndex < operators.length; opIndex++) {
-    const occurrences = findOccurrences(text, operators[opIndex], languageId, cssInsideBlock);
+    const occurrences = findOccurrences(text, operators[opIndex], languageId, cssInsideBlock, tsBraceTop);
     const match = occurrences.find((t) => t.insert >= minIndex);
     if (!match) {
       continue;

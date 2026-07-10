@@ -11,6 +11,8 @@ import {
   isWholeLineComment,
   computeLineScanStateBefore,
   LineScanCheckpointCache,
+  nextTsBraceState,
+  TsBraceState,
 } from "../../finders";
 import { findOperatorTarget, findOperatorColumn } from "./testHelpers";
 
@@ -811,11 +813,14 @@ suite("findOperatorColumn", () => {
     );
   });
 
-  test("TS: 既知の制約 — 末尾カンマのない `default` プロパティ（型メンバー等）はラベルと区別できない", () => {
-    // `default: string;` はインターフェースのメンバーだが、switch の
-    // `default: return z;` も同じく `;` で終わるため、`;` を手がかりには
-    // できない（行単体の情報だけでは switch 本体とオブジェクト/型リテラルの
-    // 区別がつかない）。現状の既知の制約として、この形はラベル扱いになる
+  test("TS: 既知の制約 — 周囲の行のコンテキストなしで `default: string;` 単体を渡すとラベル扱いになる", () => {
+    // findOperatorColumn はこの行だけを渡すため、周囲の `{...}` が switch 本体か
+    // オブジェクト/型リテラルかを示すクロスライン情報（tsBraceTop）がない。
+    // その場合は元のヒューリスティック（末尾カンマの有無）にフォールバックし、
+    // 末尾カンマのない `default: string;` はラベル扱いのまま。実際のドキュメント
+    // スキャン（LineScanState の tsBraces、#345）ではこの行を含む `interface`/
+    // オブジェクトリテラルの `{` が追跡されるため、この制約は発生しない
+    // （findAlignmentGroups の "TS: インターフェースの `default` メンバー..." テスト参照）
     assert.strictEqual(
       findOperatorColumn("  default: string;", [":"], "typescript"),
       null
@@ -1627,6 +1632,60 @@ suite("findOperatorTargets", () => {
       findOperatorTargets("still x = 1 template", ["="], "typescript", "template"),
       []
     );
+  });
+});
+
+suite("TS/JS switch 本体ブレーススタック（nextTsBraceState、#345）", () => {
+  test("`switch (x) {` は switch 本体として積む", () => {
+    assert.deepStrictEqual(nextTsBraceState("switch (x) {", []), ["switch"]);
+  });
+
+  test("空白なし `switch(x){` でも switch 本体として積む", () => {
+    assert.deepStrictEqual(nextTsBraceState("switch(x){", []), ["switch"]);
+  });
+
+  test("条件式に入れ子の `(...)` があっても対応する `{` を正しく switch と判定する", () => {
+    assert.deepStrictEqual(
+      nextTsBraceState("switch (getValue(a, b)) {", []),
+      ["switch"]
+    );
+  });
+
+  test("`interface Foo {` のような switch 以外の `{` は other として積む", () => {
+    assert.deepStrictEqual(nextTsBraceState("interface Foo {", []), ["other"]);
+  });
+
+  test("`.switch(x) {` はメンバーアクセスなので switch と誤認しない", () => {
+    assert.deepStrictEqual(nextTsBraceState("obj.switch(x) {", []), ["other"]);
+  });
+
+  test("条件と `{` の間のブロックコメントは switch 判定を妨げない", () => {
+    assert.deepStrictEqual(
+      nextTsBraceState("switch (x) /* start */ {", []),
+      ["switch"]
+    );
+  });
+
+  test("`}` はスタックの最上位をポップする", () => {
+    const opened = nextTsBraceState("switch (x) {", []);
+    assert.deepStrictEqual(nextTsBraceState("}", opened), []);
+  });
+
+  test("入れ子の `{`/`}` を正しくスタックとして push/pop する", () => {
+    let state: TsBraceState = [];
+    state = nextTsBraceState("switch (x) {", state);
+    state = nextTsBraceState("  case 1: {", state);
+    assert.deepStrictEqual(state, ["switch", "other"]);
+    state = nextTsBraceState("  }", state);
+    assert.deepStrictEqual(state, ["switch"]);
+  });
+
+  test("文字列・行コメント内の `switch(` は switch と誤認しない", () => {
+    assert.deepStrictEqual(
+      nextTsBraceState('const s = "switch (x) {";', []),
+      []
+    );
+    assert.deepStrictEqual(nextTsBraceState("// switch (x) {", []), []);
   });
 });
 
