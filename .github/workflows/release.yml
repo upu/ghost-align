@@ -2,6 +2,12 @@ name: Release
 on:
   push:
     branches: [main]
+# cancel-in-progress: false（既定）が重要: リリース途中の run をキャンセルすると
+# 「Release 作成済み・publish 未完」の中途半端な状態を作りやすい。後続は待たされ、
+# バージョン判定（既存 Release があればスキップ）に落ちるため二重実行は起きない。
+concurrency:
+  group: release
+  cancel-in-progress: false
 jobs:
   release:
     runs-on: ubuntu-latest
