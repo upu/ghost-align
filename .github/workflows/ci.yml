@@ -7,6 +7,19 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
   test:
     strategy:
       matrix:
@@ -37,8 +50,6 @@ jobs:
           restore-keys: |
             vscode-test-${{ runner.os }}-
       - run: npm run compile
-      - run: npm run lint
-        if: runner.os == 'Linux'
       - run: npm run test:scripts
       - run: npm test
         if: runner.os != 'Linux'
