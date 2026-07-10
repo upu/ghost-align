@@ -19,16 +19,12 @@ jobs:
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24.x
-          cache: npm
-      - run: npm ci
       # A release is identified by package.json's version, not a manually pushed
       # tag: `gh release create` below creates the tag as a side effect. If a
       # release for the current version already exists, this push is an
       # ordinary merge (or a Re-run after a fully-succeeded release) — every
-      # later step is skipped so nothing is recreated.
+      # later step is skipped so nothing is recreated. `gh` and node are
+      # preinstalled on the runner, so this check doesn't need setup-node/npm ci.
       - name: Resolve version and check for an existing release
         id: version
         env:
@@ -44,6 +40,14 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
+      - uses: actions/setup-node@v6
+        if: steps.version.outputs.exists == 'false'
+        with:
+          node-version: 24.x
+          cache: npm
+      - name: Install dependencies
+        if: steps.version.outputs.exists == 'false'
+        run: npm ci
       - name: Verify VSCE_PAT
         if: steps.version.outputs.exists == 'false' && env.VSCE_PAT != ''
         run: npx @vscode/vsce verify-pat -p "$VSCE_PAT"
