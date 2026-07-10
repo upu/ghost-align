@@ -424,4 +424,92 @@ suite("MarkdownTableWidthCache", () => {
       { lineIndex: 2, character: 22, padding: 20 },
     ]);
   });
+
+  // 行番号: 0-1 散文, 2 ヘッダー, 3 区切り行, 4 データ行, 5 散文,
+  // 6 フェンス開始, 7 フェンス内, 8 フェンス終了, 9 散文
+  const linesWithTableAndFence = () => [
+    "prose line 0",
+    "prose line 1",
+    "| a | b |",
+    "| --- | --- |",
+    "| c | d |",
+    "prose line 5",
+    "```",
+    "code line",
+    "```",
+    "prose line 9",
+  ];
+
+  test("テーブル・フェンスと交差しない散文編集は全再構築を避ける", () => {
+    const lines = linesWithTableAndFence();
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+    const before = cache.placementsForRange(0, lines.length - 1);
+
+    lines[0] = "prose line 0 rewritten";
+    cache.applyEdit(0, 1, 1, lines[0]);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+
+    assert.deepStrictEqual(reads, []); // 再構築されていない
+    assert.deepStrictEqual(cache.placementsForRange(0, lines.length - 1), before);
+  });
+
+  test("テーブル行の編集は全再構築する", () => {
+    const lines = linesWithTableAndFence();
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+
+    lines[4] = "| ccccccc | d |"; // データ行のセル幅を拡張
+    cache.applyEdit(4, 1, 1, lines[4]);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+
+    assert.deepStrictEqual(reads, lines.map((_, i) => i));
+    assert.deepStrictEqual(cache.placementsForRange(0, lines.length - 1), [
+      { lineIndex: 2, character: 4, padding: 6 },
+      { lineIndex: 2, character: 8, padding: 2 },
+      { lineIndex: 3, character: 5, padding: 4, padChar: "-" },
+      { lineIndex: 4, character: 14, padding: 2 },
+    ]);
+  });
+
+  test("フェンス内部の編集も全再構築する（フェンス範囲との交差を保守的に扱う）", () => {
+    const lines = linesWithTableAndFence();
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+
+    lines[7] = "different code line"; // フェンス開始/終了行そのものではない
+    cache.applyEdit(7, 1, 1, lines[7]);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+
+    assert.deepStrictEqual(reads, lines.map((_, i) => i));
+  });
+
+  test("行数が変わる編集は全再構築する", () => {
+    const lines = linesWithTableAndFence();
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+
+    lines.splice(9, 0, "inserted prose line"); // 散文の中に1行挿入
+    cache.applyEdit(9, 1, 2, "inserted prose line\nprose line 9");
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+
+    assert.deepStrictEqual(reads, lines.map((_, i) => i));
+  });
+
+  test("既存のテーブル・フェンスと交差しなくても `|` を含む新規テキストは全再構築する（新規テーブル化の可能性）", () => {
+    const lines = linesWithTableAndFence();
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+
+    lines[1] = "| newly | piped |"; // 元は散文だった行にパイプを追加
+    cache.applyEdit(1, 1, 1, lines[1]);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+
+    assert.deepStrictEqual(reads, lines.map((_, i) => i));
+  });
 });

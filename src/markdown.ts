@@ -173,13 +173,23 @@ export function computeFenceStateBefore(
  * data rows (non-blank, containing `|`). Returns each block as its line indices.
  * Lines inside fenced code blocks (``` or ~~~) are skipped. `initialState` seeds the
  * fence state as of line 0 (see computeFenceStateBefore).
+ *
+ * `fencedOut`, if given, is filled with the per-line fenced flags computed
+ * internally — lets a caller that also needs fence info (e.g.
+ * {@link MarkdownTableWidthCache}, to track which lines an edit touching a
+ * fence must invalidate) get it without a second full-document scan.
  */
 export function findMarkdownTables(
   lines: string[],
-  initialState: FenceState = NO_FENCE
+  initialState: FenceState = NO_FENCE,
+  fencedOut?: boolean[]
 ): number[][] {
   const tables: number[][] = [];
   const fenced = computeFencedLines(lines, initialState);
+  if (fencedOut) {
+    fencedOut.length = 0;
+    fencedOut.push(...fenced);
+  }
   let i = 0;
   while (i < lines.length) {
     if (fenced[i]) {
@@ -382,6 +392,61 @@ export function computeMarkdownTablePaddings(
 }
 
 /**
+ * Contiguous `[start, end]` (inclusive) runs of `true` in `flags`, e.g.
+ * `[F,T,T,F,T]` -> `[[1,2],[4,4]]`. Used to turn the per-line fenced-flag
+ * array from {@link findMarkdownTables} into the small span list {@link
+ * MarkdownTableWidthCache} keeps around to cheaply test whether a later
+ * edit's line range could have touched a fence.
+ */
+function spansFromFlags(flags: readonly boolean[]): [number, number][] {
+  const spans: [number, number][] = [];
+  let start = -1;
+  for (let i = 0; i < flags.length; i++) {
+    if (flags[i]) {
+      if (start === -1) {
+        start = i;
+      }
+    } else if (start !== -1) {
+      spans.push([start, i - 1]);
+      start = -1;
+    }
+  }
+  if (start !== -1) {
+    spans.push([start, flags.length - 1]);
+  }
+  return spans;
+}
+
+/** Whether `[start, end]` (inclusive) overlaps any span in `spans`. */
+function rangeIntersectsSpans(
+  spans: readonly [number, number][],
+  start: number,
+  end: number
+): boolean {
+  return spans.some(([spanStart, spanEnd]) => start <= spanEnd && end >= spanStart);
+}
+
+/**
+ * A run of 3+ backticks or tildes — the minimum that could open/close a
+ * fence (see FENCE_RE) — anywhere in a string, not anchored to line start
+ * since the caller only has the replacement text, not full lines.
+ */
+const POSSIBLE_FENCE_MARKER_RE = /`{3,}|~{3,}/;
+
+/**
+ * Whether replacement text could plausibly start or end a table (contains
+ * `|`, which is all {@link findMarkdownTables} requires of a header line) or
+ * a fence (contains a 3+ backtick/tilde run). Used by {@link
+ * MarkdownTableWidthCache.applyEdit} to decide if an edit outside any known
+ * table/fence span could still matter. Single/double backticks or tildes
+ * (common in prose: inline code, `~/home`, `~100`) don't match, so they
+ * don't force a rebuild on their own.
+ */
+function mayAffectTablesOrFences(text: string): boolean {
+  return text.includes("|") || POSSIBLE_FENCE_MARKER_RE.test(text);
+}
+
+/**
  * Whole-document cache of Markdown table row metrics and per-table column
  * widths, so alignment in a large file is based on every row of a table
  * instead of just the currently visible slice — mirroring CsvWidthCache in
@@ -390,18 +455,24 @@ export function computeMarkdownTablePaddings(
  * Unlike a CSV row (whose delimiter positions depend only on that one line),
  * a Markdown table row's very membership depends on cross-line context: fence
  * state and header/delimiter-row pairing. So this cache cannot cheaply
- * re-scan just the lines an edit touched the way CsvWidthCache does — any
- * edit (see {@link markDirty}) invalidates the whole cache, rebuilt in full
- * on the next {@link sync}. Full-document table detection is a single linear
- * pass (the same order of cost as the fence-state prescan every large-file
- * Markdown decoration already pays), so this only adds cost on edits, not on
- * scrolling — which is what makes scrolling scroll-stable.
+ * re-scan just the lines an edit touched the way CsvWidthCache does. Instead,
+ * {@link applyEdit} keeps the table and fenced-line spans from the last full
+ * build around and only marks the cache stale when an edit could plausibly
+ * change them — its old line range overlaps a known table/fence span, its
+ * replacement text could open/close one (see {@link mayAffectTablesOrFences}),
+ * or it changes the document's line count. An edit to ordinary prose well
+ * outside any table or fence leaves every span untouched, so the cache (and
+ * its rowMetrics/planByTable) stays valid and {@link sync} can skip rebuilding
+ * it — this is what keeps typing in a large Markdown file's prose from paying
+ * for a full-document table re-detection on every debounce tick.
  */
 export class MarkdownTableWidthCache {
   private tables: number[][] = [];
   private rowMetrics = new Map<number, TableRowMetrics>();
   private tableIndexByLine = new Map<number, number>();
   private planByTable: (number | null)[][] = [];
+  private tableSpans: [number, number][] = [];
+  private fencedSpans: [number, number][] = [];
   private lineCount = -1;
   private tabSize = 0;
   private maxPadding = 0;
@@ -413,10 +484,38 @@ export class MarkdownTableWidthCache {
   }
 
   /**
+   * Record a document edit, replacing `deletedLineCount` lines starting at
+   * `startLine` with `insertedLineCount` lines of `insertedText`. Marks the
+   * cache stale only if the edit could plausibly have changed table/fence
+   * membership anywhere (see class doc) — otherwise leaves it as-is so the
+   * next {@link sync} can skip its full rebuild. Once stale, later edits in
+   * the same batch are no-ops (already stale, nothing more to decide).
+   */
+  applyEdit(
+    startLine: number,
+    deletedLineCount: number,
+    insertedLineCount: number,
+    insertedText: string
+  ): void {
+    if (this.dirty) {
+      return;
+    }
+    const endLine = startLine + deletedLineCount - 1;
+    if (
+      deletedLineCount !== insertedLineCount ||
+      mayAffectTablesOrFences(insertedText) ||
+      rangeIntersectsSpans(this.tableSpans, startLine, endLine) ||
+      rangeIntersectsSpans(this.fencedSpans, startLine, endLine)
+    ) {
+      this.dirty = true;
+    }
+  }
+
+  /**
    * Bring the cache in line with the document. Rebuilds fully when dirty, or
    * when `tabSize`/`maxPadding` changed (both affect the per-table plan, and
    * `maxPadding` can change from a settings edit with no document edit at
-   * all, so it can't rely on {@link markDirty}).
+   * all, so it can't rely on {@link markDirty}/{@link applyEdit}).
    */
   sync(
     lineCount: number,
@@ -444,7 +543,12 @@ export class MarkdownTableWidthCache {
     for (let i = 0; i < lineCount; i++) {
       lines.push(lineAt(i));
     }
-    this.tables = findMarkdownTables(lines);
+    const fenced: boolean[] = [];
+    this.tables = findMarkdownTables(lines, NO_FENCE, fenced);
+    this.tableSpans = this.tables.map(
+      (block): [number, number] => [block[0], block[block.length - 1]]
+    );
+    this.fencedSpans = spansFromFlags(fenced);
     this.tables.forEach((block, tableIndex) => {
       const rows = computeTableRowMetrics(lines, block, tabSize);
       for (const row of rows) {

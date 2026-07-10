@@ -717,7 +717,9 @@ suite("decorateEditor と可視範囲モード（大きい Markdown テーブル
     );
 
     lines[2] = "| x | y |"; // 最長セルを解消（残る最大幅は区切り行の "---" = 3）
-    notifyMarkdownDocumentChange(editor.document);
+    notifyMarkdownDocumentChange(editor.document, [
+      { range: new vscode.Range(2, 0, 2, "| xxxxxxxxxx | y |".length), text: lines[2] },
+    ]);
     decorateEditor(editor, config(), " ", "gray");
     assert.ok(calls[1].length > 0);
     for (const d of calls[1]) {

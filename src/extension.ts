@@ -145,7 +145,7 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       notifyCsvDocumentChange(e.document, e.contentChanges);
-      notifyMarkdownDocumentChange(e.document);
+      notifyMarkdownDocumentChange(e.document, e.contentChanges);
       notifyLineScanDocumentChange(e.document, e.contentChanges);
       const shown = vscode.window.visibleTextEditors.some(
         (editor) => editor.document === e.document

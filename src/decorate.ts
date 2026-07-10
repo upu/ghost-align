@@ -122,20 +122,36 @@ export function notifyCsvDocumentChange(
 }
 
 // Per-document Markdown table width caches for large files, mirroring
-// csvWidthCaches above — see MarkdownTableWidthCache for why an edit
-// invalidates the whole cache instead of just the changed lines.
+// csvWidthCaches above — see MarkdownTableWidthCache for how it decides
+// whether an edit can be left alone or forces a full rebuild.
 const markdownTableWidthCaches = new WeakMap<
   vscode.TextDocument,
   MarkdownTableWidthCache
 >();
 
 /**
- * Mark a document's Markdown table width cache stale so the next decoration
- * pass rebuilds it. No-op for documents that have no cache yet — one is built
- * on first decoration.
+ * Keep a document's Markdown table width cache in step with an edit — see
+ * MarkdownTableWidthCache.applyEdit for how it decides whether the edit can
+ * only have touched ordinary prose (cache stays valid) or must invalidate
+ * the cache for a full rebuild on the next decoration pass. No-op for
+ * documents that have no cache yet — one is built on first decoration.
  */
-export function notifyMarkdownDocumentChange(document: vscode.TextDocument) {
-  markdownTableWidthCaches.get(document)?.markDirty();
+export function notifyMarkdownDocumentChange(
+  document: vscode.TextDocument,
+  changes: readonly { range: vscode.Range; text: string }[]
+) {
+  const cache = markdownTableWidthCaches.get(document);
+  if (!cache) {
+    return;
+  }
+  for (const change of changes) {
+    cache.applyEdit(
+      change.range.start.line,
+      change.range.end.line - change.range.start.line + 1,
+      change.text.split("\n").length,
+      change.text
+    );
+  }
 }
 
 // Per-document LineScanState checkpoint caches for the operator path on
