@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The status bar now shows when the active editor's language is individually disabled via `ghostAlign.disabledLanguages`, e.g. `Ghost Align: ON (css off)`, instead of showing the same `Ghost Align: ON` as a fully-enabled language. The display follows switching editors and changes to `disabledLanguages`.
+
 ### Fixed
 
 - `Ghost Align: Disable/Enable for Current Language` now updates whichever scope is actually in effect. Previously it always wrote to the global setting, so a workspace-level `ghostAlign.disabledLanguages` (e.g. from `.vscode/settings.json`) silently overrode it and the toggle appeared to do nothing even though a confirmation message was shown.
