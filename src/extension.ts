@@ -79,9 +79,37 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(statusBarItem);
 
   // Debounce document-edit updates so rapid typing in large files does not
-  // trigger a full re-scan on every keystroke.
-  const debouncedUpdate = debounce(updateDecorations, 80);
-  context.subscriptions.push({ dispose: () => debouncedUpdate.cancel() });
+  // trigger a full re-scan on every keystroke. scheduleUpdate merges the
+  // editors requested across calls within the debounce window (#364): a
+  // scoped call followed by a full-update call before the timer fires still
+  // decorates everything, and multiple scoped calls decorate their union
+  // rather than redoing work for editors already covered.
+  let pendingFullUpdate = false;
+  const pendingEditors = new Set<vscode.TextEditor>();
+  const debouncedFlush = debounce(() => {
+    const full = pendingFullUpdate;
+    const editors = Array.from(pendingEditors);
+    pendingFullUpdate = false;
+    pendingEditors.clear();
+    updateDecorations(full ? undefined : editors);
+  }, 80);
+  const scheduleUpdate = (editors?: readonly vscode.TextEditor[]) => {
+    if (editors) {
+      for (const editor of editors) {
+        pendingEditors.add(editor);
+      }
+    } else {
+      pendingFullUpdate = true;
+    }
+    debouncedFlush();
+  };
+  context.subscriptions.push({
+    dispose: () => {
+      debouncedFlush.cancel();
+      pendingFullUpdate = false;
+      pendingEditors.clear();
+    },
+  });
 
   // Toggle command
   context.subscriptions.push(
@@ -154,23 +182,27 @@ export function activate(context: vscode.ExtensionContext) {
     // Alignment depends on tabSize (visualColumn), so a tabSize change —
     // from the status bar, a command, or indentation auto-detection right
     // after opening a file — must trigger a re-render.
-    vscode.window.onDidChangeTextEditorOptions(() => debouncedUpdate()),
+    vscode.window.onDidChangeTextEditorOptions(() => scheduleUpdate()),
     // Large files are decorated per visible range, so scrolling must
     // recompute; small files are fully decorated and can ignore scrolling.
+    // Only the scrolled editor needs it (#364) — other visible editors'
+    // decorations are unaffected by this editor's scroll position.
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       if (e.textEditor.document.lineCount >= LARGE_FILE_LINE_THRESHOLD) {
-        debouncedUpdate();
+        scheduleUpdate([e.textEditor]);
       }
     }),
     vscode.workspace.onDidChangeTextDocument((e) => {
       notifyCsvDocumentChange(e.document, e.contentChanges);
       notifyMarkdownDocumentChange(e.document, e.contentChanges);
       notifyLineScanDocumentChange(e.document, e.contentChanges);
-      const shown = vscode.window.visibleTextEditors.some(
+      // Only editors showing the changed document need to re-decorate
+      // (#364) — a split pane on an unrelated document is unaffected.
+      const shownEditors = vscode.window.visibleTextEditors.filter(
         (editor) => editor.document === e.document
       );
-      if (shown) {
-        debouncedUpdate();
+      if (shownEditors.length > 0) {
+        scheduleUpdate(shownEditors);
       }
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
@@ -236,7 +268,16 @@ export function debounce<A extends unknown[]>(
   return wrapped;
 }
 
-function updateDecorations() {
+/**
+ * Re-decorate the given editors, or all visible editors when `editors` is
+ * omitted (#364). Callers pass a scoped list for events caused by a single
+ * editor (document edit, scroll); events that can affect any visible editor
+ * (active editor switch, visible-editors change, configuration change,
+ * toggle ON) still call this with no argument. Editors are re-checked
+ * against the current `visibleTextEditors` so one closed between the event
+ * firing and the debounce flushing is silently skipped.
+ */
+function updateDecorations(editors?: readonly vscode.TextEditor[]) {
   if (!enabled) {
     clearDecorations();
     return;
@@ -244,7 +285,11 @@ function updateDecorations() {
   const config = vscode.workspace.getConfiguration("ghostAlign");
 
   const { ghostChar, ghostColor } = resolveGhostSettings(config);
-  for (const editor of vscode.window.visibleTextEditors) {
+  const visible = vscode.window.visibleTextEditors;
+  const targets = editors
+    ? editors.filter((editor) => visible.includes(editor))
+    : visible;
+  for (const editor of targets) {
     if (!isAlignableScheme(editor.document.uri.scheme)) {
       clearEditorDecorations(editor);
       continue;

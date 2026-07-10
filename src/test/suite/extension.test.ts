@@ -246,6 +246,190 @@ suite("エディタの tabSize 変更時の再描画", () => {
   });
 });
 
+suite("再デコレート対象のスコープ限定 (#364)", () => {
+  function stubCommon(restorers: (() => void)[]) {
+    const dummyDisposable = { dispose() {} };
+    const fakeStatusBarItem = {
+      command: "",
+      tooltip: "",
+      text: "",
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+    stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
+    stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
+    stub(vscode.window, "onDidChangeActiveTextEditor", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
+    stub(vscode.window, "onDidChangeVisibleTextEditors", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeVisibleTextEditors);
+    stub(vscode.window, "onDidChangeTextEditorOptions", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorOptions);
+    stub(vscode.workspace, "onDidChangeConfiguration", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeConfiguration);
+    return { dummyDisposable };
+  }
+
+  test("ドキュメント変更時、そのドキュメントを表示していないエディタは再デコレートされない", async function () {
+    this.timeout(5000);
+
+    const restorers: (() => void)[] = [];
+    stubCommon(restorers);
+
+    let documentChangeCallback:
+      | ((e: { document: vscode.TextDocument; contentChanges: never[] }) => void)
+      | undefined;
+
+    const { editor: editorA, calls: callsA } = mockEditor("typescript", ["a = 1"]);
+    const { editor: editorB, calls: callsB } = mockEditor("typescript", ["bb = 2"]);
+    (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+    (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+    stub(
+      vscode.window,
+      "onDidChangeTextEditorVisibleRanges",
+      (() => ({ dispose() {} })) as unknown as typeof vscode.window.onDidChangeTextEditorVisibleRanges
+    );
+    stub(vscode.workspace, "onDidChangeTextDocument", ((cb: typeof documentChangeCallback) => {
+      documentChangeCallback = cb;
+      return { dispose() {} };
+    }) as unknown as typeof vscode.workspace.onDidChangeTextDocument);
+    stub(vscode.window, "visibleTextEditors", [editorA, editorB] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(documentChangeCallback, "onDidChangeTextDocument が購読されていること");
+
+      const callsBeforeA = callsA.length;
+      const callsBeforeB = callsB.length;
+
+      documentChangeCallback!({ document: editorA.document, contentChanges: [] });
+      await wait(200); // debounce (80ms) が発火するのを待つ
+
+      assert.ok(
+        callsA.length > callsBeforeA,
+        "変更されたドキュメントを表示するエディタは再デコレートされること"
+      );
+      assert.strictEqual(
+        callsB.length,
+        callsBeforeB,
+        "無関係なドキュメントを表示するエディタは再デコレートされないこと"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
+  });
+
+  test("visibleRanges変更時、イベントのtextEditor以外は再デコレートされない", async function () {
+    this.timeout(5000);
+
+    const restorers: (() => void)[] = [];
+    stubCommon(restorers);
+
+    let visibleRangesCallback:
+      | ((e: { textEditor: vscode.TextEditor }) => void)
+      | undefined;
+
+    // onDidChangeTextEditorVisibleRanges だけが対象を絞る条件
+    // (lineCount >= LARGE_FILE_LINE_THRESHOLD) を持つため、大ファイル相当の
+    // 行数を用意する。中身は演算子検出が軽く済むよう単純な行を繰り返す。
+    const largeLines = new Array(10000).fill("a = 1");
+    const { editor: editorA, calls: callsA } = mockEditor("typescript", largeLines, [
+      { start: 0, end: 10 },
+    ]);
+    const { editor: editorB, calls: callsB } = mockEditor("typescript", ["bb = 2"]);
+    (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+    (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+    stub(vscode.window, "onDidChangeTextEditorVisibleRanges", ((cb: typeof visibleRangesCallback) => {
+      visibleRangesCallback = cb;
+      return { dispose() {} };
+    }) as unknown as typeof vscode.window.onDidChangeTextEditorVisibleRanges);
+    stub(vscode.workspace, "onDidChangeTextDocument", (() => ({ dispose() {} })) as unknown as typeof vscode.workspace.onDidChangeTextDocument);
+    stub(vscode.window, "visibleTextEditors", [editorA, editorB] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(
+        visibleRangesCallback,
+        "onDidChangeTextEditorVisibleRanges が購読されていること"
+      );
+
+      const callsBeforeA = callsA.length;
+      const callsBeforeB = callsB.length;
+
+      visibleRangesCallback!({ textEditor: editorA });
+      await wait(200); // debounce (80ms) が発火するのを待つ
+
+      assert.ok(
+        callsA.length > callsBeforeA,
+        "スクロールしたエディタ自身は再デコレートされること"
+      );
+      assert.strictEqual(
+        callsB.length,
+        callsBeforeB,
+        "スクロールしていない他の可視エディタは再デコレートされないこと"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
+  });
+});
+
 suite("アクティブエディタ切替時のステータスバー追従 (#363)", () => {
   test("無効化言語⇔通常言語の切り替えでステータスバー表示が追従する", () => {
     const dummyDisposable = { dispose() {} };
