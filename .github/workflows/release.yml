@@ -2,6 +2,10 @@ name: Release
 on:
   push:
     branches: [main]
+    # リリースは必ず package.json の version bump を含むため、これで取りこぼしはない。
+    # 依存追加など非リリースの package.json 変更でも起動するが、その場合は下の
+    # バージョン判定（既存 Release があれば全スキップ）が安全網として働く。
+    paths: [package.json]
 # cancel-in-progress: false（既定）が重要: リリース途中の run をキャンセルすると
 # 「Release 作成済み・publish 未完」の中途半端な状態を作りやすい。後続は待たされ、
 # バージョン判定（既存 Release があればスキップ）に落ちるため二重実行は起きない。
