@@ -1232,6 +1232,104 @@ suite("findOperatorColumn", () => {
   });
 });
 
+suite("findOperatorColumn: TS/JS 分割代入デフォルト値の `=`（#361）", () => {
+  test("分割代入デフォルト値の = ではなく外側の代入 = を返す", () => {
+    const line = "const { a = 1 } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("JavaScript でも同様に外側の代入 = を返す", () => {
+    const line = "const { a = 1 } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "javascript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("単文ブロック内の本物の代入 = は引き続き検出する（一律の {} 除外はしない）", () => {
+    const line = "if (ready) { count = 0; }";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.indexOf("=")
+    );
+  });
+
+  test("JS でも {} ブロック内の本物の代入は引き続き検出する", () => {
+    const line = "function f() { total = 1; }";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "javascript"),
+      line.indexOf("=")
+    );
+  });
+
+  test("アロー関数コールバック内の代入は従来どおり対象外", () => {
+    const line = "items.forEach((x) => { total = total + x; })";
+    assert.strictEqual(findOperatorColumn(line, ["="], "typescript"), null);
+  });
+
+  test("ネストした分割代入でも外側の代入 = のみ検出する", () => {
+    const line = "const { a: { b = 1 } } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("デフォルト値が式（関数呼び出し）でも外側の代入 = のみ検出する", () => {
+    const line = "const { a = f(1, 2) } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("型注釈付きの分割代入でも外側の代入 = を検出する", () => {
+    const line = "const { a = 1 }: T = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("複数のデフォルト値があっても外側の代入 = のみ検出する", () => {
+    const line = "const { a = 1, b = 2 } = obj;";
+    assert.deepStrictEqual(
+      findOperatorTargets(line, ["="], "typescript").map((t) => t.align),
+      [line.lastIndexOf("=")]
+    );
+  });
+
+  test("行末コメント付きでも外側の代入 = を検出する", () => {
+    const line = "const { a = 1 } = obj; // note";
+    const realEquals = line.indexOf("=", line.indexOf("}"));
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      realEquals
+    );
+  });
+
+  test("} と = の間にブロックコメントを挟んでも外側の代入 = を検出する", () => {
+    const line = "const { a = 1 } /* c */ = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("スコープ外の言語（languageId 未指定）では従来どおりの挙動のまま", () => {
+    // この修正は TS/JS 限定（TS_JS_LANGUAGES）。他言語で {} が分割代入を
+    // 意味するとは限らないため、意図的に対象を広げない。
+    const line = "const { a = 1 } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="]),
+      line.indexOf("=")
+    );
+  });
+});
+
 suite("findOperatorTarget", () => {
   test("単純代入は insert と align が一致する", () => {
     assert.deepStrictEqual(findOperatorTarget("const x = 1;", ["="]), {

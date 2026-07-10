@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `Ghost Align: Disable/Enable for Current Language` now updates whichever scope is actually in effect. Previously it always wrote to the global setting, so a workspace-level `ghostAlign.disabledLanguages` (e.g. from `.vscode/settings.json`) silently overrode it and the toggle appeared to do nothing even though a confirmation message was shown.
+- TS/JS destructuring default values (e.g. `const { a = 1 } = obj;`) no longer align on the `=` inside the pattern. Ghost padding now targets the actual assignment `=` instead of inserting inside the destructuring pattern.
 
 ## [1.3.0] - 2026-07-09
 
