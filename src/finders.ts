@@ -917,12 +917,143 @@ function advanceCodeScan(
 }
 
 /**
+ * Whether a real assignment `=` (or a compound assignment like `+=`, but not
+ * `==`/`!=`/`<=`/`>=`/`=>`) is reached while scanning forward from
+ * `fromIndex`, before either a `;` or the end of the line is hit at
+ * `targetDepth`, or bracket depth drops below `targetDepth` (i.e. the scan
+ * exits whatever `(`/`[`/`{` scope it started in without seeing one first).
+ * Depth here counts `{`, `(`, and `[` together — unlike findAssignmentEquals'
+ * own `(`/`[`-only depth — so a nested object type (`}: { x: number } =`) or
+ * a nested pattern is still tracked accurately enough to find the real `=`
+ * that follows at the same depth. Used by {@link findDestructuringPatternRanges}
+ * as the "was this `{...}` followed by an assignment" signal (see #361).
+ */
+function isFollowedByRealAssignment(
+  lineText: string,
+  fromIndex: number,
+  targetDepth: number,
+  opts: CodeScanOptions
+): boolean {
+  const quoteState = initialQuoteState();
+  let depth = targetDepth;
+  for (let i = fromIndex; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      return false; // comment to the end of the line, or an unterminated triple-quote
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch === "{" || ch === "(" || ch === "[") {
+      depth++;
+      continue;
+    }
+    if (ch === "}" || ch === ")" || ch === "]") {
+      depth--;
+      if (depth < targetDepth) {
+        return false; // exited the enclosing scope without finding a real `=`
+      }
+      continue;
+    }
+    if (depth !== targetDepth) {
+      continue;
+    }
+    if (ch === ";") {
+      return false; // statement ended before a `=` was found
+    }
+    if (ch === "=") {
+      const prev = lineText[i - 1];
+      const next = lineText[i + 1];
+      if (next === "=" || next === ">") {
+        continue; // ==, =>
+      }
+      if (prev === "=" || prev === "!" || prev === "<" || prev === ">") {
+        continue; // ==, !=, <=, >=
+      }
+      return true;
+    }
+  }
+  return false; // reached end of line without finding a `=`
+}
+
+/**
+ * Ranges `[open, close]` (indices of the `{`/`}` themselves) of same-line
+ * `{...}` groups on a TS/JS line that are destructuring-default patterns
+ * rather than block statements or object literals — so any `=` strictly
+ * between `open` and `close` (at any nesting depth within the group) is a
+ * default value, not a real assignment.
+ *
+ * A group is a pattern only if, once its own closing `}` is reached back at
+ * the depth it opened at, {@link isFollowedByRealAssignment} finds a real
+ * `=` following it (skipping over anything else, e.g. a type annotation
+ * `}: T =` or a block comment `} /* c *​/ =`) before a `;` or end of line at
+ * that same depth. This distinguishes `const { a = 1 } = obj;` (a pattern:
+ * `}` is followed by ` = obj`) from `if (ready) { count = 0; }` (not a
+ * pattern: nothing follows `}`), so only the former's inner `=` is excluded
+ * — a blanket "always exclude `=` inside `{...}`" rule would wrongly exclude
+ * the latter's real assignment too (see #361's design notes).
+ *
+ * Scoped to {@link TS_JS_LANGUAGES} by the caller: other languages' `{}`
+ * doesn't have this destructuring-default meaning, so applying this there
+ * would only add risk without fixing a real case.
+ *
+ * A `{` with no matching `}` on the same line (a multi-line object/block) is
+ * left off the stack and never produces a range — matching every other
+ * finder in this file, which sees one line at a time.
+ */
+function findDestructuringPatternRanges(
+  lineText: string,
+  opts: CodeScanOptions
+): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const quoteState = initialQuoteState();
+  const stack: Array<{ ch: string; index: number }> = [];
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      break; // comment to the end of the line, or an unterminated triple-quote
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch === "{" || ch === "(" || ch === "[") {
+      stack.push({ ch, index: i });
+      continue;
+    }
+    if (ch === "}" || ch === ")" || ch === "]") {
+      const top = stack.pop();
+      if (top !== undefined && ch === "}" && top.ch === "{") {
+        if (isFollowedByRealAssignment(lineText, i + 1, stack.length, opts)) {
+          ranges.push([top.index, i]);
+        }
+      }
+      continue;
+    }
+  }
+  return ranges;
+}
+
+/** Whether `index` falls strictly inside one of `ranges` (see {@link findDestructuringPatternRanges}). */
+function isWithinDestructuringPattern(
+  index: number,
+  ranges: Array<[number, number]>
+): boolean {
+  return ranges.some(([open, close]) => index > open && index < close);
+}
+
+/**
  * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
  *   - any `=` inside `"..."`, `'...'`, or single-line-closed `` `...` `` strings
  *   - any `=` inside `//` line comments or single-line `/* ... *​/` blocks
  *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
+ *   - for TS/JS, any `=` inside a same-line destructuring-default pattern
+ *     `{...}` — see {@link findDestructuringPatternRanges} (#361)
  *
  * Compound assignments (`+=`, `:=`, `**=`, `<<=`, ...) are targets: `align`
  * is the `=` and `insert` is the operator's first character, so padding never
@@ -961,6 +1092,10 @@ export function findAssignmentEquals(
     pyTripleQuote:
       languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
   };
+  const patternRanges =
+    languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
+      ? findDestructuringPatternRanges(lineText, opts)
+      : [];
   const quoteState = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -987,6 +1122,9 @@ export function findAssignmentEquals(
       continue;
     }
     if (ch === "=") {
+      if (isWithinDestructuringPattern(i, patternRanges)) {
+        continue; // destructuring-default `=` inside a same-line `{...}` pattern (#361)
+      }
       const prev = lineText[i - 1];
       const next = lineText[i + 1];
       if (next === "=" || next === ">" || next === "~") {
