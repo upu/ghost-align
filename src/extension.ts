@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import {
   isAlignableScheme,
+  isLanguageDisabled,
   resolveDisabledLanguagesTarget,
   resolveGhostSettings,
   toggleDisabledLanguage,
@@ -46,9 +47,22 @@ export function resolveInitialEnabled(
   return globalState.get<boolean>(ENABLED_STATE_KEY, true);
 }
 
-/** Label shown in the status bar for the given toggle state. */
-export function statusBarText(isEnabled: boolean): string {
-  return `Ghost Align: ${isEnabled ? "ON" : "OFF"}`;
+/**
+ * Label shown in the status bar for the given toggle state. `disabledLanguageId`,
+ * when set, means the active editor's language is individually disabled via
+ * `ghostAlign.disabledLanguages` (#363) — surfaced only while the extension is
+ * otherwise ON, since OFF already communicates "nothing is aligned".
+ */
+export function statusBarText(
+  isEnabled: boolean,
+  disabledLanguageId?: string
+): string {
+  if (!isEnabled) {
+    return "Ghost Align: OFF";
+  }
+  return disabledLanguageId
+    ? `Ghost Align: ON (${disabledLanguageId} off)`
+    : "Ghost Align: ON";
 }
 
 export function activate(context: vscode.ExtensionContext) {
@@ -130,7 +144,12 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Update on editor / document / configuration changes
   context.subscriptions.push(
-    vscode.window.onDidChangeActiveTextEditor(() => updateDecorations()),
+    vscode.window.onDidChangeActiveTextEditor(() => {
+      updateDecorations();
+      // The status bar's language-disabled hint (#363) depends on the active
+      // editor's languageId, so switching editors must refresh it too.
+      updateStatusBar();
+    }),
     vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
     // Alignment depends on tabSize (visualColumn), so a tabSize change —
     // from the status bar, a command, or indentation auto-detection right
@@ -179,7 +198,12 @@ function updateStatusBar() {
     statusBarItem.hide();
     return;
   }
-  statusBarItem.text = statusBarText(enabled);
+  const languageId = vscode.window.activeTextEditor?.document.languageId;
+  const disabledLanguageId =
+    languageId && isLanguageDisabled(config, languageId)
+      ? languageId
+      : undefined;
+  statusBarItem.text = statusBarText(enabled, disabledLanguageId);
   statusBarItem.show();
 }
 

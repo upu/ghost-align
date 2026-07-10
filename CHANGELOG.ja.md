@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- ステータスバーに、現在のエディタの言語が `ghostAlign.disabledLanguages` で個別に無効化されていることが表示されるようになった（例: `Ghost Align: ON (css off)`）。従来は無効化されている言語でも通常言語と同じ `Ghost Align: ON` のままだった。エディタの切り替えや `disabledLanguages` の変更に追従する。
+
 ### Fixed
 
 - 「Ghost Align: Disable/Enable for Current Language」が、実効値として使われているスコープを正しく更新するようになりました。従来は常にグローバル設定へ書き込んでいたため、`.vscode/settings.json` などで workspace レベルの `ghostAlign.disabledLanguages` が設定されていると、その値に上書きされて無反応になっていました（確認メッセージ自体は表示されるため気付きにくい問題でした）。

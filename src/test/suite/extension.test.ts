@@ -148,6 +148,14 @@ suite("statusBarText", () => {
   test("無効なら OFF を表示する", () => {
     assert.strictEqual(statusBarText(false), "Ghost Align: OFF");
   });
+
+  test("有効かつ現在言語が無効化されていれば言語名付きで表示する", () => {
+    assert.strictEqual(statusBarText(true, "css"), "Ghost Align: ON (css off)");
+  });
+
+  test("全体 OFF のときは言語が無効化されていても OFF のみ表示する", () => {
+    assert.strictEqual(statusBarText(false, "css"), "Ghost Align: OFF");
+  });
 });
 
 suite("エディタの tabSize 変更時の再描画", () => {
@@ -229,6 +237,130 @@ suite("エディタの tabSize 変更時の再描画", () => {
       assert.ok(
         calls.length > callsBefore,
         "onDidChangeTextEditorOptions のコールバックで再デコレートが走ること"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
+  });
+});
+
+suite("アクティブエディタ切替時のステータスバー追従 (#363)", () => {
+  test("無効化言語⇔通常言語の切り替えでステータスバー表示が追従する", () => {
+    const dummyDisposable = { dispose() {} };
+    const fakeStatusBarItem = {
+      command: "",
+      tooltip: "",
+      text: "",
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+
+    const restorers: (() => void)[] = [];
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+
+    let activeEditorChangeCallback: (() => void) | undefined;
+    let currentActiveEditor: vscode.TextEditor | undefined;
+
+    const { editor: cssEditor } = mockEditor("css", ["a { color: red; }"]);
+    const { editor: tsEditor } = mockEditor("typescript", ["a = 1"]);
+
+    const originalActiveEditorDescriptor = Object.getOwnPropertyDescriptor(
+      vscode.window,
+      "activeTextEditor"
+    );
+    Object.defineProperty(vscode.window, "activeTextEditor", {
+      configurable: true,
+      get: () => currentActiveEditor,
+    });
+    restorers.push(() => {
+      if (originalActiveEditorDescriptor) {
+        Object.defineProperty(
+          vscode.window,
+          "activeTextEditor",
+          originalActiveEditorDescriptor
+        );
+      } else {
+        delete (vscode.window as unknown as { activeTextEditor?: unknown })
+          .activeTextEditor;
+      }
+    });
+
+    const fakeGhostAlignConfig = {
+      get<T>(key: string, defaultValue: T): T {
+        if (key === "showStatusBar") {
+          return true as unknown as T;
+        }
+        if (key === "disabledLanguages") {
+          return ["css"] as unknown as T;
+        }
+        return defaultValue;
+      },
+    };
+    stub(
+      vscode.workspace,
+      "getConfiguration",
+      ((section?: string) =>
+        section === "ghostAlign"
+          ? fakeGhostAlignConfig
+          : { get: () => undefined }) as unknown as typeof vscode.workspace.getConfiguration
+    );
+
+    stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
+    stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
+    stub(vscode.window, "onDidChangeActiveTextEditor", ((cb: () => void) => {
+      activeEditorChangeCallback = cb;
+      return dummyDisposable;
+    }) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
+    stub(vscode.window, "onDidChangeVisibleTextEditors", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeVisibleTextEditors);
+    stub(vscode.window, "onDidChangeTextEditorVisibleRanges", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorVisibleRanges);
+    stub(vscode.window, "onDidChangeTextEditorOptions", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorOptions);
+    stub(vscode.workspace, "onDidChangeTextDocument", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeTextDocument);
+    stub(vscode.workspace, "onDidChangeConfiguration", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeConfiguration);
+    stub(vscode.window, "visibleTextEditors", [] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(
+        activeEditorChangeCallback,
+        "onDidChangeActiveTextEditor が購読されていること"
+      );
+
+      currentActiveEditor = cssEditor;
+      activeEditorChangeCallback!();
+      assert.strictEqual(
+        fakeStatusBarItem.text,
+        "Ghost Align: ON (css off)",
+        "無効化言語に切り替えると言語名付き表示になること"
+      );
+
+      currentActiveEditor = tsEditor;
+      activeEditorChangeCallback!();
+      assert.strictEqual(
+        fakeStatusBarItem.text,
+        "Ghost Align: ON",
+        "通常言語に戻すと言語名なし表示になること"
       );
     } finally {
       for (const restore of restorers.reverse()) {
