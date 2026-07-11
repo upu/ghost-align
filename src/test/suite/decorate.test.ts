@@ -300,6 +300,25 @@ suite("buildCopyAlignedText", () => {
     assert.strictEqual(text, "a = 1\nbb = 2");
   });
 
+  test("拡張機能トグル OFF 中はパディングを挿入せずそのままコピーする", () => {
+    const { editor } = mockEditor("typescript", ["a = 1", "bb = 2"]);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({ operators: ["="] }) as unknown as vscode.WorkspaceConfiguration,
+      false
+    );
+    assert.strictEqual(text, "a = 1\nbb = 2");
+  });
+
+  test("enabled を省略した場合は従来どおり整列済みテキストをコピーする", () => {
+    const { editor } = mockEditor("typescript", ["a = 1", "bb = 2"]);
+    const text = buildCopyAlignedText(
+      editor,
+      mockConfig({ operators: ["="] }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(text, "a  = 1\nbb = 2");
+  });
+
   test("markdown テーブルの整列もコピー時に実スペース化される", () => {
     const lines = ["| a | bb |", "| --- | --- |", "| ccc | d |"];
     const { editor } = mockEditor("markdown", lines);
