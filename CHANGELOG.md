@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Changing an editor's language mode (e.g. Plain Text → Python) no longer leaves the old language's alignment and status bar hint stuck until the next edit or editor switch. Re-decoration and the status bar's per-language disabled hint (`ON (<lang> off)`) now update immediately.
+
 ## [1.4.0] - 2026-07-11
 
 ### Added

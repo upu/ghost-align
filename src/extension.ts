@@ -210,6 +210,19 @@ export function activate(context: vscode.ExtensionContext) {
         updateDecorations();
         updateStatusBar();
       }
+    }),
+    // Changing an editor's language mode fires this with the new languageId
+    // but doesn't fire onDidChangeActiveTextEditor/VisibleTextEditors (#395),
+    // so without this the old language's alignment (and status bar hint)
+    // lingers until the next edit or editor switch.
+    vscode.workspace.onDidOpenTextDocument((document) => {
+      const shownEditors = vscode.window.visibleTextEditors.filter(
+        (editor) => editor.document === document
+      );
+      if (shownEditors.length > 0) {
+        scheduleUpdate(shownEditors);
+        updateStatusBar();
+      }
     })
   );
 
