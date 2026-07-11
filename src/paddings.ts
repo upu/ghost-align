@@ -279,16 +279,16 @@ export function computePaddings(
   for (const group of groups) {
     const rows = group.map((entry) => ({
       lineIndex: entry.lineIndex,
-      columns: entry.columns,
+      columnsByOpIndex: new Map(entry.columns.map((c) => [c.opIndex, c])),
       shift: 0,
     }));
     const opIndices = [
-      ...new Set(rows.flatMap((r) => r.columns.map((c) => c.opIndex))),
+      ...new Set(rows.flatMap((r) => [...r.columnsByOpIndex.keys()])),
     ].sort((a, b) => a - b);
     for (const opIndex of opIndices) {
       let active = rows
         .map((row) => {
-          const column = row.columns.find((c) => c.opIndex === opIndex);
+          const column = row.columnsByOpIndex.get(opIndex);
           return column ? { row, column } : undefined;
         })
         .filter((x): x is NonNullable<typeof x> => x !== undefined);
