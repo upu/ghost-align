@@ -832,6 +832,35 @@ suite("computePaddings", () => {
       { lineIndex: 0, character: 60, padding: 2 },
     ]);
   });
+
+  test("マルチカラム: 前列のパディングが後列の比較にシフトとして反映される", () => {
+    const placements = computePaddings([
+      [
+        {
+          lineIndex: 0,
+          columns: [
+            { opIndex: 0, insert: 2, visualColumn: 2 },
+            { opIndex: 1, insert: 6, visualColumn: 6 },
+          ],
+        },
+        {
+          lineIndex: 1,
+          columns: [
+            { opIndex: 0, insert: 7, visualColumn: 7 },
+            { opIndex: 1, insert: 9, visualColumn: 9 },
+          ],
+        },
+      ],
+    ]);
+    // opIndex 0: 行0(2)が行1(7)に揃い +5、行1は最大なので変化なし。
+    // opIndex 1: 行0は前列のシフト+5込みで 6+5=11、行1はシフトなしで 9。
+    // 行1(9)が行0(11)に揃うよう +2 される。前列のシフトが後列の比較・
+    // 整列先の両方に反映されている証拠。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 5 },
+      { lineIndex: 1, character: 9, padding: 2 },
+    ]);
+  });
 });
 
 suite("computeColumnPlan", () => {
