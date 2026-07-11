@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-11
+
 ### Added
 
 - ステータスバーに、現在のエディタの言語が `ghostAlign.disabledLanguages` で個別に無効化されていることが表示されるようになった（例: `Ghost Align: ON (css off)`）。従来は無効化されている言語でも通常言語と同じ `Ghost Align: ON` のままだった。エディタの切り替えや `disabledLanguages` の変更に追従する。
@@ -238,7 +240,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
