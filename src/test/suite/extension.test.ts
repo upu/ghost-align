@@ -430,6 +430,217 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
   });
 });
 
+suite("言語モード変更時の再デコレートとステータスバー更新 (#395)", () => {
+  function stubCommon(restorers: (() => void)[]) {
+    const dummyDisposable = { dispose() {} };
+    const fakeStatusBarItem = {
+      command: "",
+      tooltip: "",
+      text: "",
+      show() {},
+      hide() {},
+      dispose() {},
+    };
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+    stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
+    stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
+    stub(vscode.window, "onDidChangeActiveTextEditor", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
+    stub(vscode.window, "onDidChangeVisibleTextEditors", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeVisibleTextEditors);
+    stub(vscode.window, "onDidChangeTextEditorOptions", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorOptions);
+    stub(vscode.window, "onDidChangeTextEditorVisibleRanges", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeTextEditorVisibleRanges);
+    stub(vscode.workspace, "onDidChangeTextDocument", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeTextDocument);
+    stub(vscode.workspace, "onDidChangeConfiguration", (() => dummyDisposable) as unknown as typeof vscode.workspace.onDidChangeConfiguration);
+    return { fakeStatusBarItem };
+  }
+
+  test("onDidOpenTextDocument の発火で、そのドキュメントを表示するエディタだけが再デコレートされる", async function () {
+    this.timeout(5000);
+
+    const restorers: (() => void)[] = [];
+    stubCommon(restorers);
+
+    let openDocumentCallback:
+      | ((document: vscode.TextDocument) => void)
+      | undefined;
+
+    const { editor: editorA, calls: callsA } = mockEditor("plaintext", ["a = 1"]);
+    const { editor: editorB, calls: callsB } = mockEditor("typescript", ["bb = 2"]);
+    (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+    (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+    stub(vscode.workspace, "onDidOpenTextDocument", ((cb: typeof openDocumentCallback) => {
+      openDocumentCallback = cb;
+      return { dispose() {} };
+    }) as unknown as typeof vscode.workspace.onDidOpenTextDocument);
+    stub(vscode.window, "visibleTextEditors", [editorA, editorB] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(openDocumentCallback, "onDidOpenTextDocument が購読されていること");
+
+      const callsBeforeA = callsA.length;
+      const callsBeforeB = callsB.length;
+
+      // 言語モード変更は同一ドキュメントに対して新しい languageId で
+      // onDidOpenTextDocument が発火する形で観測される。
+      (editorA.document as unknown as { languageId: string }).languageId = "python";
+      openDocumentCallback!(editorA.document);
+      await wait(200); // debounce (80ms) が発火するのを待つ
+
+      assert.ok(
+        callsA.length > callsBeforeA,
+        "言語モードが変更されたドキュメントを表示するエディタは再デコレートされること"
+      );
+      assert.strictEqual(
+        callsB.length,
+        callsBeforeB,
+        "無関係なドキュメントを表示するエディタは再デコレートされないこと"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
+  });
+
+  test("onDidOpenTextDocument の発火でステータスバーの言語別無効化表示が更新される", function () {
+    this.timeout(5000);
+
+    const restorers: (() => void)[] = [];
+    const { fakeStatusBarItem } = stubCommon(restorers);
+
+    let openDocumentCallback:
+      | ((document: vscode.TextDocument) => void)
+      | undefined;
+
+    const { editor } = mockEditor("plaintext", ["a: 1"]);
+    (editor.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
+
+    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
+      const original = Object.getOwnPropertyDescriptor(obj, key);
+      Object.defineProperty(obj, key, {
+        configurable: true,
+        value,
+      });
+      restorers.push(() => {
+        if (original) {
+          Object.defineProperty(obj, key, original);
+        } else {
+          delete obj[key];
+        }
+      });
+    }
+
+    const originalActiveEditorDescriptor = Object.getOwnPropertyDescriptor(
+      vscode.window,
+      "activeTextEditor"
+    );
+    Object.defineProperty(vscode.window, "activeTextEditor", {
+      configurable: true,
+      get: () => editor,
+    });
+    restorers.push(() => {
+      if (originalActiveEditorDescriptor) {
+        Object.defineProperty(
+          vscode.window,
+          "activeTextEditor",
+          originalActiveEditorDescriptor
+        );
+      } else {
+        delete (vscode.window as unknown as { activeTextEditor?: unknown })
+          .activeTextEditor;
+      }
+    });
+
+    const fakeGhostAlignConfig = {
+      get<T>(key: string, defaultValue: T): T {
+        if (key === "showStatusBar") {
+          return true as unknown as T;
+        }
+        if (key === "disabledLanguages") {
+          return ["yaml"] as unknown as T;
+        }
+        return defaultValue;
+      },
+    };
+    stub(
+      vscode.workspace,
+      "getConfiguration",
+      ((section?: string) =>
+        section === "ghostAlign"
+          ? fakeGhostAlignConfig
+          : { get: () => undefined }) as unknown as typeof vscode.workspace.getConfiguration
+    );
+    stub(vscode.workspace, "onDidOpenTextDocument", ((cb: typeof openDocumentCallback) => {
+      openDocumentCallback = cb;
+      return { dispose() {} };
+    }) as unknown as typeof vscode.workspace.onDidOpenTextDocument);
+    stub(vscode.window, "visibleTextEditors", [editor] as unknown as typeof vscode.window.visibleTextEditors);
+
+    try {
+      const context = {
+        subscriptions: [] as { dispose(): void }[],
+        globalState: mockState({}),
+        workspaceState: mockState({}),
+      } as unknown as vscode.ExtensionContext;
+      activate(context);
+
+      assert.ok(openDocumentCallback, "onDidOpenTextDocument が購読されていること");
+      assert.strictEqual(
+        fakeStatusBarItem.text,
+        "Ghost Align: ON",
+        "前提: 変更前は無効化言語表示になっていないこと"
+      );
+
+      (editor.document as unknown as { languageId: string }).languageId = "yaml";
+      openDocumentCallback!(editor.document);
+
+      assert.strictEqual(
+        fakeStatusBarItem.text,
+        "Ghost Align: ON (yaml off)",
+        "disabledLanguages に該当する言語へ切り替えると即座に反映されること"
+      );
+    } finally {
+      for (const restore of restorers.reverse()) {
+        restore();
+      }
+    }
+  });
+});
+
 suite("アクティブエディタ切替時のステータスバー追従 (#363)", () => {
   test("無効化言語⇔通常言語の切り替えでステータスバー表示が追従する", () => {
     const dummyDisposable = { dispose() {} };
