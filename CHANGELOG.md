@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-07-11
+
 ### Added
 
 - The status bar now shows when the active editor's language is individually disabled via `ghostAlign.disabledLanguages`, e.g. `Ghost Align: ON (css off)`, instead of showing the same `Ghost Align: ON` as a fully-enabled language. The display follows switching editors and changes to `disabledLanguages`.
@@ -238,7 +240,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
 [1.1.0]: https://github.com/upu/ghost-align/releases/tag/v1.1.0
