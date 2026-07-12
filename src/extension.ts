@@ -135,7 +135,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
       const config = vscode.workspace.getConfiguration("ghostAlign");
-      const text = buildCopyAlignedText(editor, config);
+      const text = buildCopyAlignedText(editor, config, enabled);
       await vscode.env.clipboard.writeText(text);
     })
   );

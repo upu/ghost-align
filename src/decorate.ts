@@ -405,10 +405,15 @@ export function decorateEditor(
  * for compatibility with the paste target. Always computed over the whole
  * document (no visible-range slicing), since this runs once per invocation
  * rather than on every keystroke. The document itself is never modified.
+ *
+ * `enabled` mirrors the extension's global toggle (`ghostAlign.toggle`): when
+ * false there is no ghost padding shown in the editor, so copying must match
+ * that and fall back to the raw text, same as a disabled language (#397).
  */
 export function buildCopyAlignedText(
   editor: vscode.TextEditor,
-  config: vscode.WorkspaceConfiguration
+  config: vscode.WorkspaceConfiguration,
+  enabled = true
 ): string {
   const document = editor.document;
   const languageId = document.languageId;
@@ -417,7 +422,7 @@ export function buildCopyAlignedText(
     lines.push(document.lineAt(i).text);
   }
 
-  const placements = isLanguageDisabled(config, languageId)
+  const placements = !enabled || isLanguageDisabled(config, languageId)
     ? []
     : computeDocumentPlacements(
         lines,
