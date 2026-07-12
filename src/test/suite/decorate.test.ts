@@ -228,6 +228,38 @@ suite("computeDocumentPlacements", () => {
     ]);
   });
 
+  test("csv.alignNumbersRight=true だと数値のみの列がセル先頭側に右寄せパディングされる", () => {
+    const lines = ["id,name", "1,apple", "222,banana"];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "csv",
+      mockConfig({
+        "csv.alignNumbersRight": true,
+      }) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 0, padding: 1 },
+      { lineIndex: 1, character: 0, padding: 2 },
+    ]);
+  });
+
+  test("csv.alignNumbersRight 既定(false)では従来どおり区切り直前に左寄せパディングされる", () => {
+    const lines = ["id,name", "1,apple", "222,banana"];
+    const placements = computeDocumentPlacements(
+      lines,
+      mockDocument(lines),
+      "csv",
+      mockConfig({}) as unknown as vscode.WorkspaceConfiguration,
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 1 },
+      { lineIndex: 1, character: 1, padding: 2 },
+    ]);
+  });
+
   test("TS/JS では JSDoc @param の整列も合成される", () => {
     const lines = [" * @param {number} count x", " * @param {string} s 説明"];
     const placements = computeDocumentPlacements(
@@ -693,6 +725,29 @@ suite("decorateEditor と可視範囲モード（大きい CSV/TSV）", () => {
     ]);
     decorateEditor(editor, config(), " ", "gray");
     assert.deepStrictEqual(calls[1], []);
+  });
+
+  test("csv.alignNumbersRight=true: キャッシュ経由でも可視範囲外を含む全行から数値列と判定し、セル先頭側に右寄せされる", () => {
+    const lines = new Array<string>(10001).fill("1,b");
+    lines[0] = "id,name"; // ヘッダー（キャッシュ全体の先頭行として数値判定から除外される）
+    lines[9500] = "222,bbb"; // 可視範囲外の最も幅の広い数値セル
+    const { editor, calls } = mockEditor("csv", lines, [
+      { start: 9000, end: 9040 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        "csv.alignNumbersRight": true,
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.ok(calls[0].length > 0);
+    for (const d of calls[0]) {
+      // 左寄せなら区切り直前（character 1）に入るが、右寄せではセル先頭（character 0）に入る。
+      assert.strictEqual(d.range.start.character, 0);
+      assert.strictEqual(d.renderOptions?.before?.contentText, " ".repeat(2));
+    }
   });
 });
 

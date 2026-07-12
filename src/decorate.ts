@@ -58,7 +58,13 @@ export function computeDocumentPlacements(
     return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState, maxPadding);
   }
   if (path.kind === "csv") {
-    return computeCsvPaddings(lines, path.delimiter, tabSize, maxPadding);
+    return computeCsvPaddings(
+      lines,
+      path.delimiter,
+      tabSize,
+      maxPadding,
+      path.alignNumbersRight
+    );
   }
 
   const groups = findAlignmentGroups(
@@ -314,7 +320,8 @@ export function decorateEditor(
       rows,
       cache.columnPlan(maxPadding),
       path.delimiter,
-      tabSize
+      tabSize,
+      path.alignNumbersRight ? cache.numericColumns() : []
     );
   } else {
     const sliceLines = (): string[] => {
