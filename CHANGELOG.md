@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-12
+
 ### Added
 
 - New opt-in setting `ghostAlign.csv.alignNumbersRight` (default `false`) right-aligns a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (`-?\d+(\.\d+)?`; thousands separators and exponents are out of scope). The first row (typically a header) is excluded from that numeric judgment but still gets right-aligned when its column qualifies. `Copy with Alignment` reproduces the same alignment since it reuses the same placements.
@@ -254,7 +256,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
