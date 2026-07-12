@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-07-12
+
 ### Added
 
 - 新しいオプトイン設定 `ghostAlign.csv.alignNumbersRight`（既定 `false`）を追加。有効にすると、列のデータセルが全て単純な数値パターン（`-?\d+(\.\d+)?`。桁区切りカンマや指数表記は対象外）に見える列だけ、左寄せの代わりに右寄せになる。1行目（多くはヘッダー）はこの数値判定からは除外されるが、その列が数値列と判定されれば1行目自体も右寄せされる。`Copy with Alignment` も同じ placements を再利用するため同じ寄せを再現する。
@@ -254,7 +256,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
 [1.2.0]: https://github.com/upu/ghost-align/releases/tag/v1.2.0
