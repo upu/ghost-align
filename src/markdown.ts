@@ -260,6 +260,46 @@ interface TableRowMetrics {
   segWidths: number[];
 }
 
+/** A column's declared GFM alignment, parsed from its delimiter-row marker. */
+type ColumnAlign = "left" | "center" | "right";
+
+/**
+ * Per-column alignment declared by a delimiter row's markers (`:---`,
+ * `---:`, `:---:`; plain `---` is left), indexed the same way as {@link
+ * TableRowMetrics.segWidths} — `alignments[k]` is the segment ending at
+ * `pipes[k]` (so index 0 is the prefix before the table's leading `|`,
+ * always "left" since it's never real cell content).
+ */
+function parseDelimiterAlignments(text: string, pipes: number[]): ColumnAlign[] {
+  let segStart = 0;
+  return pipes.map((pipe) => {
+    const cell = text.slice(segStart, pipe).trim();
+    segStart = pipe + 1;
+    const left = cell.startsWith(":");
+    const right = cell.endsWith(":") && cell.length > 0;
+    if (left && right && cell.length > 1) {
+      return "center";
+    }
+    return right ? "right" : "left";
+  });
+}
+
+/**
+ * Char index where right/center-aligned padding pushes a cell's content
+ * from: the first non-space/tab character in `[segStart, segEnd)`, so the
+ * cell's existing leading whitespace stays put and ghost padding lands right
+ * against the content, pushing it toward the `|`. Falls back to `segEnd`
+ * (same position `placementsForTableRows` uses for left alignment) when the
+ * cell is empty or all whitespace.
+ */
+function cellContentStart(text: string, segStart: number, segEnd: number): number {
+  let j = segStart;
+  while (j < segEnd && (text[j] === " " || text[j] === "\t")) {
+    j++;
+  }
+  return j;
+}
+
 /** Compute {@link TableRowMetrics} for each line index in `block`. */
 function computeTableRowMetrics(
   lines: string[],
@@ -309,6 +349,18 @@ function computeTableColumnPlan(
  * columns from aligning — it just makes them align relative to each row's
  * real position rather than one inherited from the skipped column.
  *
+ * `alignments[k]` (from {@link parseDelimiterAlignments}) controls where a
+ * header/data row's padding for column `k` lands: "left" (default, also
+ * used when `alignments` is shorter than the row, e.g. a ragged row) keeps
+ * the pre-#398 behavior of padding right before the `|`; "right" moves all
+ * of it to {@link cellContentStart}, before the cell's content; "center"
+ * splits it across both — floor at the content side, ceil at the `|` side,
+ * so an odd remainder leans the content left of exact center (mirrors
+ * Python's `str.center`). The delimiter row itself is unaffected by
+ * `alignments` — its `-`-padding placement is chosen by {@link
+ * delimiterCellInsertPos} regardless of which alignment it declares, so the
+ * ruled line keeps looking continuous.
+ *
  * Row-unit API: each row carries its own `text` (see {@link
  * TableRowMetrics}), so a caller with rows scattered across a document
  * (e.g. {@link MarkdownTableWidthCache.placementsForRange}) doesn't need to
@@ -317,7 +369,8 @@ function computeTableColumnPlan(
  */
 function placementsForTableRows(
   rows: readonly TableRowMetrics[],
-  plan: readonly (number | null)[]
+  plan: readonly (number | null)[],
+  alignments: readonly ColumnAlign[] = []
 ): Placement[] {
   const placements: Placement[] = [];
   for (const row of rows) {
@@ -341,6 +394,27 @@ function placementsForTableRows(
             padding,
             padChar: "-",
           });
+        } else if (!isDelimiter && alignments[k] === "right") {
+          const segStart = k === 0 ? 0 : row.pipes[k - 1] + 1;
+          placements.push({
+            lineIndex: row.lineIndex,
+            character: cellContentStart(text, segStart, pipe),
+            padding,
+          });
+        } else if (!isDelimiter && alignments[k] === "center") {
+          const segStart = k === 0 ? 0 : row.pipes[k - 1] + 1;
+          const leftPad = Math.floor(padding / 2);
+          const rightPad = padding - leftPad;
+          if (leftPad > 0) {
+            placements.push({
+              lineIndex: row.lineIndex,
+              character: cellContentStart(text, segStart, pipe),
+              padding: leftPad,
+            });
+          }
+          if (rightPad > 0) {
+            placements.push({ lineIndex: row.lineIndex, character: pipe, padding: rightPad });
+          }
         } else {
           placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
         }
@@ -386,7 +460,9 @@ export function computeMarkdownTablePaddings(
   for (const block of findMarkdownTables(lines, initialState)) {
     const rows = computeTableRowMetrics(lines, block, tabSize);
     const plan = computeTableColumnPlan(rows, maxPadding);
-    placements.push(...placementsForTableRows(rows, plan));
+    const delimiterRow = rows[1];
+    const alignments = parseDelimiterAlignments(delimiterRow.text, delimiterRow.pipes);
+    placements.push(...placementsForTableRows(rows, plan, alignments));
   }
   return placements;
 }
@@ -471,6 +547,7 @@ export class MarkdownTableWidthCache {
   private rowMetrics = new Map<number, TableRowMetrics>();
   private tableIndexByLine = new Map<number, number>();
   private planByTable: (number | null)[][] = [];
+  private alignmentsByTable: ColumnAlign[][] = [];
   private tableSpans: [number, number][] = [];
   private fencedSpans: [number, number][] = [];
   private lineCount = -1;
@@ -538,6 +615,7 @@ export class MarkdownTableWidthCache {
     this.rowMetrics.clear();
     this.tableIndexByLine.clear();
     this.planByTable = [];
+    this.alignmentsByTable = [];
 
     const lines: string[] = [];
     for (let i = 0; i < lineCount; i++) {
@@ -556,6 +634,10 @@ export class MarkdownTableWidthCache {
         this.tableIndexByLine.set(row.lineIndex, tableIndex);
       }
       this.planByTable.push(computeTableColumnPlan(rows, maxPadding));
+      const delimiterRow = rows[1];
+      this.alignmentsByTable.push(
+        parseDelimiterAlignments(delimiterRow.text, delimiterRow.pipes)
+      );
     });
   }
 
@@ -569,7 +651,11 @@ export class MarkdownTableWidthCache {
         continue;
       }
       placements.push(
-        ...placementsForTableRows([row], this.planByTable[tableIndex])
+        ...placementsForTableRows(
+          [row],
+          this.planByTable[tableIndex],
+          this.alignmentsByTable[tableIndex]
+        )
       );
     }
     return placements;

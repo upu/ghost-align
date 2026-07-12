@@ -81,4 +81,22 @@ suite("buildAlignedText", () => {
     );
     assert.strictEqual(text.split("\n")[1], "| -----: | --- |");
   });
+
+  test("GFM アライメント宣言（左/中央/右寄せ）はコピーでも同じ寄せで実体化される", () => {
+    const lines = [
+      "| a | b | c |",
+      "| --- | :---: | ---: |",
+      "| aaaaa | bbbbb | ccccc |",
+    ];
+    const text = buildAlignedText(
+      lines,
+      computeMarkdownTablePaddings(lines, 4),
+      null,
+      "\n"
+    );
+    assert.strictEqual(
+      text.split("\n")[0],
+      "| a     |   b   |     c |"
+    );
+  });
 });
