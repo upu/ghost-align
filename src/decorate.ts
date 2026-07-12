@@ -17,7 +17,6 @@ import {
   FenceState,
   MarkdownTableWidthCache,
   computeMarkdownTablePaddings,
-  computeFenceStateBefore,
   findPipePositions,
 } from "./markdown";
 import {
@@ -247,9 +246,9 @@ export function decorateEditor(
   // group straddling the visible edge still aligns against all its members.
   // CSV/TSV has no group boundary (the whole file is one table); it instead
   // aligns against per-column max widths cached over the whole document, so
-  // scrolling cannot change the alignment position. Markdown fence state
-  // opened above the slice is tracked separately below via
-  // computeFenceStateBefore.
+  // scrolling cannot change the alignment position. Markdown likewise never
+  // slices below: its large-file path goes through MarkdownTableWidthCache,
+  // which computes widths over the whole document up front.
   let sliceStart = 0;
   let sliceEnd = lineCount - 1;
   const useVisibleRange =
@@ -326,18 +325,9 @@ export function decorateEditor(
       return lines;
     };
 
-    // computeFencedLines(lines) only tracks fence open/close within `lines`, so a
-    // fence opened above sliceStart would otherwise look unfenced at the top of the
-    // slice. The pre-scan is a cheap trim + regex per line (no pipe/table parsing),
-    // so it's fine to run over every line above the slice even for a huge file.
-    const fenceState =
-      path.kind === "markdown" && sliceStart > 0
-        ? computeFenceStateBefore(sliceStart, (i) => document.lineAt(i).text)
-        : undefined;
     // A block comment/template literal, CSS rule block, or YAML block scalar
     // opened above sliceStart would otherwise look unopened at the top of the
-    // slice; seed the scan with whatever state it left behind (mirrors the
-    // fence-state pre-scan above).
+    // slice; seed the scan with whatever state it left behind.
     const initialState: LineScanState | undefined =
       path.kind === "operators" && sliceStart > 0
         ? getLineScanCheckpointCache(document).stateBefore(
@@ -359,7 +349,11 @@ export function decorateEditor(
       languageId,
       config,
       tabSize,
-      fenceState,
+      // Markdown never reaches this branch with sliceStart > 0 (the
+      // path.kind === "markdown" && useVisibleRange case is handled above
+      // via MarkdownTableWidthCache instead), so there's no fence state to
+      // seed here.
+      undefined,
       initialState
     );
     if (sliceStart > 0) {
