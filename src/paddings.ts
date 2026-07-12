@@ -31,8 +31,10 @@ function leadingIndent(lineText: string): number {
  * East Asian Width Wide/Fullwidth code point ranges, plus emoji. VS Code
  * renders these at double width, so alignment must count them as 2 columns.
  * JS regex has no `\p{East_Asian_Width=...}`, so we test against an explicit
- * table. Variation selectors and ZWJ emoji sequences are out of scope: each
- * code point is measured on its own.
+ * table. A multi-code-point emoji ZWJ sequence (e.g. a family emoji) is still
+ * out of scope as a single glyph: each code point is measured on its own, so
+ * such a sequence sums to more than 2 even though ZWJ/variation selectors
+ * inside it are individually zero-width (see ZERO_WIDTH_RANGES below).
  */
 const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x1100, 0x115f], // Hangul Jamo
@@ -51,8 +53,34 @@ const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x20000, 0x3fffd], // CJK Unified Ideographs Extension B and beyond
 ];
 
-/** Rendered column width of a single code point: 2 for wide/fullwidth, else 1. */
+/**
+ * Zero-width code point ranges: combining marks and format characters that
+ * VS Code renders with no width of their own, always attaching to the
+ * preceding character. Scoped to the main blocks named in issue #396 rather
+ * than the full Unicode `Mn`/`Cf` categories, matching WIDE_CHAR_RANGES'
+ * explicit-table approach above:
+ * - Combining Diacritical Marks (U+0300-U+036F): NFD-decomposed accents
+ *   (`e` + U+0301 for "é"), common once text isn't NFC-normalized.
+ * - U+200B-U+200D: zero width space / non-joiner / joiner (ZWSP/ZWNJ/ZWJ).
+ * - Variation Selectors (U+FE00-U+FE0F): text/emoji presentation selectors.
+ * - U+FEFF: zero width no-break space, also used as a BOM.
+ * A full Mn-category sweep (other combining blocks, Mongolian variation
+ * selectors, etc.) is left as a known limitation until a concrete report
+ * asks for it.
+ */
+const ZERO_WIDTH_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x0300, 0x036f], // Combining Diacritical Marks
+  [0x200b, 0x200d], // ZWSP, ZWNJ, ZWJ
+  [0xfe00, 0xfe0f], // Variation Selectors
+  [0xfeff, 0xfeff], // Zero Width No-Break Space / BOM
+];
+
+/** Rendered column width of a single code point: 0 for zero-width, 2 for wide/fullwidth, else 1. */
 function charWidth(codePoint: number): number {
+  for (const [lo, hi] of ZERO_WIDTH_RANGES) {
+    if (codePoint < lo) break;
+    if (codePoint <= hi) return 0;
+  }
   for (const [lo, hi] of WIDE_CHAR_RANGES) {
     if (codePoint < lo) break;
     if (codePoint <= hi) return 2;

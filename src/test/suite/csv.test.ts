@@ -75,6 +75,15 @@ suite("computeCsvPaddings", () => {
     ]);
   });
 
+  test("異体字セレクタを含むセルは幅0として数えて揃える", () => {
+    // "a️" は a(幅1) + 異体字セレクタ(幅0) = 視覚幅1。幅1として誤カウント
+    // する旧実装では視覚幅2になり、"ccc"(幅3)との差分（padding）がずれていた。
+    const placements = computeCsvPaddings(["a️,b", "ccc,d"], ",", 4);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 2 },
+    ]);
+  });
+
   test("列数が不揃いでも例外にならずインデックス基準で揃える", () => {
     const placements = computeCsvPaddings(["a,bb,c", "xxx,y"], ",", 4);
     assert.deepStrictEqual(placements, [
