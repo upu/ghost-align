@@ -258,6 +258,22 @@ suite("computeMarkdownTablePaddings", () => {
     ]);
   });
 
+  test("ZWJを含むセルも視覚幅で列を揃える", () => {
+    // "a‍b"（a + ZWJ U+200D + b）は視覚幅2で "cc" と同じ。ZWJ を幅1として
+    // 誤って数える旧実装では視覚幅3になり、"あ/cc" と同じ形の表なのに
+    // ヘッダー行がすでに揃っている（パディング不要）と誤判定していた。
+    const placements = computeMarkdownTablePaddings(
+      ["| a‍b | b |", "| --- | --- |", "| cc | d |"],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 6, padding: 1 },
+      { lineIndex: 0, character: 10, padding: 2 },
+      { lineIndex: 2, character: 5, padding: 1 },
+      { lineIndex: 2, character: 9, padding: 2 },
+    ]);
+  });
+
   test("コードスパン内の `|` を区切りと誤認せず列がずれない", () => {
     const placements = computeMarkdownTablePaddings(
       ["| `a|b` | c |", "| --- | --- |", "| x | yy |"],

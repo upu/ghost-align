@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Changing an editor's language mode (e.g. Plain Text → Python) no longer leaves the old language's alignment and status bar hint stuck until the next edit or editor switch. Re-decoration and the status bar's per-language disabled hint (`ON (<lang> off)`) now update immediately.
 - `Copy with Alignment` now copies the raw, unaligned text while the extension is toggled OFF, matching the fact that no ghost padding is shown. Previously it kept copying aligned text even with the extension fully disabled.
+- Lines containing combining marks (e.g. NFD-decomposed accents), zero width joiners/spaces, or variation selectors no longer misalign by one column per such character. These zero-width characters were previously counted as width 1.
 
 ## [1.4.0] - 2026-07-11
 

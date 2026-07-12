@@ -377,6 +377,20 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].columns[0].visualColumn, 7);
   });
 
+  test("NFD分解された行（結合文字を含む）と通常行が同一グループで視覚カラムが揃う", () => {
+    // "cafe\u0301 = 1" は "e" + 結合アキュートアクセント U+0301（NFD分解）で
+    // "cafe" の見た目を表す行。エディタでの正規化に依存しないよう \u エスケープで
+    // 明示する。結合文字を幅0として数えれば = の視覚カラムは "size = 2" と同じ5
+    // (cafe=4 + 空白1)。幅1として数える旧実装では6になり、"size" 側に誤った
+    // パディングが入っていた。
+    const doc = mockDocument(["cafe\u0301 = 1", "size = 2"]);
+    const groups = findAlignmentGroups(doc, ["="]);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 5);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 5);
+    assert.deepStrictEqual(computePaddings(groups), []);
+  });
+
   test("YAML: ブロックスカラー(`|`)の中身にある `:` はアライメント対象にならず、終了後は通常どおり整列される", () => {
     const doc = mockDocument([
       "a: 1",
@@ -994,6 +1008,38 @@ suite("visualColumn", () => {
     // コードユニット単位の走査では 2 と過大計上され整列がずれていた。
     assert.strictEqual(visualColumn("𝐀=", 2, 4), 1);
     assert.strictEqual(visualColumn("𝐀𝐁=", 4, 4), 2);
+  });
+
+  test("結合文字（Combining Diacritical Marks）は幅0として数える", () => {
+    // "é" は "e" + 結合アキュートアクセント（U+0301）で、描画上は
+    // "é" 1文字ぶん。結合文字を幅0として数えれば、直後の文字の視覚カラムは1。
+    assert.strictEqual(visualColumn("é", 2, 4), 1);
+  });
+
+  test("結合文字が演算子の直前にあっても幅0として数える", () => {
+    // "é=1" の = は文字インデックス2の直前で、e(幅1) + 結合文字(幅0)。
+    assert.strictEqual(visualColumn("é=1", 2, 4), 1);
+  });
+
+  test("ゼロ幅接合子（ZWJ, U+200D）は幅0として数える", () => {
+    assert.strictEqual(visualColumn("a‍b", 3, 4), 2);
+  });
+
+  test("ゼロ幅スペース（U+200B）は幅0として数える", () => {
+    assert.strictEqual(visualColumn("a​b", 3, 4), 2);
+  });
+
+  test("異体字セレクタ（Variation Selector, U+FE0F）は幅0として数える", () => {
+    assert.strictEqual(visualColumn("a️b", 3, 4), 2);
+  });
+
+  test("ゼロ幅ノーブレークスペース（U+FEFF, BOM）は幅0として数える", () => {
+    assert.strictEqual(visualColumn("﻿ab", 3, 4), 2);
+  });
+
+  test("全角文字と結合文字が混在しても視覚幅で数える", () => {
+    // "あ́b": あ(幅2) + 結合文字(幅0) + b(幅1) = 3。
+    assert.strictEqual(visualColumn("あ́b", 3, 4), 3);
   });
 });
 
