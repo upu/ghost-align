@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Markdown table alignment now respects a GFM delimiter row's alignment markers (`---:` right, `:---:` center, `:---`/`---` left) instead of always left-aligning every column. Right-aligned columns pad before the cell content; center-aligned columns split the padding on both sides (an odd amount leans the content left of exact center). Header cells follow the same alignment as data cells, matching how GFM renderers treat them. `Copy with Alignment` reproduces the same alignment since it reuses the same placements.
+
 ### Fixed
 
 - Changing an editor's language mode (e.g. Plain Text → Python) no longer leaves the old language's alignment and status bar hint stuck until the next edit or editor switch. Re-decoration and the status bar's per-language disabled hint (`ON (<lang> off)`) now update immediately.

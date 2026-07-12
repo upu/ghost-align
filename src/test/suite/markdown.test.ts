@@ -300,29 +300,54 @@ suite("computeMarkdownTablePaddings", () => {
     ]);
   });
 
-  test("右寄せ `---:` は trailing `:` の直前に `-` を挿入して `:` が端に残る", () => {
+  test("右寄せ `---:` は区切り行で trailing `:` の直前に `-` を挿入しつつ、他行はセル内容の先頭にパディングして右寄せを再現する", () => {
     const placements = computeMarkdownTablePaddings(
       ["| a | b |", "| ---: | --- |", "| cccccc | d |"],
       4
     );
     assert.deepStrictEqual(placements, [
-      { lineIndex: 0, character: 4, padding: 5 },
+      { lineIndex: 0, character: 2, padding: 5 },
       { lineIndex: 0, character: 8, padding: 2 },
       { lineIndex: 1, character: 5, padding: 2, padChar: "-" },
       { lineIndex: 2, character: 13, padding: 2 },
     ]);
   });
 
-  test("中央寄せ `:---:` も trailing `:` の直前に `-` を挿入する", () => {
+  test("中央寄せ `:---:` は区切り行で trailing `:` の直前に `-` を挿入しつつ、他行はセル内容の前後にパディングを分配して中央寄せを再現する（奇数個は末尾側に多く配分）", () => {
     const placements = computeMarkdownTablePaddings(
       ["| a | b |", "| :---: | --- |", "| cccccc | d |"],
       4
     );
     assert.deepStrictEqual(placements, [
-      { lineIndex: 0, character: 4, padding: 5 },
+      { lineIndex: 0, character: 2, padding: 2 },
+      { lineIndex: 0, character: 4, padding: 3 },
       { lineIndex: 0, character: 8, padding: 2 },
       { lineIndex: 1, character: 6, padding: 1, padChar: "-" },
       { lineIndex: 2, character: 13, padding: 2 },
+    ]);
+  });
+
+  test("左寄せ・中央寄せ・右寄せが混在するテーブルは各列が宣言どおりに揃う", () => {
+    // 列1: 左寄せ(既定) 列2: 中央寄せ 列3: 右寄せ。データ行(aaaaa/bbbbb/ccccc)が
+    // 各列で最も幅が広く、そのままどの列の目標幅にもなるためパディング不要。
+    const placements = computeMarkdownTablePaddings(
+      [
+        "| a | b | c |",
+        "| --- | :---: | ---: |",
+        "| aaaaa | bbbbb | ccccc |",
+      ],
+      4
+    );
+    assert.deepStrictEqual(placements, [
+      // 列1(左寄せ): 従来どおり `|` 直前にパディング
+      { lineIndex: 0, character: 4, padding: 4 },
+      // 列2(中央寄せ): セル内容の前後に分配（4は2/2）
+      { lineIndex: 0, character: 6, padding: 2 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      // 列3(右寄せ): セル内容の先頭にまとめてパディング
+      { lineIndex: 0, character: 10, padding: 4 },
+      { lineIndex: 1, character: 5, padding: 2, padChar: "-" },
+      { lineIndex: 1, character: 19, padding: 1, padChar: "-" },
     ]);
   });
 
@@ -393,6 +418,18 @@ suite("MarkdownTableWidthCache", () => {
       tabSize,
       maxPadding
     );
+
+  test("右寄せ宣言は placementsForRange 経由でもセル内容の先頭にパディングする", () => {
+    const lines = ["| a | b |", "| ---: | --- |", "| cccccc | d |"];
+    const cache = new MarkdownTableWidthCache();
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.placementsForRange(0, 2), [
+      { lineIndex: 0, character: 2, padding: 5 },
+      { lineIndex: 0, character: 8, padding: 2 },
+      { lineIndex: 1, character: 5, padding: 2, padChar: "-" },
+      { lineIndex: 2, character: 13, padding: 2 },
+    ]);
+  });
 
   test("maxPadding 未指定は無制限で従来どおり全列を最大幅に揃える", () => {
     const lines = ["| a | bb |", "| --- | --- |", "| ccc | d |"];
