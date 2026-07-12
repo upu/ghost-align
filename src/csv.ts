@@ -35,6 +35,43 @@ export interface CsvLineMetrics {
   delims: number[];
   /** Visual width of the cell ending at each delimiter, index-for-index. */
   widths: number[];
+  /**
+   * Char index of the first non-space/tab character in each cell, index-for-
+   * index with delims/widths. Falls back to the delimiter position when the
+   * cell is empty or all whitespace. Used as the padding insertion point for
+   * a right-aligned numeric column (see ghostAlign.csv.alignNumbersRight) so
+   * ghost characters land against the cell's content instead of its leading
+   * whitespace, mirroring markdown.ts's cellContentStart.
+   */
+  contentStarts: number[];
+  /**
+   * Whether each cell's trimmed content matches a simple numeric pattern
+   * (see NUMERIC_CELL_RE), index-for-index with delims/widths. Used to judge
+   * per-column numeric-ness for ghostAlign.csv.alignNumbersRight.
+   */
+  numeric: boolean[];
+}
+
+/**
+ * Simple numeric-cell pattern for ghostAlign.csv.alignNumbersRight: an
+ * optional leading `-`, digits, and an optional decimal part. Deliberately
+ * narrow for the first version — thousands separators (`1,234`, ambiguous
+ * with the CSV delimiter itself) and exponent notation (`1e10`) are out of
+ * scope until a concrete report asks for them.
+ */
+const NUMERIC_CELL_RE = /^-?\d+(\.\d+)?$/;
+
+/** Char index of the first non-space/tab char in `[cellStart, delimIndex)`, or `delimIndex` if none. */
+function cellContentStart(
+  lineText: string,
+  cellStart: number,
+  delimIndex: number
+): number {
+  let j = cellStart;
+  while (j < delimIndex && (lineText[j] === " " || lineText[j] === "\t")) {
+    j++;
+  }
+  return j;
 }
 
 /**
@@ -51,14 +88,66 @@ export function computeCsvLineMetrics(
   if (delims.length === 0) {
     return null;
   }
-  const widths = delims.map((d, k) => {
+  const widths: number[] = [];
+  const contentStarts: number[] = [];
+  const numeric: boolean[] = [];
+  delims.forEach((d, k) => {
     const cellStart = k === 0 ? 0 : delims[k - 1] + 1;
-    return (
-      visualColumn(lineText, d, tabSize) -
-      visualColumn(lineText, cellStart, tabSize)
+    widths.push(
+      visualColumn(lineText, d, tabSize) - visualColumn(lineText, cellStart, tabSize)
     );
+    const contentStart = cellContentStart(lineText, cellStart, d);
+    contentStarts.push(contentStart);
+    numeric.push(NUMERIC_CELL_RE.test(lineText.slice(contentStart, d).trimEnd()));
   });
-  return { delims, widths };
+  return { delims, widths, contentStarts, numeric };
+}
+
+/**
+ * Per-column "every data cell is numeric" flags for
+ * ghostAlign.csv.alignNumbersRight: `numericColumns[k]` is true only when
+ * every row that has a k-th cell (after the first participating row, treated
+ * as the header and excluded from the judgment — see computeCsvPaddings) has
+ * a numeric k-th cell, and at least one such row exists. A column no row
+ * contributes to is false rather than vacuously true, matching the default
+ * left-aligned behavior when there is nothing to judge.
+ *
+ * The header exclusion only affects this determination, not where padding is
+ * applied: a numeric column still right-aligns its header cell too (see
+ * computeCsvPaddingsFromMax), matching the spreadsheet convention of a label
+ * sitting above right-aligned numbers.
+ */
+export function computeCsvNumericColumns(
+  rows: Iterable<CsvLineMetrics | null | undefined>
+): boolean[] {
+  const dataRows: CsvLineMetrics[] = [];
+  let sawHeader = false;
+  for (const row of rows) {
+    if (!row) {
+      continue;
+    }
+    if (!sawHeader) {
+      sawHeader = true;
+      continue;
+    }
+    dataRows.push(row);
+  }
+  const columnCount = dataRows.reduce((max, r) => Math.max(max, r.widths.length), 0);
+  const numericColumns: boolean[] = [];
+  for (let k = 0; k < columnCount; k++) {
+    let sawData = false;
+    let allNumeric = true;
+    for (const row of dataRows) {
+      if (row.numeric.length > k) {
+        sawData = true;
+        if (!row.numeric[k]) {
+          allNumeric = false;
+        }
+      }
+    }
+    numericColumns.push(sawData && allNumeric);
+  }
+  return numericColumns;
 }
 
 /**
@@ -130,12 +219,19 @@ export function computeCsvColumnPlan(
  * skipped because of one outlier doesn't stop later columns from aligning,
  * it just makes them align relative to each row's real position rather than
  * a position inherited from the skipped column.
+ *
+ * `numericColumns[k]` (see computeCsvNumericColumns), when true, inserts a
+ * column's padding at the cell's content start instead of at the delimiter —
+ * right-aligning it — for ghostAlign.csv.alignNumbersRight. Defaults to an
+ * empty array, so every column left-aligns (pre-#399 behavior) unless a
+ * caller opts in.
  */
 export function computeCsvPaddingsFromMax(
   rows: { lineIndex: number; metrics: CsvLineMetrics }[],
   plan: readonly (number | null)[],
   delimiter: string,
-  tabSize: number
+  tabSize: number,
+  numericColumns: readonly boolean[] = []
 ): Placement[] {
   const advance = delimiterAdvance(delimiter, tabSize);
   const pos = new Array<number>(rows.length).fill(0);
@@ -153,9 +249,12 @@ export function computeCsvPaddingsFromMax(
       }
       const padding = target - raw;
       if (padding > 0) {
+        const character = numericColumns[k]
+          ? row.metrics.contentStarts[k]
+          : row.metrics.delims[k];
         placements.push({
           lineIndex: row.lineIndex,
-          character: row.metrics.delims[k],
+          character,
           padding,
         });
       }
@@ -170,12 +269,20 @@ export function computeCsvPaddingsFromMax(
  * so each column's delimiter lines up at the widest cell, unless `maxPadding`
  * excludes a column from alignment (see computeCsvColumnPlan and
  * computeCsvPaddingsFromMax for the column-by-column mechanics).
+ *
+ * `alignNumbersRight` (ghostAlign.csv.alignNumbersRight, default false)
+ * right-aligns a column instead of left-aligning it when every data cell in
+ * it is numeric (see computeCsvNumericColumns) — the first row that
+ * participates in alignment (`rows[0]`, typically the header line) is
+ * excluded from that judgment but still gets the resulting right-alignment
+ * applied to it, like a header label sitting above right-aligned numbers.
  */
 export function computeCsvPaddings(
   lines: string[],
   delimiter: string,
   tabSize: number,
-  maxPadding: number = 0
+  maxPadding: number = 0,
+  alignNumbersRight: boolean = false
 ): Placement[] {
   const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
@@ -190,7 +297,10 @@ export function computeCsvPaddings(
     tabSize,
     maxPadding
   );
-  return computeCsvPaddingsFromMax(rows, plan, delimiter, tabSize);
+  const numericColumns = alignNumbersRight
+    ? computeCsvNumericColumns(rows.map((r) => r.metrics))
+    : [];
+  return computeCsvPaddingsFromMax(rows, plan, delimiter, tabSize, numericColumns);
 }
 
 /**
@@ -208,6 +318,7 @@ export class CsvWidthCache {
   private max: number[] | null = null;
   private plan: (number | null)[] | null = null;
   private planMaxPadding = 0;
+  private numericCols: boolean[] | null = null;
   private tabSize = 0;
 
   constructor(public readonly delimiter: string) {}
@@ -229,6 +340,7 @@ export class CsvWidthCache {
       .concat(filler, this.metrics.slice(startLine + deletedLineCount));
     this.max = null;
     this.plan = null;
+    this.numericCols = null;
   }
 
   /**
@@ -244,6 +356,7 @@ export class CsvWidthCache {
       ).fill(undefined);
       this.max = null;
       this.plan = null;
+      this.numericCols = null;
     }
     for (let i = 0; i < this.metrics.length; i++) {
       if (this.metrics[i] === undefined) {
@@ -279,6 +392,18 @@ export class CsvWidthCache {
       this.planMaxPadding = maxPadding;
     }
     return this.plan;
+  }
+
+  /**
+   * Per-column numeric flags over all cached lines — see
+   * computeCsvNumericColumns, including its header-row exclusion — memoized
+   * like maxWidths()/columnPlan(). Call sync() first.
+   */
+  numericColumns(): boolean[] {
+    if (!this.numericCols) {
+      this.numericCols = computeCsvNumericColumns(this.metrics);
+    }
+    return this.numericCols;
   }
 
   /** Cached metrics of one line (null if it has no delimiter). */

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- New opt-in setting `ghostAlign.csv.alignNumbersRight` (default `false`) right-aligns a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (`-?\d+(\.\d+)?`; thousands separators and exponents are out of scope). The first row (typically a header) is excluded from that numeric judgment but still gets right-aligned when its column qualifies. `Copy with Alignment` reproduces the same alignment since it reuses the same placements.
+
 ### Changed
 
 - Markdown table alignment now respects a GFM delimiter row's alignment markers (`---:` right, `:---:` center, `:---`/`---` left) instead of always left-aligning every column. Right-aligned columns pad before the cell content; center-aligned columns split the padding on both sides (an odd amount leans the content left of exact center). Header cells follow the same alignment as data cells, matching how GFM renderers treat them. `Copy with Alignment` reproduces the same alignment since it reuses the same placements.

@@ -61,10 +61,21 @@ suite("resolveAlignmentPath", () => {
     assert.deepStrictEqual(resolveAlignmentPath("csv", mockConfig({})), {
       kind: "csv",
       delimiter: ",",
+      alignNumbersRight: false,
     });
     assert.deepStrictEqual(resolveAlignmentPath("tsv", mockConfig({})), {
       kind: "csv",
       delimiter: "\t",
+      alignNumbersRight: false,
+    });
+  });
+
+  test("csv.alignNumbersRight でユーザーが数値列の右寄せを有効にできる", () => {
+    const config = mockConfig({ "csv.alignNumbersRight": true });
+    assert.deepStrictEqual(resolveAlignmentPath("csv", config), {
+      kind: "csv",
+      delimiter: ",",
+      alignNumbersRight: true,
     });
   });
 
@@ -121,6 +132,7 @@ suite("resolveAlignmentPath", () => {
     assert.deepStrictEqual(resolveAlignmentPath("csv", config), {
       kind: "csv",
       delimiter: ";",
+      alignNumbersRight: false,
     });
   });
 
@@ -130,7 +142,7 @@ suite("resolveAlignmentPath", () => {
     });
     assert.deepStrictEqual(
       resolveAlignmentPath("csv (semicolon)", config),
-      { kind: "csv", delimiter: ";" }
+      { kind: "csv", delimiter: ";", alignNumbersRight: false }
     );
   });
 
@@ -881,7 +893,7 @@ suite("package.json との既定値同期", () => {
   // extension.ts のコメント頼みの二重管理（DEFAULT_OPERATORS_BY_LANGUAGE /
   // DEFAULT_GHOST_CHAR / DEFAULT_GHOST_COLOR ⇔ package.json の default）が
   // 片方だけ更新されて食い違うと、設定 UI の表示と実効値が静かにずれる。
-  function configProperties(): Record<string, { default?: unknown }> {
+  function configProperties(): Record<string, { type?: string; default?: unknown }> {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
     return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
@@ -906,6 +918,12 @@ suite("package.json との既定値同期", () => {
       props["ghostAlign.csv.delimiters"]?.default,
       DEFAULT_CSV_DELIMITERS
     );
+  });
+
+  test("csv.alignNumbersRight が default false で boolean 型で登録されている", () => {
+    const props = configProperties();
+    assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.type, "boolean");
+    assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.default, false);
   });
 
   test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {

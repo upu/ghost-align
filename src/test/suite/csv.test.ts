@@ -4,6 +4,7 @@ import {
   computeCsvColumnPlan,
   computeCsvLineMetrics,
   computeCsvMaxWidths,
+  computeCsvNumericColumns,
   computeCsvPaddings,
   computeCsvPaddingsFromMax,
   findCsvDelimiterPositions,
@@ -118,11 +119,86 @@ suite("computeCsvPaddings", () => {
   });
 });
 
+suite("computeCsvPaddings: alignNumbersRight", () => {
+  const lines = ["id,name,price", "1,apple,9", "222,banana,15"];
+
+  test("既定(false)では従来どおり区切り直前に左寄せパディングが入る", () => {
+    assert.deepStrictEqual(computeCsvPaddings(lines, ",", 4), [
+      { lineIndex: 0, character: 2, padding: 1 },
+      { lineIndex: 1, character: 1, padding: 2 },
+      { lineIndex: 0, character: 7, padding: 2 },
+      { lineIndex: 1, character: 7, padding: 1 },
+    ]);
+  });
+
+  test("true: 全データセルが数値の列はセル内容側に右寄せパディングが入る（ヘッダーも右寄せされる）", () => {
+    const placements = computeCsvPaddings(lines, ",", 4, 0, true);
+    assert.deepStrictEqual(placements, [
+      // 列0 (id): データ行が "1" "222" で全て数値 → ヘッダーの "id" もセル先頭 (character 0) に右寄せパディング。
+      { lineIndex: 0, character: 0, padding: 1 },
+      { lineIndex: 1, character: 0, padding: 2 },
+      // 列1 (name): データに "apple" "banana" と非数値セルがある → 従来どおり区切り直前に左寄せ。
+      { lineIndex: 0, character: 7, padding: 2 },
+      { lineIndex: 1, character: 7, padding: 1 },
+    ]);
+  });
+
+  test("true: データセルに数値以外が1つでも混ざる列は左寄せのまま", () => {
+    const mixed = ["id,x", "1,a", "abc,b"];
+    const placements = computeCsvPaddings(mixed, ",", 4, 0, true);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 1 },
+      { lineIndex: 1, character: 1, padding: 2 },
+    ]);
+  });
+
+  test("true: ヘッダーしかない（データ行がない）列は数値と判定せず左寄せのまま", () => {
+    const headerOnly = ["id,name", "notanumber,x"];
+    const placements = computeCsvPaddings(headerOnly, ",", 4, 0, true);
+    // 列0 のデータ行は "notanumber" のみで数値でないため、列0 は非数値列。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 8 },
+    ]);
+  });
+});
+
+suite("computeCsvNumericColumns", () => {
+  const metricsOf = (lines: string[]) =>
+    lines.map((l) => computeCsvLineMetrics(l, ",", 4));
+
+  test("先頭行(ヘッダー)は判定から除外し、以降のデータ行が全て数値なら true", () => {
+    const rows = metricsOf(["id,name,price", "1,apple,9", "222,banana,15"]);
+    assert.deepStrictEqual(computeCsvNumericColumns(rows), [true, false]);
+  });
+
+  test("データ行に非数値セルが1つでもあれば false", () => {
+    const rows = metricsOf(["id,x", "1,a", "abc,b"]);
+    assert.deepStrictEqual(computeCsvNumericColumns(rows), [false]);
+  });
+
+  test("データ行が無い（ヘッダーのみ）列は判定対象なし（空配列）", () => {
+    const rows = metricsOf(["id,name"]);
+    assert.deepStrictEqual(computeCsvNumericColumns(rows), []);
+  });
+
+  test("区切りのない行(null)は読み飛ばしてヘッダー判定・数値判定する", () => {
+    const rows = [
+      computeCsvLineMetrics("id,val,x", ",", 4),
+      null,
+      computeCsvLineMetrics("1,2,y", ",", 4),
+      computeCsvLineMetrics("3,4,z", ",", 4),
+    ];
+    assert.deepStrictEqual(computeCsvNumericColumns(rows), [true, true]);
+  });
+});
+
 suite("computeCsvLineMetrics", () => {
   test("区切り位置とセルの視覚幅を返す", () => {
     assert.deepStrictEqual(computeCsvLineMetrics("aa,bbb,c", ",", 4), {
       delims: [2, 6],
       widths: [2, 3],
+      contentStarts: [0, 3],
+      numeric: [false, false],
     });
   });
 
@@ -134,6 +210,26 @@ suite("computeCsvLineMetrics", () => {
     assert.deepStrictEqual(computeCsvLineMetrics("あ,b", ",", 4), {
       delims: [1],
       widths: [2],
+      contentStarts: [0],
+      numeric: [false],
+    });
+  });
+
+  test("数値セルは numeric=true、先頭の空白を除いた位置を contentStarts に返す", () => {
+    assert.deepStrictEqual(computeCsvLineMetrics("12, -3.5,c", ",", 4), {
+      delims: [2, 8],
+      widths: [2, 5],
+      contentStarts: [0, 4],
+      numeric: [true, true],
+    });
+  });
+
+  test("英数混在・符号のみ・小数点2つなど数値パターンに合致しないセルは numeric=false", () => {
+    assert.deepStrictEqual(computeCsvLineMetrics("1a,-,1.2.3,x", ",", 4), {
+      delims: [2, 4, 10],
+      widths: [2, 1, 5],
+      contentStarts: [0, 3, 5],
+      numeric: [false, false, false],
     });
   });
 });
@@ -269,7 +365,12 @@ suite("CsvWidthCache", () => {
     syncWithSpy(cache, lines, reads);
     assert.deepStrictEqual(reads, [1, 2]);
     assert.deepStrictEqual(cache.maxWidths(), [4]);
-    assert.deepStrictEqual(cache.metricsAt(3), { delims: [3], widths: [3] });
+    assert.deepStrictEqual(cache.metricsAt(3), {
+      delims: [3],
+      widths: [3],
+      contentStarts: [0],
+      numeric: [false],
+    });
   });
 
   test("行数が食い違ったら全行を再構築する", () => {
@@ -312,5 +413,23 @@ suite("CsvWidthCache", () => {
     syncWithSpy(cache, lines, []);
     assert.deepStrictEqual(cache.columnPlan(10), [null, 26]);
     assert.deepStrictEqual(cache.columnPlan(0), [20, 36]);
+  });
+
+  test("numericColumns: 先頭行をヘッダーとして除外し、可視範囲外の行も含めた全行で判定する", () => {
+    const lines = ["id,name,price", "1,apple,9", "222,banana,15"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.numericColumns(), [true, false]);
+  });
+
+  test("numericColumns: 編集でデータ行が非数値になったら次の sync 後に false へ更新される", () => {
+    const lines = ["id,name", "1,x", "2,y"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.numericColumns(), [true]);
+    lines[1] = "abc,x";
+    cache.applyEdit(1, 1, 1);
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.numericColumns(), [false]);
   });
 });

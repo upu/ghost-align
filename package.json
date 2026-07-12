@@ -263,6 +263,11 @@
           },
           "description": "Per-language CSV/TSV delimiter overrides keyed by languageId (e.g. \"csv\", \"tsv\"). A language listed here takes the CSV/TSV alignment path using its delimiter; add an entry for a language ID contributed by another extension (e.g. Rainbow CSV's \"csv (semicolon)\") to align it too. Each value must be exactly one character and not a double quote (the RFC 4180 quoting character); an invalid value falls back to the built-in default for csv/tsv, or is treated as not listed for any other language ID."
         },
+        "ghostAlign.csv.alignNumbersRight": {
+          "type": "boolean",
+          "default": false,
+          "description": "Right-align a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (an optional leading -, digits, and an optional decimal part; thousands separators and exponents are not recognized). The first row (typically a header) is excluded from that judgment but still gets right-aligned when its column qualifies. Columns with any non-numeric data cell are left-aligned as before."
+        },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
           "default": true,

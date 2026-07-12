@@ -295,7 +295,7 @@ export function resolveFeatureEnabled(
 export type AlignmentPath =
   | { kind: "none" }
   | { kind: "markdown" }
-  | { kind: "csv"; delimiter: string }
+  | { kind: "csv"; delimiter: string; alignNumbersRight: boolean }
   | { kind: "operators"; operators: string[]; alignJsdoc: boolean };
 
 /**
@@ -317,7 +317,11 @@ export function resolveAlignmentPath(
   const delimiter = resolveCsvDelimiter(config, languageId);
   if (delimiter !== undefined) {
     return resolveFeatureEnabled(config, "csv.enabled")
-      ? { kind: "csv", delimiter }
+      ? {
+          kind: "csv",
+          delimiter,
+          alignNumbersRight: config.get<boolean>("csv.alignNumbersRight", false),
+        }
       : { kind: "none" };
   }
   return {
