@@ -108,6 +108,10 @@ All settings live under the `ghostAlign` namespace.
 
 `ghostAlign.alignJsdocParams` is deprecated: use `ghostAlign.jsdoc.enabled` instead. The old key is still honored while the new one is left unset.
 
+## Known limitations
+
+- **Mouse selection near ghost padding** — Ghost padding is drawn with VS Code's decoration API (`before` attachments), and the editor includes the rendered width of that padding in mouse hit testing. Click-and-drag selection across a padded spot therefore has to travel the extra padding width, which can make it harder to pick out just the character right before or after the padding. The extension API exposes no way to exclude decoration content from hit testing, so this cannot be fixed on the extension side. Keyboard selection (`Shift`+arrow keys) is unaffected, and you can temporarily toggle Ghost Align off (`Ghost Align: Toggle`) when precise mouse selection matters.
+
 ## License
 
 MIT
