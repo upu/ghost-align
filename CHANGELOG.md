@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-16
+
 ### Added
 
 - Python's default operators now include `:` in addition to `=`, aligning dict-literal keys and type/parameter annotations (e.g. `x: int = 1`, `{"a": 1, "bb": 2}`). Slice syntax (`a[1:2]`), block-start colons (`if x:`, `def foo():`, ...), and `lambda`'s own parameter/body separator are excluded from alignment.
@@ -266,7 +268,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/upu/ghost-align/releases/tag/v1.6.0
 [1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
