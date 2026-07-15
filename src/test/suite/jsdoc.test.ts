@@ -36,6 +36,34 @@ suite("computeJsdocParamPaddings", () => {
     ]);
   });
 
+  test("デフォルト値が空配列 `[indices=[]]` でも名前ブラケット全体を1トークンとして扱う", () => {
+    const placements = computeJsdocParamPaddings(
+      [
+        " * @param {number[]} [indices=[]] d",
+        " * @param {string}   name        d",
+      ],
+      4
+    );
+    // 名前開始は揃い済み。説明は行0が34、行1が33 → 行1に+1
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 33, padding: 1 },
+    ]);
+  });
+
+  test("デフォルト値が文字列要素を含む配列 `[items=[\"a\",\"b\"]]` でも名前ブラケット全体を1トークンとして扱う", () => {
+    const placements = computeJsdocParamPaddings(
+      [
+        ' * @param {string[]} [items=["a","b"]] d',
+        " * @param {string}   name             d",
+      ],
+      4
+    );
+    // 名前開始は揃い済み。説明は行0が39、行1が38 → 行1に+1
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 38, padding: 1 },
+    ]);
+  });
+
   test("@param 以外の JSDoc 行はグループを分断する", () => {
     const placements = computeJsdocParamPaddings(
       [

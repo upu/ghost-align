@@ -66,11 +66,26 @@ export function parseJsdocParamLine(
   const nameStart = i;
   let nameEnd: number;
   if (lineText[i] === "[") {
-    const close = lineText.indexOf("]", i + 1);
-    if (close === -1) {
-      return null;
+    // Depth-counted like the {type} scan above: a default value such as
+    // `[indices=[]]` or `[items=["a","b"]]` nests its own `[`/`]`, so the
+    // first `]` found by a plain indexOf would close the wrong bracket.
+    let depth = 0;
+    let j = i;
+    for (; j < lineText.length; j++) {
+      if (lineText[j] === "[") {
+        depth++;
+      } else if (lineText[j] === "]") {
+        depth--;
+        if (depth === 0) {
+          j++;
+          break;
+        }
+      }
     }
-    nameEnd = close + 1;
+    if (depth !== 0) {
+      return null; // unbalanced name brackets
+    }
+    nameEnd = j;
   } else {
     let j = i;
     while (
