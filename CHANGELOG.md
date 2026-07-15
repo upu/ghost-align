@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - A default type argument's `=` inside a generic/template type-argument list (TypeScript/TSX `type Result<T = unknown> = T;`, C++ `template<typename T = int>`, Rust `struct S<T = String>`) is no longer mistaken for the line's assignment `=`, so such lines now align on the real assignment/type-definition `=`. Comparisons that merely look similar (`a < b = c`, `x=a<b;y=c>d;`) keep their `=` targets unchanged.
+- With a non-zero `ghostAlign.maxPadding`, alignment could become slow while typing in a large, homogeneous block (thousands of lines) where positions vary almost continuously across the group. The outlier-exclusion pass that trims lines exceeding `maxPadding` is no longer O(n²) in the group size.
 
 ## [1.5.0] - 2026-07-12
 
