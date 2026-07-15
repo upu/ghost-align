@@ -1626,6 +1626,165 @@ function findLineContinuationMarker(
   return quoteState.quote ? -1 : idx; // -1: trailing `\` inside an unterminated string
 }
 
+/**
+ * Whether `lineText[i]` starts the keyword `lambda` as a whole word — not the
+ * tail of a longer identifier (`my_lambda`) nor followed by more identifier
+ * characters (`lambdas`).
+ */
+const LAMBDA_KEYWORD_TAIL_RE = /^lambda(?![A-Za-z0-9_])/;
+function isLambdaKeywordStart(lineText: string, i: number): boolean {
+  const prev = lineText[i - 1];
+  if (prev !== undefined && /[A-Za-z0-9_]/.test(prev)) {
+    return false;
+  }
+  return LAMBDA_KEYWORD_TAIL_RE.test(lineText.slice(i));
+}
+
+/** {@link CodeScanOptions} shared by findPythonColon and its own isBlankOrCommentTail lookahead. */
+const PYTHON_CODE_SCAN_OPTIONS: CodeScanOptions = {
+  quoteChars: QUOTE_CHARS,
+  markers: ["#"],
+  cStyle: false,
+  pyTripleQuote: true,
+};
+
+/**
+ * Whether everything in `lineText` from `fromIndex` onward is inert: only
+ * whitespace, and/or a trailing `#` comment. Used by {@link findPythonColon}
+ * to tell a block-start colon (`if x:`, `def foo():`) — nothing but
+ * whitespace/comment follows it — from a type-annotation colon followed by a
+ * value (`x: int = 1`). Reuses {@link advanceCodeScan} so a `#` inside a
+ * string after the colon (`if x: s = "a#b"`) is not mistaken for a comment
+ * start, the same string/comment scanning findPythonColon's own loop already
+ * relies on.
+ */
+function isBlankOrCommentTail(lineText: string, fromIndex: number): boolean {
+  const quoteState = initialQuoteState();
+  for (let i = fromIndex; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, PYTHON_CODE_SCAN_OPTIONS);
+    if (step.kind === "stop") {
+      return true; // rest of the line is a comment (or an unterminated triple-quote opens here)
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch !== " " && ch !== "\t") {
+      return false; // real code follows the colon
+    }
+  }
+  return true;
+}
+
+/**
+ * Indices of all `:` on a Python line that are dict-literal keys or
+ * type/parameter annotations (#412), excluding every other Python use of `:`:
+ *
+ *   - slice syntax (`a[1:2]`, `a[::2]`, `a[1:2:3]`) — any `:` whose innermost
+ *     enclosing bracket (tracked by a `(`/`[`/`{` stack, not just depth, so
+ *     e.g. a slice used as a dict value `{"a": x[1:2]}` only excludes the
+ *     inner slice colon) is `[`
+ *   - block-start colons (`if x:`, `for i in range(10):`, `while True:`,
+ *     `def foo():`, `class Foo:`, `else:`, `elif x:`, `try:`,
+ *     `except E as e:`, `finally:`, `with f() as fp:`) — a `:` with no
+ *     enclosing bracket is one of these only when nothing but whitespace
+ *     and/or a trailing `#` comment follows it (see
+ *     {@link isBlankOrCommentTail}); everything else at that level
+ *     (`x: int = 1`, a bare stub `x: int`) is a type annotation and stays a
+ *     target. A single-line compound statement body (`if x: y = 1`) doesn't
+ *     match any of the enumerated forms and so is treated as an annotation
+ *     colon instead — a known, accepted limitation for a style PEP 8 itself
+ *     discourages.
+ *   - `lambda`'s own parameter/body separator (`lambda x: x + 1`) — this is
+ *     excluded rather than aligned: it introduces a body the way a
+ *     block-start colon introduces one, not a name/value pair the way a dict
+ *     key or annotation colon does, so treating it as a target would be
+ *     inconsistent with the rest of this list and could misalign a line
+ *     using `lambda` against sibling lines using real dict/annotation
+ *     colons. Tracked per enclosing-bracket depth (a plain counter, not tied
+ *     to bracket type) so `{"a": lambda x: x + 1}`'s dict-key `:` is still a
+ *     target while the lambda's own `:` right after it is not.
+ *   - the walrus operator `:=`
+ *   - `:` inside a `"..."`/`'...'`/`"""..."""`/`'''...'''` string, including
+ *     an f-string's format-spec colon (`f"{value:.2f}"`) — the whole
+ *     f-string is scanned as an opaque string like any other (this function
+ *     has no `{...}`-expression-aware f-string parsing), so a colon in its
+ *     embedded expression is never reached either
+ *   - `:` inside a `#` comment
+ *
+ * A `:` whose innermost enclosing bracket is `{` (dict literal, dict/set
+ * comprehension) or `(` (a function signature's parameter annotation — the
+ * only other colon-bearing construct `(...)` can contain once `lambda`'s own
+ * separator is excluded above) is always a target.
+ *
+ * Like every other single-line finder in this file, this only tracks bracket
+ * nesting within the line itself: a bracket opened on a previous line (e.g.
+ * the motivating multi-line dict literal, or a slice split across lines) is
+ * invisible here. For the common one-`key: value`-per-line dict style this
+ * still resolves correctly by coincidence — such a line's colon is never the
+ * last effective character, so the same annotation-vs-block-start heuristic
+ * used for a real depth-0 annotation includes it too — but a slice literally
+ * split across lines is a known, accepted limitation (multi-line brackets
+ * are out of scope for every finder here, and Python slices are
+ * near-universally written on one line in practice).
+ */
+function findPythonColon(lineText: string): number[] {
+  const results: number[] = [];
+  const quoteState = initialQuoteState();
+  const brackets: string[] = [];
+  const lambdaPendingByDepth = new Map<number, number>();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, PYTHON_CODE_SCAN_OPTIONS);
+    if (step.kind === "stop") {
+      break; // comment to the end of the line, or an unterminated triple-quote
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      brackets.push(ch);
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      brackets.pop();
+      continue;
+    }
+    if (ch === "l" && isLambdaKeywordStart(lineText, i)) {
+      const depth = brackets.length;
+      lambdaPendingByDepth.set(depth, (lambdaPendingByDepth.get(depth) ?? 0) + 1);
+      continue;
+    }
+    if (ch !== ":") {
+      continue;
+    }
+    if (lineText[i + 1] === "=") {
+      i++; // walrus `:=`, not a colon target
+      continue;
+    }
+    const depth = brackets.length;
+    const pendingLambda = lambdaPendingByDepth.get(depth) ?? 0;
+    if (pendingLambda > 0) {
+      lambdaPendingByDepth.set(depth, pendingLambda - 1);
+      continue; // lambda's own parameter/body separator
+    }
+    const top = brackets[brackets.length - 1];
+    if (top === "[") {
+      continue; // slice colon
+    }
+    if (top === "{" || top === "(") {
+      results.push(i);
+      continue;
+    }
+    if (!isBlankOrCommentTail(lineText, i + 1)) {
+      results.push(i); // type annotation, not a block-start colon
+    }
+  }
+  return results;
+}
+
 /** All occurrences of a single operator token on a line, in order. */
 function findOccurrences(
   lineText: string,
@@ -1643,6 +1802,8 @@ function findOccurrences(
       indices = findCssColon(lineText, languageId, cssInsideBlock);
     } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
       indices = findTsColon(lineText, tsBraceTop);
+    } else if (languageId === "python") {
+      indices = findPythonColon(lineText);
     } else {
       indices = findColonOutsideString(lineText, languageId);
     }

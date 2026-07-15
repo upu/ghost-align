@@ -102,7 +102,7 @@ suite("resolveAlignmentPath", () => {
   test("TS/JS 以外の言語では alignJsdoc は常に false", () => {
     assert.deepStrictEqual(resolveAlignmentPath("python", mockConfig({})), {
       kind: "operators",
-      operators: ["="],
+      operators: [":", "="],
       alignJsdoc: false,
     });
   });
@@ -279,17 +279,26 @@ suite("resolveOperatorsForLanguage", () => {
     }
   });
 
-  test("python / shellscript / ini / makefile は既定で `=` を揃える", () => {
+  test("shellscript / ini / makefile は既定で `=` を揃える", () => {
     // グローバル operators を上書きしても、これらの言語はマップ側の `=` を返す
     // （フォールバックではなく DEFAULT_OPERATORS_BY_LANGUAGE に含まれていること）
     const config = mockConfig({ operators: [":"] });
-    for (const lang of ["python", "shellscript", "ini", "makefile"]) {
+    for (const lang of ["shellscript", "ini", "makefile"]) {
       assert.deepStrictEqual(
         resolveOperatorsForLanguage(config, lang),
         ["="],
         lang
       );
     }
+  });
+
+  test("python は既定で `:` と `=` を揃える（#412）", () => {
+    // グローバル operators を上書きしても DEFAULT_OPERATORS_BY_LANGUAGE.python を返す
+    const config = mockConfig({ operators: ["="] });
+    assert.deepStrictEqual(resolveOperatorsForLanguage(config, "python"), [
+      ":",
+      "=",
+    ]);
   });
 
   test("追加言語のサンプルで代入の `=` が連続行で揃う", () => {
@@ -388,7 +397,7 @@ suite("resolveOperatorsForLanguage", () => {
         mockConfig({ alignUnknownLanguages: false }),
         "python"
       ),
-      ["="]
+      [":", "="]
     );
   });
 
@@ -432,6 +441,36 @@ suite("resolveOperatorsForLanguage", () => {
     );
     const doc = mockDocument(["  case 1:", "  case 22:"]);
     const groups = findAlignmentGroups(doc, operators, "typescript");
+    assert.strictEqual(groups.length, 0);
+  });
+
+  test("Python: 既定設定で辞書リテラルのキーの `:` が連続行で揃う（#412）", () => {
+    const operators = resolveOperatorsForLanguage(mockConfig({}), "python");
+    const doc = mockDocument(['  xxx: "bbb",', '  yyyyyy: "ccc",']);
+    const groups = findAlignmentGroups(doc, operators, "python");
+    assert.strictEqual(groups.length, 1);
+    const paddings = computePaddings(groups);
+    const aligned = groups[0].map((g) => {
+      const p = paddings.find((q) => q.lineIndex === g.lineIndex);
+      return g.columns[0].visualColumn + (p ? p.padding : 0);
+    });
+    assert.strictEqual(aligned[0], aligned[1]);
+  });
+
+  test("Python: 既定設定で型注釈の `:` と代入の `=` が同じ行の2カラムとして両方見つかる（#412）", () => {
+    const operators = resolveOperatorsForLanguage(mockConfig({}), "python");
+    const doc = mockDocument(["x: int = 1", "longer_name: str = 2"]);
+    const groups = findAlignmentGroups(doc, operators, "python");
+    assert.strictEqual(groups.length, 1);
+    for (const g of groups[0]) {
+      assert.strictEqual(g.columns.length, 2, `line ${g.lineIndex}`);
+    }
+  });
+
+  test("Python: ブロック開始コロンだけの行は既定設定でも整列グループに含まれない（#412）", () => {
+    const operators = resolveOperatorsForLanguage(mockConfig({}), "python");
+    const doc = mockDocument(["if x:", "if y:"]);
+    const groups = findAlignmentGroups(doc, operators, "python");
     assert.strictEqual(groups.length, 0);
   });
 

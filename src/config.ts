@@ -40,7 +40,7 @@ export const DEFAULT_OPERATORS_BY_LANGUAGE: Record<string, string[]> = {
   properties: ["="],
   toml: ["="],
   ini: ["="],
-  python: ["="],
+  python: [":", "="],
   shellscript: ["="],
   ruby: ["=", "=>"],
   makefile: ["="],

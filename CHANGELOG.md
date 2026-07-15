@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Python's default operators now include `:` in addition to `=`, aligning dict-literal keys and type/parameter annotations (e.g. `x: int = 1`, `{"a": 1, "bb": 2}`). Slice syntax (`a[1:2]`), block-start colons (`if x:`, `def foo():`, ...), and `lambda`'s own parameter/body separator are excluded from alignment.
+
 ### Fixed
 
 - A default type argument's `=` inside a generic/template type-argument list (TypeScript/TSX `type Result<T = unknown> = T;`, C++ `template<typename T = int>`, Rust `struct S<T = String>`) is no longer mistaken for the line's assignment `=`, so such lines now align on the real assignment/type-definition `=`. Comparisons that merely look similar (`a < b = c`, `x=a<b;y=c>d;`) keep their `=` targets unchanged.
