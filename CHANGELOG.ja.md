@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-07-16
+
 ### Added
 
 - Python の既定オペレーターに `=` に加えて `:` が加わり、辞書リテラルのキーや型・引数注釈（`x: int = 1`、`{"a": 1, "bb": 2}` など）が揃うようになった。スライス構文（`a[1:2]`）、ブロック開始のコロン（`if x:`、`def foo():` など）、`lambda` 自身のパラメータ/本体区切りは整列対象から除外される。
@@ -266,7 +268,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/upu/ghost-align/releases/tag/v1.6.0
 [1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
 [1.3.0]: https://github.com/upu/ghost-align/releases/tag/v1.3.0
