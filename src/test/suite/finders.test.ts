@@ -1546,6 +1546,161 @@ suite("findOperatorColumn: ジェネリクス既定型引数の `=`（#413）", 
   });
 });
 
+suite("findOperatorColumn: Python の `:`（辞書リテラル・型注釈）（#412）", () => {
+  test("辞書リテラルのキー（クォート文字列キー）を検出する", () => {
+    const line = '{"a": 1, "bb": 2}';
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "python"),
+      line.indexOf(":")
+    );
+  });
+
+  test("辞書リテラルのキー（変数キー）を検出する", () => {
+    const line = '  xxx: "bbb",';
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "python"),
+      line.indexOf(":")
+    );
+  });
+
+  test("変数の型注釈の `:` を検出する", () => {
+    const line = "x: int = 1";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "python"),
+      line.indexOf(":")
+    );
+  });
+
+  test("代入のない型注釈のみの行でも検出する", () => {
+    const line = "x: int";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "python"),
+      line.indexOf(":")
+    );
+  });
+
+  test("関数シグネチャの引数注釈の `:` を検出し、行末のブロック開始コロンは対象にしない", () => {
+    const line = 'def f(x: int, y: str = "a") -> None:';
+    const firstColon = line.indexOf(":");
+    const secondColon = line.indexOf(":", firstColon + 1);
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), firstColon);
+    assert.deepStrictEqual(
+      findOperatorTargets(line, [":", ":"], "python").map((t) => t.align),
+      [firstColon, secondColon]
+    );
+    // 3個目を探しても見つからない = 行末のブロック開始コロンは対象になっていない
+    assert.strictEqual(
+      findOperatorTargets(line, [":", ":", ":"], "python").length,
+      2
+    );
+  });
+
+  test("スライス構文の `:` は整列対象にしない", () => {
+    for (const line of ["a[1:2]", "a[::2]", "a[1:2:3]"]) {
+      assert.strictEqual(findOperatorColumn(line, [":"], "python"), null, line);
+    }
+  });
+
+  test("辞書の値がスライスでも、辞書キーのコロンのみ検出しスライスのコロンは対象にしない", () => {
+    const line = '{"a": x[1:2]}';
+    const firstColon = line.indexOf(":");
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), firstColon);
+    assert.deepStrictEqual(
+      findOperatorTargets(line, [":", ":"], "python").map((t) => t.align),
+      [firstColon]
+    );
+  });
+
+  test("ブロック開始コロン一覧はすべて整列対象にしない", () => {
+    const lines = [
+      "if x:",
+      "for i in range(10):",
+      "while True:",
+      "def foo():",
+      "class Foo:",
+      "else:",
+      "elif y:",
+      "try:",
+      "except E as e:",
+      "finally:",
+      "with f() as fp:",
+    ];
+    for (const line of lines) {
+      assert.strictEqual(findOperatorColumn(line, [":"], "python"), null, line);
+    }
+  });
+
+  test("行末コメント付きのブロック開始コロンも除外する", () => {
+    const line = "if x:  # comment";
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("辞書内包表記の `:` を検出する", () => {
+    const line = "{k: v for k, v in items}";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "python"),
+      line.indexOf(":")
+    );
+  });
+
+  test("lambda 自身の区切りコロンは整列対象にしない", () => {
+    const line = "f = lambda x: x + 1";
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("辞書の値が lambda でも辞書キーのコロンは検出し、lambda 自身のコロンは除外する", () => {
+    const line = '{"a": lambda x: x + 1, "bb": lambda y: y * 2}';
+    const firstColon = line.indexOf(":");
+    const bbColon = line.indexOf(":", line.indexOf('"bb"'));
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), firstColon);
+    assert.deepStrictEqual(
+      findOperatorTargets(line, [":", ":"], "python").map((t) => t.align),
+      [firstColon, bbColon]
+    );
+  });
+
+  test("f-string のフォーマット指定子は文字列内として除外する", () => {
+    const line = 'value = f"{value:.2f}"';
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("walrus 演算子 `:=` を通常のコロンと誤認しない", () => {
+    const line = "if (n := len(x)) > 5:";
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("ネストした辞書でも各階層のコロンを検出する", () => {
+    const outerLine = '  "outer": {';
+    const innerLine = '    "inner": 1,';
+    assert.strictEqual(
+      findOperatorColumn(outerLine, [":"], "python"),
+      outerLine.indexOf(":")
+    );
+    assert.strictEqual(
+      findOperatorColumn(innerLine, [":"], "python"),
+      innerLine.indexOf(":")
+    );
+  });
+
+  test("文字列内の `:` は無視する", () => {
+    const line = 's = "a:b"';
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("同一行で閉じる triple-quote 内の `:` も無視する", () => {
+    const line = 'x = """a:b"""';
+    assert.strictEqual(findOperatorColumn(line, [":"], "python"), null);
+  });
+
+  test("既定の演算子順序（`:` → `=`）で型注釈と代入の両方が同じ行の2カラムとして見つかる", () => {
+    const line = "x: int = 1";
+    assert.deepStrictEqual(findOperatorTargets(line, [":", "="], "python"), [
+      { opIndex: 0, insert: line.indexOf(":"), align: line.indexOf(":") },
+      { opIndex: 1, insert: line.indexOf("="), align: line.indexOf("=") },
+    ]);
+  });
+});
+
 suite("findOperatorTarget", () => {
   test("単純代入は insert と align が一致する", () => {
     assert.deepStrictEqual(findOperatorTarget("const x = 1;", ["="]), {
