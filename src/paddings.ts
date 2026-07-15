@@ -321,18 +321,19 @@ export function computePaddings(
         })
         .filter((x): x is NonNullable<typeof x> => x !== undefined);
       if (maxPadding > 0) {
-        for (;;) {
-          const positions = active.map(
-            ({ row, column }) => column.visualColumn + row.shift
-          );
-          const max = Math.max(...positions);
-          if (max - Math.min(...positions) <= maxPadding) {
-            break;
-          }
-          active = active.filter(
-            ({ row, column }) => column.visualColumn + row.shift !== max
-          );
-        }
+        // Equivalent to repeatedly dropping the current max until the spread
+        // fits (#178's original behavior): a row at the min position is
+        // never itself dropped, since removal only happens while max > min,
+        // so the min is invariant across iterations. That makes the fixed
+        // point exactly "keep every row within maxPadding of the min" —
+        // computable in one pass instead of O(N) removal rounds (#415).
+        const positions = active.map(
+          ({ row, column }) => column.visualColumn + row.shift
+        );
+        const min = Math.min(...positions);
+        active = active.filter(
+          ({ row, column }) => column.visualColumn + row.shift - min <= maxPadding
+        );
       }
       const maxCol = Math.max(
         ...active.map(({ row, column }) => column.visualColumn + row.shift)

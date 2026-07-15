@@ -818,6 +818,35 @@ suite("computePaddings", () => {
     ]);
   });
 
+  test("maxPadding: 同じ最大値を持つ複数行は同時に除外される", () => {
+    const placements = computePaddings(
+      [[entry(0, 0, 0), entry(1, 5, 5), entry(2, 20, 20), entry(3, 21, 20)]],
+      8
+    );
+    // 行2・行3 はともに visualColumn 20 で同時に外れ値として除外され、
+    // 残る 0/5 は差 5 <= maxPadding(8) なので揃う。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 0, padding: 5 },
+    ]);
+  });
+
+  test("maxPadding: 位置がばらけた大きなグループでも実用的な時間で完了する", () => {
+    const N = 20000;
+    const group: ReturnType<typeof entry>[] = [];
+    for (let i = 0; i < N; i++) {
+      group.push(entry(i, i, i));
+    }
+    const start = Date.now();
+    const placements = computePaddings([group], 50);
+    const elapsed = Date.now() - start;
+    assert.ok(
+      elapsed < 500,
+      `computePaddings took ${elapsed}ms for a ${N}-row group; expected O(N) or O(N log N), not O(N^2)`
+    );
+    // 位置0からmaxPadding(50)以内の行だけが揃い、それ以外は外れ値として除外される。
+    assert.ok(placements.length > 0 && placements.length < N);
+  });
+
   test("maxPadding: 除外はカラム単位で、外れ値行の別カラムは揃う", () => {
     const placements = computePaddings(
       [
