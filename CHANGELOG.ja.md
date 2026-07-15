@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- ジェネリクス／テンプレートの型引数リスト内にある既定型引数の `=`（TypeScript/TSX の `type Result<T = unknown> = T;`、C++ の `template<typename T = int>`、Rust の `struct S<T = String>`）を行の代入 `=` と誤認しなくなり、本来の代入・型定義の `=` に整列されるようになった。見た目が似ているだけの比較式（`a < b = c`、`x=a<b;y=c>d;`）の `=` は従来どおり検出される。
+
 ## [1.5.0] - 2026-07-12
 
 ### Added

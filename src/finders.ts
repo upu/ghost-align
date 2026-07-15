@@ -1149,12 +1149,182 @@ function findDestructuringPatternRanges(
   return ranges;
 }
 
-/** Whether `index` falls strictly inside one of `ranges` (see {@link findDestructuringPatternRanges}). */
-function isWithinDestructuringPattern(
+/** Whether `index` falls strictly inside one of `ranges` (`[open, close]` delimiter indices, exclusive on both ends). */
+function isWithinRanges(
   index: number,
   ranges: Array<[number, number]>
 ): boolean {
   return ranges.some(([open, close]) => index > open && index < close);
+}
+
+/**
+ * Language IDs whose generic/template type-argument lists allow `=` default
+ * arguments inside `<...>` (TS `type R<T = unknown>`, C++
+ * `template<typename T = int>`, Rust `struct S<T = String>`) — the languages
+ * where {@link findGenericTypeArgListRanges} is applied (#413). Deliberately
+ * excludes languages whose generics have no `=` defaults (Java, C#) and
+ * plain JS (no generics syntax at all): there the exclusion could only
+ * misfire on comparisons, never fix a real case.
+ */
+const GENERIC_TYPE_ARG_LANGUAGES = new Set([
+  "typescript",
+  "typescriptreact",
+  "cpp",
+  "rust",
+]);
+
+/**
+ * C++ allows whitespace between the `template` keyword and its `<`
+ * (`template <typename T = int>`), unlike the identifier-adjacency rule that
+ * covers every other opener. `template` is a reserved word, so — mirroring
+ * {@link SWITCH_KEYWORD_BEFORE_PAREN_RE} — requiring a non-identifier
+ * character before it rules out longer identifiers ending in "template".
+ */
+const TEMPLATE_KEYWORD_BEFORE_ANGLE_RE = /(?:^|[^\w$])template\s*$/;
+
+/**
+ * Index of the `>` closing a generic/template type-argument list whose `<`
+ * sits just before `from`, or -1 when the span until the end of the line
+ * doesn't look like a type-argument list after all. Tracks nested `<...>`
+ * (so `Map<string, number>>` closes correctly through the `>>`) and nested
+ * `(...)`/`[...]`/`{...}` (whose content is opaque here — an object-type
+ * default like `{ a: string; b: number }` may legally contain `;`).
+ *
+ * The `>` of a function-type arrow (`=>` in TS, `->` in Rust/C++ trailing
+ * return / fn-pointer types) never closes the list — both are skipped as
+ * units.
+ *
+ * Bails out (-1) on signals that this is expression context, not a type
+ * list, all checked only at the list's own bracket depth:
+ *   - `;` — a statement boundary (`x=a<b;y=c>d;` stays two comparisons)
+ *   - `&&` / `||` — boolean operators (`a<b && c>d`); a Rust double
+ *     reference default (`T = &&str`) is a known, rare casualty
+ *   - `<<` / `<=` — shift/comparison operators
+ *   - a `)`/`]`/`}` closing a bracket opened before the `<` (`if (a<b) ...`)
+ *   - the end of the line (or a comment running to it) with the list still
+ *     open — multi-line type-argument lists are not tracked, matching every
+ *     other single-line finder in this file
+ */
+function scanGenericTypeArgListEnd(
+  lineText: string,
+  from: number,
+  opts: CodeScanOptions
+): number {
+  const quoteState = initialQuoteState();
+  let angleDepth = 1;
+  let bracketDepth = 0;
+  for (let i = from; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      return -1; // comment to the end of the line: the list never closes
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch === "(" || ch === "[" || ch === "{") {
+      bracketDepth++;
+      continue;
+    }
+    if (ch === ")" || ch === "]" || ch === "}") {
+      if (bracketDepth === 0) {
+        return -1; // closes a bracket opened before the `<`: expression context
+      }
+      bracketDepth--;
+      continue;
+    }
+    if ((ch === "=" || ch === "-") && lineText[i + 1] === ">") {
+      i++; // `=>` / `->` arrow: its `>` doesn't close the list
+      continue;
+    }
+    if (bracketDepth > 0) {
+      continue; // nested (...)/[...]/{...} content is opaque
+    }
+    if (ch === "<") {
+      if (lineText[i + 1] === "<" || lineText[i + 1] === "=") {
+        return -1; // `<<` shift / `<=` comparison: expression context
+      }
+      angleDepth++;
+      continue;
+    }
+    if (ch === ">") {
+      angleDepth--;
+      if (angleDepth === 0) {
+        return i;
+      }
+      continue;
+    }
+    if (ch === ";") {
+      return -1; // statement boundary: expression context
+    }
+    if (
+      (ch === "&" && lineText[i + 1] === "&") ||
+      (ch === "|" && lineText[i + 1] === "|")
+    ) {
+      return -1; // boolean operator: expression context
+    }
+  }
+  return -1; // reached end of line with the list still open
+}
+
+/**
+ * Ranges `[open, close]` (indices of the `<`/`>` themselves) of same-line
+ * generic/template type-argument lists, so any `=` strictly between them is
+ * a default type argument — not a real assignment — and is excluded from
+ * alignment (#413). Same precomputed-ranges shape as
+ * {@link findDestructuringPatternRanges}.
+ *
+ * A `<` is a candidate opener only when it directly follows an identifier
+ * character (`Result<`, `Map<`) or, for C++, the `template` keyword with
+ * optional whitespace (`template <typename T = int>`). A comparison written
+ * with the universal spaced style (`a < b`) therefore never even becomes a
+ * candidate, and an unspaced one (`a<b`) is rejected by
+ * {@link scanGenericTypeArgListEnd}'s expression-context bailouts or by the
+ * absence of a closing `>` on the line — `a < b = c` keeps its `=`. A
+ * C++-style comma expression whose middle name is assigned between unspaced
+ * comparisons (`ok = a<b, c = d>e`) is indistinguishable from a type list
+ * lexically and stays a known limitation (C++'s own grammar shares it).
+ */
+function findGenericTypeArgListRanges(
+  lineText: string,
+  opts: CodeScanOptions,
+  languageId: string
+): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const quoteState = initialQuoteState();
+  for (let i = 0; i < lineText.length; i++) {
+    const ch = lineText[i];
+    const step = advanceCodeScan(lineText, i, ch, quoteState, opts);
+    if (step.kind === "stop") {
+      break; // comment to the end of the line, or an unterminated triple-quote
+    }
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1; // loop's i++ advances to nextIndex
+      continue;
+    }
+    if (ch !== "<") {
+      continue;
+    }
+    if (lineText[i + 1] === "<" || lineText[i + 1] === "=") {
+      i++; // `<<`/`<<=` shift or `<=` comparison, never a type-argument list
+      continue;
+    }
+    const prev = lineText[i - 1];
+    const afterIdentifier = prev !== undefined && /[A-Za-z0-9_$]/.test(prev);
+    const afterTemplateKeyword =
+      languageId === "cpp" &&
+      TEMPLATE_KEYWORD_BEFORE_ANGLE_RE.test(lineText.slice(0, i));
+    if (!afterIdentifier && !afterTemplateKeyword) {
+      continue;
+    }
+    const close = scanGenericTypeArgListEnd(lineText, i + 1, opts);
+    if (close !== -1) {
+      ranges.push([i, close]);
+      i = close; // resume after the validated list
+    }
+  }
+  return ranges;
 }
 
 /**
@@ -1166,6 +1336,9 @@ function isWithinDestructuringPattern(
  *   - the comparison/arrow operators `==`, `!=`, `<=`, `>=`, `=>`
  *   - for TS/JS, any `=` inside a same-line destructuring-default pattern
  *     `{...}` — see {@link findDestructuringPatternRanges} (#361)
+ *   - for {@link GENERIC_TYPE_ARG_LANGUAGES}, any `=` inside a same-line
+ *     generic/template type-argument list `<...>` (a default type argument)
+ *     — see {@link findGenericTypeArgListRanges} (#413)
  *
  * Compound assignments (`+=`, `:=`, `**=`, `<<=`, ...) are targets: `align`
  * is the `=` and `insert` is the operator's first character, so padding never
@@ -1208,6 +1381,10 @@ export function findAssignmentEquals(
     languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
       ? findDestructuringPatternRanges(lineText, opts)
       : [];
+  const genericTypeArgRanges =
+    languageId !== undefined && GENERIC_TYPE_ARG_LANGUAGES.has(languageId)
+      ? findGenericTypeArgListRanges(lineText, opts, languageId)
+      : [];
   const quoteState = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -1234,8 +1411,11 @@ export function findAssignmentEquals(
       continue;
     }
     if (ch === "=") {
-      if (isWithinDestructuringPattern(i, patternRanges)) {
+      if (isWithinRanges(i, patternRanges)) {
         continue; // destructuring-default `=` inside a same-line `{...}` pattern (#361)
+      }
+      if (isWithinRanges(i, genericTypeArgRanges)) {
+        continue; // generic/template default type argument inside `<...>` (#413)
       }
       const prev = lineText[i - 1];
       const next = lineText[i + 1];

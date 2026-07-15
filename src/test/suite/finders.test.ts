@@ -1,6 +1,7 @@
 import * as assert from "assert";
 import {
   findOperatorTargets,
+  findAssignmentEquals,
   initialQuoteState,
   advanceQuoteState,
   advanceCommentState,
@@ -1328,6 +1329,216 @@ suite("findOperatorColumn: TS/JS 分割代入デフォルト値の `=`（#361）
     // この修正は TS/JS 限定（TS_JS_LANGUAGES）。他言語で {} が分割代入を
     // 意味するとは限らないため、意図的に対象を広げない。
     const line = "const { a = 1 } = obj;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="]),
+      line.indexOf("=")
+    );
+  });
+});
+
+suite("findOperatorColumn: ジェネリクス既定型引数の `=`（#413）", () => {
+  test("TS: 既定型引数の = ではなく行末の型定義の = を返す", () => {
+    const line = "type Result<T = unknown> = T;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 既定型引数の後にアロー関数型が続いても型定義の = を返す", () => {
+    const line = "type Handler<E = Error> = (err: E) => void;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.indexOf("= (")
+    );
+  });
+
+  test("TS: 既定値がネストしたジェネリクス（>> で閉じる）でも型定義の = を返す", () => {
+    const line = "type D<M = Map<string, number>> = M;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 既定値が関数型（=> を含む）でも型引数リストの終わりを誤認しない", () => {
+    const line = "type F<C = () => void> = C;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 既定値がタプル型でも型定義の = を返す", () => {
+    const line = "type A<T extends unknown[] = []> = T;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 既定値が = を含む文字列リテラル型でも型定義の = を返す", () => {
+    const line = 'type S<T = "a=b"> = T;';
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 複数の既定型引数があっても型定義の = のみ検出する", () => {
+    const line = "type P<A = 1, B = 2> = [A, B];";
+    assert.deepStrictEqual(
+      findOperatorTargets(line, ["="], "typescript").map((t) => t.align),
+      [line.lastIndexOf("=")]
+    );
+  });
+
+  test("TS: 既定値がオブジェクト型（`;` 区切りメンバー）でも型定義の = を返す", () => {
+    const line = "type O<T = { a: string; b: number }> = T;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TSX でも既定型引数の = を除外する", () => {
+    const line = "type R<T = unknown> = T;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescriptreact"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 既定値なしのジェネリクスを含む行は従来どおり代入の = を返す", () => {
+    const line = "const m: Map<string, number> = new Map();";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.indexOf("=")
+    );
+  });
+
+  test("TS: 行内に既定型引数の = しかなければ null を返す", () => {
+    const line = "class Box<T = string> {";
+    assert.strictEqual(findOperatorColumn(line, ["="], "typescript"), null);
+  });
+
+  test("TS: 関数宣言の型引数既定値とデフォルト引数だけの行は null を返す", () => {
+    const line = "function f<T, U = T>(a: T, b?: U): void {}";
+    assert.strictEqual(findOperatorColumn(line, ["="], "typescript"), null);
+  });
+
+  test("TS: 型引数つき関数呼び出しの行は代入の = を返す", () => {
+    const line = "const r = identity<number>(42);";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.indexOf("=")
+    );
+  });
+
+  test("TS: 行末コメント内のジェネリクス風テキストは影響しない", () => {
+    const line = "type A<T = X> = T; // Map<K = V>";
+    assert.deepStrictEqual(
+      findOperatorTargets(line, ["="], "typescript").map((t) => t.align),
+      [line.indexOf("= T;")]
+    );
+  });
+
+  test("TS: 型引数リスト内にブロックコメントがあっても既定値の = を除外する", () => {
+    const line = "type A</* c */ T = X> = T;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("TS: 文字列内のジェネリクス風テキストは影響しない", () => {
+    const line = 'const s = "<T = X>";';
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "typescript"),
+      line.indexOf("=")
+    );
+  });
+
+  test("C++: template の既定型引数と括弧内のデフォルト引数だけの行は null を返す", () => {
+    const line = "template<typename T = int> void f(int x = 0);";
+    assert.strictEqual(findOperatorColumn(line, ["="], "cpp"), null);
+  });
+
+  test("C++: `template <` と空白を挟むスタイルでも既定型引数の = を除外する", () => {
+    const line = "template <class T = std::vector<int>> struct S;";
+    assert.strictEqual(findOperatorColumn(line, ["="], "cpp"), null);
+  });
+
+  test("C++: `a < b = c` の比較と代入の組み合わせは = を検出したまま", () => {
+    const line = "a < b = c";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "cpp"),
+      line.indexOf("=")
+    );
+  });
+
+  test("C++: 識別子直後の `<` でも対応する `>` がなければ = を検出したまま", () => {
+    const line = "a<b = c";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "cpp"),
+      line.indexOf("=")
+    );
+  });
+
+  test("C++: 空白なしの比較式（`;` を挟む）を型引数リストと誤認しない", () => {
+    const line = "x=a<b;y=c>d;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "cpp").map((t) => t.align),
+      [1, 7]
+    );
+  });
+
+  test("C++: シフト演算子 `<<` は型引数リストの開始と誤認しない", () => {
+    const line = "mask = bits<<2;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "cpp"),
+      line.indexOf("=")
+    );
+  });
+
+  test("C++: 三項演算子を含む比較式を型引数リストと誤認しない", () => {
+    const line = "int v = a<b ? x : y;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "cpp"),
+      line.indexOf("=")
+    );
+  });
+
+  test("Rust: struct の既定型引数の = しかない行は null を返す", () => {
+    const line = "struct S<T = String> { field: T }";
+    assert.strictEqual(findOperatorColumn(line, ["="], "rust"), null);
+  });
+
+  test("Rust: 型エイリアスでは既定型引数ではなく行末の = を返す", () => {
+    const line = "type Alias<T = String> = Vec<T>;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "rust"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("Rust: ライフタイムを含む既定型引数でも除外する", () => {
+    const line = "struct R<'a, T = &'a str> { x: T }";
+    assert.strictEqual(findOperatorColumn(line, ["="], "rust"), null);
+  });
+
+  test("Rust: fn ポインタ型既定値の `->` で型引数リストの終わりを誤認しない", () => {
+    const line = "type P<F = fn() -> i32> = F;";
+    assert.strictEqual(
+      findOperatorColumn(line, ["="], "rust"),
+      line.lastIndexOf("=")
+    );
+  });
+
+  test("スコープ外の言語（languageId 未指定）では従来どおりの挙動のまま", () => {
+    // この修正はジェネリクス/テンプレート既定引数を持つ言語限定。他言語の
+    // `<`/`>` は常に比較・不等号でありうるため、意図的に対象を広げない。
+    const line = "type Result<T = unknown> = T;";
     assert.strictEqual(
       findOperatorColumn(line, ["="]),
       line.indexOf("=")

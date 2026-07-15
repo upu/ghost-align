@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A default type argument's `=` inside a generic/template type-argument list (TypeScript/TSX `type Result<T = unknown> = T;`, C++ `template<typename T = int>`, Rust `struct S<T = String>`) is no longer mistaken for the line's assignment `=`, so such lines now align on the real assignment/type-definition `=`. Comparisons that merely look similar (`a < b = c`, `x=a<b;y=c>d;`) keep their `=` targets unchanged.
+
 ## [1.5.0] - 2026-07-12
 
 ### Added
