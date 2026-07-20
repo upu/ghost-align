@@ -16,6 +16,7 @@ import {
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
   notifyLineScanDocumentChange,
+  notifyLongOperatorGroupDocumentChange,
 } from "./decorate";
 
 // Memento key under which the toggle state is persisted across reloads
@@ -196,6 +197,7 @@ export function activate(context: vscode.ExtensionContext) {
       notifyCsvDocumentChange(e.document, e.contentChanges);
       notifyMarkdownDocumentChange(e.document, e.contentChanges);
       notifyLineScanDocumentChange(e.document, e.contentChanges);
+      notifyLongOperatorGroupDocumentChange(e.document, e.contentChanges);
       // Only editors showing the changed document need to re-decorate
       // (#364) — a split pane on an unrelated document is unaffected.
       const shownEditors = vscode.window.visibleTextEditors.filter(

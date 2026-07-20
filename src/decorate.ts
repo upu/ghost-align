@@ -7,6 +7,7 @@ import {
 import {
   DEFAULT_TAB_SIZE,
   LineSource,
+  LongOperatorGroupCache,
   Placement,
   computePaddings,
   computeSliceBounds,
@@ -199,6 +200,44 @@ export function notifyLineScanDocumentChange(
   }
 }
 
+// Per-document LongOperatorGroupCache for the operator path on large files —
+// see LongOperatorGroupCache (paddings.ts) for why an over-long group's
+// resolved extent is cached separately from the ordinary slice-bounded scan.
+const longOperatorGroupCaches = new WeakMap<
+  vscode.TextDocument,
+  LongOperatorGroupCache
+>();
+
+/** Get (or lazily create) a document's LongOperatorGroupCache. */
+function getLongOperatorGroupCache(
+  document: vscode.TextDocument
+): LongOperatorGroupCache {
+  let cache = longOperatorGroupCaches.get(document);
+  if (!cache) {
+    cache = new LongOperatorGroupCache();
+    longOperatorGroupCaches.set(document, cache);
+  }
+  return cache;
+}
+
+/**
+ * Keep a document's LongOperatorGroupCache in step with an edit. Discards
+ * every cached over-long-group range wholesale rather than checking whether
+ * the edit's range actually overlapped one — see LongOperatorGroupCache's
+ * class doc for why (rare, small cache; recompute cost is one-time either
+ * way). No-op for documents that have no cache yet.
+ */
+export function notifyLongOperatorGroupDocumentChange(
+  document: vscode.TextDocument,
+  changes: readonly { range: vscode.Range; text: string }[]
+) {
+  const cache = longOperatorGroupCaches.get(document);
+  if (!cache || changes.length === 0) {
+    return;
+  }
+  cache.invalidate();
+}
+
 // Decoration type: the base style is empty; per-instance renderOptions inject
 // the padding. Created by `createAlignDecorationType` in `activate` and
 // registered for disposal there.
@@ -257,6 +296,9 @@ export function decorateEditor(
   // which computes widths over the whole document up front.
   let sliceStart = 0;
   let sliceEnd = lineCount - 1;
+  // Hoisted so the operator path's over-long-group correction below (#434)
+  // can reuse the exact same boundary predicate that bounded this slice.
+  let isGroupLine: ((line: number) => boolean) | undefined;
   const useVisibleRange =
     lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0;
   if (useVisibleRange) {
@@ -264,7 +306,6 @@ export function decorateEditor(
       ...editor.visibleRanges.map((r) => r.start.line)
     );
     const visibleEnd = Math.max(...editor.visibleRanges.map((r) => r.end.line));
-    let isGroupLine: (line: number) => boolean;
     if (path.kind === "markdown") {
       isGroupLine = (i) => findPipePositions(document.lineAt(i).text).length > 0;
     } else if (path.kind === "csv") {
@@ -334,42 +375,113 @@ export function decorateEditor(
       return lines;
     };
 
-    // A block comment/template literal, CSS rule block, or YAML block scalar
-    // opened above sliceStart would otherwise look unopened at the top of the
-    // slice; seed the scan with whatever state it left behind.
-    const initialState: LineScanState | undefined =
-      path.kind === "operators" && sliceStart > 0
-        ? getLineScanCheckpointCache(document).stateBefore(
-            sliceStart,
-            (i) => document.lineAt(i).text,
-            languageId
-          )
-        : undefined;
-    const source: LineSource =
-      sliceStart === 0 && sliceEnd === lineCount - 1
-        ? document
-        : {
-            lineCount: sliceEnd - sliceStart + 1,
-            lineAt: (i: number) => document.lineAt(sliceStart + i),
+    // Large files: an operator group longer than computeSliceBounds' normal
+    // expansion limit would otherwise align only against its in-slice rows
+    // (#434) — wrong, and dependent on scroll position, since the group's
+    // true rightmost member can sit outside the slice entirely. Resolve the
+    // group's real extent with an *unbounded* computeSliceBounds walk (cheap
+    // unless the group truly is that long — an ordinary group fails its
+    // first extra isGroupLine check and stops immediately) and cache the
+    // corrected whole-group placements, so a scroll that stays inside the
+    // same over-long group reuses them instead of re-walking it.
+    let longGroupPlacements: Placement[] | undefined;
+    if (useVisibleRange && path.kind === "operators" && isGroupLine) {
+      const cache = getLongOperatorGroupCache(document);
+      cache.sync(
+        `${languageId}|${tabSize}|${maxPadding}|${path.alignJsdoc}|${path.operators.join(",")}`
+      );
+      longGroupPlacements = cache.findFor(sliceStart, sliceEnd);
+      if (!longGroupPlacements) {
+        const [trueStart, trueEnd] = computeSliceBounds(
+          lineCount,
+          sliceStart,
+          sliceEnd,
+          isGroupLine,
+          0,
+          lineCount
+        );
+        if (trueStart < sliceStart || trueEnd > sliceEnd) {
+          const extInitialState: LineScanState | undefined =
+            trueStart > 0
+              ? getLineScanCheckpointCache(document).stateBefore(
+                  trueStart,
+                  (i) => document.lineAt(i).text,
+                  languageId
+                )
+              : undefined;
+          const extSource: LineSource = {
+            lineCount: trueEnd - trueStart + 1,
+            lineAt: (i: number) => document.lineAt(trueStart + i),
           };
-    placements = computeDocumentPlacements(
-      sliceLines(),
-      source,
-      languageId,
-      config,
-      tabSize,
-      // Markdown never reaches this branch with sliceStart > 0 (the
-      // path.kind === "markdown" && useVisibleRange case is handled above
-      // via MarkdownTableWidthCache instead), so there's no fence state to
-      // seed here.
-      undefined,
-      initialState
-    );
-    if (sliceStart > 0) {
-      placements = placements.map((p) => ({
-        ...p,
-        lineIndex: p.lineIndex + sliceStart,
-      }));
+          const extGroups = findAlignmentGroups(
+            extSource,
+            path.operators,
+            languageId,
+            tabSize,
+            extInitialState
+          );
+          longGroupPlacements = computePaddings(extGroups, maxPadding).map((p) => ({
+            ...p,
+            lineIndex: p.lineIndex + trueStart,
+          }));
+          cache.set(trueStart, trueEnd, longGroupPlacements);
+        }
+      }
+    }
+
+    if (longGroupPlacements) {
+      // JSDoc @param blocks are bounded by a comment block's own size, never
+      // by GROUP_EXPANSION_LIMIT, so they're recomputed from the ordinary
+      // slice like the non-corrected path below rather than folded into the
+      // extended operator-group scan above.
+      const jsdocPlacements =
+        path.kind === "operators" && path.alignJsdoc
+          ? computeJsdocParamPaddings(sliceLines(), tabSize, maxPadding).map((p) => ({
+              ...p,
+              lineIndex: p.lineIndex + sliceStart,
+            }))
+          : [];
+      placements = longGroupPlacements
+        .filter((p) => p.lineIndex >= sliceStart && p.lineIndex <= sliceEnd)
+        .concat(jsdocPlacements);
+    } else {
+      // A block comment/template literal, CSS rule block, or YAML block scalar
+      // opened above sliceStart would otherwise look unopened at the top of the
+      // slice; seed the scan with whatever state it left behind.
+      const initialState: LineScanState | undefined =
+        path.kind === "operators" && sliceStart > 0
+          ? getLineScanCheckpointCache(document).stateBefore(
+              sliceStart,
+              (i) => document.lineAt(i).text,
+              languageId
+            )
+          : undefined;
+      const source: LineSource =
+        sliceStart === 0 && sliceEnd === lineCount - 1
+          ? document
+          : {
+              lineCount: sliceEnd - sliceStart + 1,
+              lineAt: (i: number) => document.lineAt(sliceStart + i),
+            };
+      placements = computeDocumentPlacements(
+        sliceLines(),
+        source,
+        languageId,
+        config,
+        tabSize,
+        // Markdown never reaches this branch with sliceStart > 0 (the
+        // path.kind === "markdown" && useVisibleRange case is handled above
+        // via MarkdownTableWidthCache instead), so there's no fence state to
+        // seed here.
+        undefined,
+        initialState
+      );
+      if (sliceStart > 0) {
+        placements = placements.map((p) => ({
+          ...p,
+          lineIndex: p.lineIndex + sliceStart,
+        }));
+      }
     }
   }
 

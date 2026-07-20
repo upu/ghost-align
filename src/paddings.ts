@@ -471,3 +471,56 @@ export function computeSliceBounds(
   }
   return [start, end];
 }
+
+/**
+ * Cache of corrected placements for an operator group whose true extent runs
+ * past {@link GROUP_EXPANSION_LIMIT} (#434) — a large-file slice can then no
+ * longer see the group's real rightmost member, so its alignment target
+ * would otherwise depend on scroll position. decorate.ts resolves such a
+ * group's true `[start, end]` line range with an *unbounded* call to {@link
+ * computeSliceBounds} (cheap unless the group really is that long — a normal
+ * group stops the walk after one failed `isGroupLine` check per side) and
+ * caches the placements computed over that full range here, keyed by the
+ * range itself: {@link findFor} looks for an already-cached range containing
+ * the current slice, so a scroll that stays inside the same over-long group
+ * reuses it without re-deriving or re-walking anything.
+ *
+ * Bounded to a handful of entries ({@link MAX_ENTRIES}) since this only ever
+ * holds data for pathologically long groups — an ordinary file has none.
+ * {@link sync} clears every entry when a parameter that affects alignment
+ * (tab size, maxPadding, operators, JSDoc toggle, language) changes,
+ * mirroring CsvWidthCache/MarkdownTableWidthCache's own tabSize/maxPadding
+ * checks; unlike those, entries here carry no per-entry metadata to compare
+ * individually, so a param change invalidates the whole cache at once.
+ */
+export class LongOperatorGroupCache {
+  private static readonly MAX_ENTRIES = 4;
+  private entries: { start: number; end: number; placements: Placement[] }[] = [];
+  private paramsKey: string | undefined;
+
+  /** Discard every entry if `paramsKey` differs from the last call. */
+  sync(paramsKey: string): void {
+    if (this.paramsKey !== paramsKey) {
+      this.entries = [];
+      this.paramsKey = paramsKey;
+    }
+  }
+
+  /** Cached placements for a range that fully contains `[start, end]`, if any. */
+  findFor(start: number, end: number): Placement[] | undefined {
+    return this.entries.find((e) => e.start <= start && end <= e.end)?.placements;
+  }
+
+  /** Cache `placements` (absolute line coordinates) for `[start, end]`. */
+  set(start: number, end: number, placements: Placement[]): void {
+    if (this.entries.length >= LongOperatorGroupCache.MAX_ENTRIES) {
+      this.entries.shift();
+    }
+    this.entries.push({ start, end, placements });
+  }
+
+  /** Discard every entry — an edit may have changed group content anywhere. */
+  invalidate(): void {
+    this.entries = [];
+  }
+}
