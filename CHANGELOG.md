@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A YAML block scalar whose header carries an explicit indentation indicator (`key: |2`, and either indicator order such as `|2-` / `|-2`) is now recognized, so a `:` inside its content lines is no longer mistaken for a mapping colon and pulled into alignment.
 - Flag emoji (Regional Indicator Symbols, U+1F1E6-U+1F1FF, e.g. 🇯🇵) are now counted at their rendered width (2 columns per code point), so lines containing them no longer misalign in Markdown tables, CSV cells, comments, or string literals.
 - An emoji with a skin tone modifier (e.g. 👍🏽, base + U+1F3FB-U+1F3FF) is now counted as a single 2-column glyph instead of 4 columns, so tokens after it no longer shift 2 columns right. A modifier standing alone, or following a non-modifier-base code point, still counts as its own 2-column swatch.
+- Pipe-and-dash text that is not a valid GFM table is no longer recognized as a Markdown table and no longer receives ghost padding: each delimiter-row cell must now be one or more hyphens with optional leading/trailing colons (a row like `| : | --- |` is rejected), and the delimiter row's cell count must match the header row's (GFM rejects the pair otherwise). Valid tables — including `:---` / `---:` / `:---:` alignment markers and omitted leading/trailing pipes — keep their existing behavior.
 
 ## [1.6.0] - 2026-07-16
 
