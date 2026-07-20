@@ -200,6 +200,89 @@ suite("findMarkdownTables", () => {
     );
     assert.deepStrictEqual(tables, [[0, 1, 2]]);
   });
+
+  test("終了フェンスの後ろに空白以外の文字がある行はフェンスを閉じない", () => {
+    // ```not-a-closer はGFM上の終了フェンスの条件（後続は空白のみ）を満たさない
+    const tables = findMarkdownTables([
+      "```",
+      "```not-a-closer",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "```",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("終了フェンスは末尾の空白を許容する", () => {
+    const tables = findMarkdownTables([
+      "```",
+      "in fence",
+      "```  ",
+      "| h |",
+      "|---|",
+      "| d |",
+    ]);
+    assert.deepStrictEqual(tables, [[3, 4, 5]]);
+  });
+
+  test("4スペース以上字下げされたフェンス風の行は通常のフェンスとして扱わない", () => {
+    // 4スペース字下げは indented code block であり、GFM のフェンス構文の対象外
+    const tables = findMarkdownTables([
+      "    ```",
+      "| not | a | real table |",
+      "|-----|---|------------|",
+      "    ```",
+    ]);
+    assert.deepStrictEqual(tables, [[1, 2]]);
+  });
+
+  test("4スペース字下げのコードブロック内の table-like text は対象外", () => {
+    const tables = findMarkdownTables([
+      "prose",
+      "",
+      "    | not | a | real table |",
+      "    |-----|---|------------|",
+      "",
+      "| h |",
+      "|---|",
+      "| d |",
+    ]);
+    assert.deepStrictEqual(tables, [[5, 6, 7]]);
+  });
+
+  test("段落を直接続ける4スペース字下げ行は indented code block にならず、テーブルとして検出する", () => {
+    // 直前が空行/ドキュメント先頭でない字下げ行は lazy continuation で、
+    // indented code block を開始できない（CommonMark の「段落を中断できない」規則）
+    const tables = findMarkdownTables([
+      "prose",
+      "    | h |",
+      "    |---|",
+      "    | d |",
+    ]);
+    assert.deepStrictEqual(tables, [[1, 2, 3]]);
+  });
+
+  test("ドキュメント先頭からの4スペース字下げは indented code block として扱う", () => {
+    const tables = findMarkdownTables([
+      "    | not | a | real table |",
+      "    |-----|---|------------|",
+    ]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("indented code block は空行を挟んで続いても対象外のまま", () => {
+    const tables = findMarkdownTables([
+      "",
+      "    | not | a | real table |",
+      "",
+      "    |-----|---|------------|",
+      "",
+      "| h |",
+      "|---|",
+      "| d |",
+    ]);
+    assert.deepStrictEqual(tables, [[5, 6, 7]]);
+  });
 });
 
 suite("computeFenceStateBefore", () => {

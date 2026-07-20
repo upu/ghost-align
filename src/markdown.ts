@@ -132,34 +132,106 @@ export interface FenceState {
 const NO_FENCE: FenceState = { char: null, len: 0 };
 
 /**
+ * A line's leading-whitespace width (tabs expand to the next multiple of 4 —
+ * CommonMark always measures block-structure indentation with a fixed tab
+ * stop of 4, independent of the editor's `tabSize` used elsewhere for visual
+ * column math) and the text remaining after it. Shared by fence-line
+ * detection (0-3 width = fence-eligible) and indented-code-block detection
+ * (4+ width).
+ */
+function splitLeadingIndent(lineText: string): { width: number; rest: string } {
+  let width = 0;
+  let i = 0;
+  while (i < lineText.length) {
+    const ch = lineText[i];
+    if (ch === " ") {
+      width++;
+    } else if (ch === "\t") {
+      width += 4 - (width % 4);
+    } else {
+      break;
+    }
+    i++;
+  }
+  return { width, rest: lineText.slice(i) };
+}
+
+/**
  * Fence state after processing one more line, given the state as of the line
- * before it. A fence opens on a line whose trimmed text starts with 3+
- * backticks or tildes, and closes on a later line whose trimmed text starts
- * with 3+ of the same character (at least as many as the opening run). The
- * single per-line step shared by {@link computeFencedLines} (a full scan
- * that also records which lines are inside the fence) and
- * {@link computeFenceStateBefore} (a state-only pre-scan for a slice's
- * starting fence state) — mirrors nextCssBlockDepth / nextYamlBlockScalarState
- * in finders.ts, which are each shared the same way between a full scan and
- * a state pre-scan.
+ * before it. A fence opens on a line indented 0-3 columns whose remaining
+ * text starts with 3+ backticks or tildes (an info string may follow), and
+ * closes on a later line indented 0-3 columns whose remaining text is 3+ of
+ * the same character (at least as many as the opening run) followed by
+ * nothing but whitespace — GFM allows a closing fence no trailing content,
+ * unlike an opening one. A line indented 4+ columns can neither open nor
+ * close a fence (it's an indented code block instead, see
+ * computeIndentedCodeLines) but doesn't end one already open — it's just
+ * fence content. The single per-line step shared by {@link
+ * computeFencedLines} (a full scan that also records which lines are inside
+ * the fence) and {@link computeFenceStateBefore} (a state-only pre-scan for
+ * a slice's starting fence state) — mirrors nextCssBlockDepth /
+ * nextYamlBlockScalarState in finders.ts, which are each shared the same way
+ * between a full scan and a state pre-scan.
  *
  * Always returns a freshly constructed object rather than `state` or the
  * shared {@link NO_FENCE} constant by reference, so a caller mutating the
  * returned state can never corrupt NO_FENCE or an earlier call's state.
  */
 function nextFenceState(lineText: string, state: FenceState): FenceState {
-  const trimmed = lineText.trim();
-  const match = FENCE_RE.exec(trimmed);
+  const { width, rest } = splitLeadingIndent(lineText);
+  if (width > 3) {
+    return state.char === null ? { char: null, len: 0 } : state;
+  }
+  const match = FENCE_RE.exec(rest);
   if (state.char === null) {
     if (match) {
       return { char: match[1][0], len: match[1].length };
     }
     return { char: null, len: 0 };
   }
-  if (match && match[1][0] === state.char && match[1].length >= state.len) {
+  if (
+    match &&
+    match[1][0] === state.char &&
+    match[1].length >= state.len &&
+    rest.slice(match[1].length).trim() === ""
+  ) {
     return { char: null, len: 0 };
   }
   return { char: state.char, len: state.len };
+}
+
+/**
+ * For each line, whether it's part of a 4+-column-indented code block (GFM
+ * indented code, distinct from a fenced one) and thus excluded from table
+ * detection alongside fenced lines. An indented block can only start where a
+ * paragraph can't lazily continue into it — right after a blank line, at the
+ * start of the document, or right after a fence — matching CommonMark's "does
+ * not interrupt a paragraph" rule; once started, blank lines inside it don't
+ * end it as long as further indented content follows. Fenced lines are
+ * excluded from consideration entirely (already handled as fenced) and reset
+ * the "can start" state for what follows, same as a blank line would.
+ */
+function computeIndentedCodeLines(lines: string[], fenced: boolean[]): boolean[] {
+  const indented = new Array<boolean>(lines.length).fill(false);
+  let canStart = true;
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    if (fenced[i]) {
+      canStart = true;
+      inBlock = false;
+      continue;
+    }
+    if (lines[i].trim().length === 0) {
+      canStart = true;
+      continue;
+    }
+    const lineIsIndented: boolean =
+      splitLeadingIndent(lines[i]).width >= 4 && (inBlock || canStart);
+    indented[i] = lineIsIndented;
+    inBlock = lineIsIndented;
+    canStart = false;
+  }
+  return indented;
 }
 
 /**
@@ -205,7 +277,8 @@ export function computeFenceStateBefore(
  * the same cell count as the header (GFM rejects the pair otherwise; data rows
  * may differ), then data rows (non-blank, containing `|`). Returns each block
  * as its line indices.
- * Lines inside fenced code blocks (``` or ~~~) are skipped. `initialState` seeds the
+ * Lines inside fenced code blocks (``` or ~~~) or 4+-column-indented code
+ * blocks (see computeIndentedCodeLines) are skipped. `initialState` seeds the
  * fence state as of line 0 (see computeFenceStateBefore).
  *
  * `fencedOut`, if given, is filled with the per-line fenced flags computed
@@ -224,9 +297,11 @@ export function findMarkdownTables(
     fencedOut.length = 0;
     fencedOut.push(...fenced);
   }
+  const indented = computeIndentedCodeLines(lines, fenced);
+  const isSkipped = (index: number) => fenced[index] || indented[index];
   let i = 0;
   while (i < lines.length) {
-    if (fenced[i]) {
+    if (isSkipped(i)) {
       i++;
       continue;
     }
@@ -234,7 +309,7 @@ export function findMarkdownTables(
     if (
       isHeader &&
       i + 1 < lines.length &&
-      !fenced[i + 1] &&
+      !isSkipped(i + 1) &&
       isDelimiterRow(lines[i + 1]) &&
       splitTableCells(lines[i]).length === splitTableCells(lines[i + 1]).length
     ) {
@@ -242,7 +317,7 @@ export function findMarkdownTables(
       let j = i + 2;
       while (
         j < lines.length &&
-        !fenced[j] &&
+        !isSkipped(j) &&
         lines[j].trim().length > 0 &&
         findPipePositions(lines[j]).length > 0
       ) {
