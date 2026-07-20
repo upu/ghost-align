@@ -1064,6 +1064,48 @@ suite("visualColumn", () => {
     assert.strictEqual(visualColumn("a\u{1f1ef}\u{1f1f5}b", 5, 4), 5);
   });
 
+  test("スキントーン修飾子は絵文字ベースの直後では追加幅として数えない", () => {
+    // \u{1F44D} (親指) 単体と \u{1F44D}\u{1F3FD} (スキントーン付き) は
+    // どちらも単一グリフ・幅 2 で描画される。直後の = の視覚カラムは同じ 2。
+    assert.strictEqual(visualColumn("\u{1f44d}=", 2, 4), 2);
+    assert.strictEqual(visualColumn("\u{1f44d}\u{1f3fd}=", 4, 4), 2);
+  });
+
+  test("文字列の途中にスキントーン付き絵文字があっても後続の視覚カラムがずれない", () => {
+    // "a" + \u{1F44D}\u{1F3FD} + "b": a=1, 絵文字=2, 修飾子=0。b の直後は 4。
+    assert.strictEqual(visualColumn("a\u{1f44d}\u{1f3fd}b", 6, 4), 4);
+  });
+
+  test("5 種類のスキントーン修飾子すべてで同じ規則が適用される", () => {
+    for (const modifier of [0x1f3fb, 0x1f3fc, 0x1f3fd, 0x1f3fe, 0x1f3ff]) {
+      const text = "\u{1f44b}" + String.fromCodePoint(modifier) + "=";
+      assert.strictEqual(visualColumn(text, 4, 4), 2);
+    }
+  });
+
+  test("単独のスキントーン修飾子は幅2として数える", () => {
+    // ベース絵文字なしで現れた修飾子はスウォッチとして単独描画されるため幅 2。
+    assert.strictEqual(visualColumn("\u{1f3fd}=", 2, 4), 2);
+  });
+
+  test("Emoji_Modifier_Base でない絵文字の後のスキントーン修飾子は幅2として数える", () => {
+    // \u{1F600} (笑顔) は修飾子ベースではなく、修飾子は別グリフとして描画される。
+    assert.strictEqual(visualColumn("\u{1f600}\u{1f3fd}=", 4, 4), 4);
+  });
+
+  test("スキントーン付き絵文字を含む行が同じ視覚カラムで揃う", () => {
+    // "\u{1F44D} x = 1;" と "\u{1F44D}\u{1F3FD} x = 1;" の = は
+    // どちらも視覚カラム 5（絵文字 2 + 空白 1 + x 1 + 空白 1）。
+    const doc = mockDocument([
+      "\u{1f44d} x = 1;",
+      "\u{1f44d}\u{1f3fd} y = 2;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], undefined, 4);
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0][0].columns[0].visualColumn, 5);
+    assert.strictEqual(groups[0][1].columns[0].visualColumn, 5);
+  });
+
   test("CJK 拡張 B（U+20000 以降）は幅2として数える", () => {
     // "𠀀=" の 𠀀 は 2 コードユニット・視覚幅 2。
     assert.strictEqual(visualColumn("𠀀=", 2, 4), 2);

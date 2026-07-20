@@ -76,6 +76,25 @@ const ZERO_WIDTH_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0xfeff, 0xfeff], // Zero Width No-Break Space / BOM
 ];
 
+/**
+ * Skin tone modifiers (Emoji_Modifier, U+1F3FB-U+1F3FF) merge with a
+ * preceding Emoji_Modifier_Base emoji into a single glyph (an emoji modifier
+ * sequence), so the modifier adds no width of its own there. Standalone, or
+ * after a non-base code point, the modifier renders as its own swatch and
+ * keeps the wide width of 2 from WIDE_CHAR_RANGES. Unlike East_Asian_Width,
+ * `Emoji_Modifier_Base` is available as a regex property escape, so no
+ * explicit table is needed here.
+ */
+const EMOJI_MODIFIER_BASE = /^\p{Emoji_Modifier_Base}$/u;
+
+function isSkinToneModifier(codePoint: number): boolean {
+  return codePoint >= 0x1f3fb && codePoint <= 0x1f3ff;
+}
+
+function isEmojiModifierBase(codePoint: number): boolean {
+  return codePoint >= 0 && EMOJI_MODIFIER_BASE.test(String.fromCodePoint(codePoint));
+}
+
 /** Rendered column width of a single code point: 0 for zero-width, 2 for wide/fullwidth, else 1. */
 function charWidth(codePoint: number): number {
   for (const [lo, hi] of ZERO_WIDTH_RANGES) {
@@ -104,15 +123,20 @@ export function visualColumn(
   tabSize: number
 ): number {
   let col = 0;
+  let prevCodePoint = -1;
   const end = Math.min(charIndex, lineText.length);
   for (let i = 0; i < end; ) {
     if (lineText[i] === "\t") {
       col += tabSize - (col % tabSize);
       i++;
+      prevCodePoint = -1;
       continue;
     }
     const codePoint = lineText.codePointAt(i) as number;
-    col += charWidth(codePoint);
+    if (!(isSkinToneModifier(codePoint) && isEmojiModifierBase(prevCodePoint))) {
+      col += charWidth(codePoint);
+    }
+    prevCodePoint = codePoint;
     i += codePoint > 0xffff ? 2 : 1;
   }
   return col;
