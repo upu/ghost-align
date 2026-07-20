@@ -2,6 +2,7 @@ import * as assert from "assert";
 import {
   CsvWidthCache,
   computeCsvColumnPlan,
+  computeCsvDecimalWidths,
   computeCsvLineMetrics,
   computeCsvMaxWidths,
   computeCsvNumericColumns,
@@ -194,6 +195,36 @@ suite("computeCsvPaddings: alignNumbersRight", () => {
       { lineIndex: 0, character: 2, padding: 8 },
     ]);
   });
+
+  test("true: 桁数の異なる小数が混在する列は右寄せでなく小数点の位置で揃える（#429）", () => {
+    // "1.5"(整数部1桁) と "23.45"(整数部2桁) はヘッダー幅(5)に収まるため列幅は広がらない。
+    const decimals = ["id,price,note", "x1,1.5,a", "x2,23.45,a"];
+    const placements = computeCsvPaddings(decimals, ",", 4, 0, true);
+    assert.deepStrictEqual(placements, [
+      // "1.5" は整数部が1桁分 ("23.45" の2桁に対して) 足りないのでセル先頭に1、
+      // 小数点を揃えた残りの幅を区切り直前に1、それぞれゴーストパディングが入る。
+      { lineIndex: 1, character: 3, padding: 1 },
+      { lineIndex: 1, character: 6, padding: 1 },
+    ]);
+  });
+
+  test("true: 小数点を含まない整数セルが混在する場合は整数部の桁数だけで揃え、列幅がヘッダー幅を超えるなら広げる（#429）", () => {
+    // 整数部の最大桁数(3, "100") と小数部の最大幅(3, ".45") の合計6は、
+    // 元の列最大幅5("23.45"・ヘッダー"price")より広いので、列全体の幅がその分広がる。
+    const mixed = ["id,price,note", "x1,1.5,a", "x2,23.45,a", "x3,100,a"];
+    const placements = computeCsvPaddings(mixed, ",", 4, 0, true);
+    assert.deepStrictEqual(placements, [
+      // ヘッダー "price" は非数値行として従来どおり単一の右寄せパディング（幅6-5=1）。
+      { lineIndex: 0, character: 3, padding: 1 },
+      // "1.5": 整数部1桁 → 整数部側に2、小数点合わせ後の残り1を区切り側に。
+      { lineIndex: 1, character: 3, padding: 2 },
+      { lineIndex: 1, character: 6, padding: 1 },
+      // "23.45": 整数部2桁 → 整数部側に1のみ（小数部は最大なので残りパディング無し）。
+      { lineIndex: 2, character: 3, padding: 1 },
+      // "100": 整数部3桁で最大 → 整数部側パディングは無く、小数部相当の3を区切り側に。
+      { lineIndex: 3, character: 6, padding: 3 },
+    ]);
+  });
 });
 
 suite("computeCsvNumericColumns", () => {
@@ -226,6 +257,39 @@ suite("computeCsvNumericColumns", () => {
   });
 });
 
+suite("computeCsvDecimalWidths", () => {
+  const metricsOf = (lines: string[]) =>
+    lines.map((l) => computeCsvLineMetrics(l, ",", 4));
+
+  test("整数部の最大幅と、整数部+小数部の最大幅の組み合わせを列ごとに返す", () => {
+    // 列0(price): "1.5"(整数部1,小数部".5"幅2) "23.45"(整数部2,小数部".45"幅3) "100"(整数部3,小数部なし)。
+    // maxIntWidths=3("100")。minTotalWidths=3+3=6(整数部最大と小数部最大は別の行から)。
+    const rows = metricsOf(["price,note", "1.5,a", "23.45,a", "100,a"]);
+    assert.deepStrictEqual(
+      computeCsvDecimalWidths(rows, computeCsvNumericColumns(rows)),
+      { maxIntWidths: [3], minTotalWidths: [6] }
+    );
+  });
+
+  test("numericColumns が false の列は集計しない（空のまま）", () => {
+    const rows = metricsOf(["id,x", "1,a", "abc,b"]);
+    assert.deepStrictEqual(computeCsvDecimalWidths(rows, computeCsvNumericColumns(rows)), {
+      maxIntWidths: [],
+      minTotalWidths: [],
+    });
+  });
+
+  test("ヘッダー行など numeric=false の行は個別に除外する", () => {
+    // ヘッダー "price" は numericColumns の判定から除外されるだけで numeric=false のまま残り、
+    // maxIntWidths/minTotalWidths の集計でも(数値でないので)無視される。
+    const rows = metricsOf(["price,note", "1.5,a", "23.45,a"]);
+    assert.deepStrictEqual(
+      computeCsvDecimalWidths(rows, computeCsvNumericColumns(rows)),
+      { maxIntWidths: [2], minTotalWidths: [5] }
+    );
+  });
+});
+
 suite("computeCsvLineMetrics", () => {
   test("区切り位置とセルの視覚幅を返す", () => {
     assert.deepStrictEqual(computeCsvLineMetrics("aa,bbb,c", ",", 4), {
@@ -233,6 +297,7 @@ suite("computeCsvLineMetrics", () => {
       widths: [2, 3],
       contentStarts: [0, 3],
       numeric: [false, false],
+      intEndWidths: [2, 3],
     });
   });
 
@@ -246,6 +311,7 @@ suite("computeCsvLineMetrics", () => {
       widths: [2],
       contentStarts: [0],
       numeric: [false],
+      intEndWidths: [2],
     });
   });
 
@@ -255,6 +321,8 @@ suite("computeCsvLineMetrics", () => {
       widths: [2, 5],
       contentStarts: [0, 4],
       numeric: [true, true],
+      // "12" は小数点なしで全体が整数部（幅2）。" -3.5" は先頭空白1 + 符号・整数部2桁で幅3。
+      intEndWidths: [2, 3],
     });
   });
 
@@ -264,6 +332,17 @@ suite("computeCsvLineMetrics", () => {
       widths: [2, 1, 5],
       contentStarts: [0, 3, 5],
       numeric: [false, false, false],
+      intEndWidths: [2, 1, 5],
+    });
+  });
+
+  test("小数点を含む数値セルは intEndWidths が小数点直前までの幅を返す", () => {
+    assert.deepStrictEqual(computeCsvLineMetrics("1.5,23.45,100", ",", 4), {
+      delims: [3, 9],
+      widths: [3, 5],
+      contentStarts: [0, 4],
+      numeric: [true, true],
+      intEndWidths: [1, 2],
     });
   });
 
@@ -276,6 +355,7 @@ suite("computeCsvLineMetrics", () => {
       widths: [8],
       contentStarts: [0],
       numeric: [false],
+      intEndWidths: [8],
     });
   });
 
@@ -423,6 +503,7 @@ suite("CsvWidthCache", () => {
       widths: [3],
       contentStarts: [0],
       numeric: [false],
+      intEndWidths: [3],
     });
   });
 
@@ -486,6 +567,27 @@ suite("CsvWidthCache", () => {
     assert.deepStrictEqual(cache.numericColumns(), [false]);
   });
 
+  test("maxIntWidths/minTotalWidths: 可視範囲外の行も含めた全行から小数点位置揃えの幅を求める（#429）", () => {
+    const lines = ["price,note", "1.5,a", "23.45,a", "100,a"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.maxIntWidths(), [3]);
+    assert.deepStrictEqual(cache.minTotalWidths(), [6]);
+  });
+
+  test("maxIntWidths/minTotalWidths: 編集でデータ行の桁数が変わったら次の sync 後に更新される", () => {
+    const lines = ["price,note", "1.5,a", "23.45,a"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.maxIntWidths(), [2]);
+    assert.deepStrictEqual(cache.minTotalWidths(), [5]);
+    lines[1] = "100.5,a";
+    cache.applyEdit(1, 1, 1);
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.maxIntWidths(), [3]);
+    assert.deepStrictEqual(cache.minTotalWidths(), [6]);
+  });
+
   test("複数行クォートフィールドの開始行を編集してクォート状態が変わると、ダーティでない後続行までカスケードして再走査する（#430）", () => {
     const lines = ['a,"b', 'c",d', "e,f"];
     const cache = new CsvWidthCache(",");
@@ -510,6 +612,7 @@ suite("CsvWidthCache", () => {
       widths: [1],
       contentStarts: [0],
       numeric: [false],
+      intEndWidths: [1],
     });
     assert.strictEqual(cache.metricsAt(1), null);
     assert.strictEqual(cache.metricsAt(2), null);

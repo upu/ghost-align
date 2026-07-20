@@ -267,7 +267,7 @@
         "ghostAlign.csv.alignNumbersRight": {
           "type": "boolean",
           "default": false,
-          "description": "Right-align a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (an optional leading -, digits, and an optional decimal part; thousands separators and exponents are not recognized). The first row (typically a header) is excluded from that judgment but still gets right-aligned when its column qualifies. Columns with any non-numeric data cell are left-aligned as before."
+          "description": "Right-align a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (an optional leading -, digits, and an optional decimal part; thousands separators and exponents are not recognized). The first row (typically a header) is excluded from that judgment but still gets right-aligned when its column qualifies. Columns with any non-numeric data cell are left-aligned as before. When the column has decimal values, they are aligned at the decimal point instead of just right-aligning the whole cell (an integer cell with no decimal point aligns by its digit count alone)."
         },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
