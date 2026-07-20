@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - A `:` or `=` inside a TypeScript/JavaScript regex literal (`const re = /:/;`, `input.replace(/=/g, "")`) is no longer treated as an alignment target — in particular, `/=/` is no longer mistaken for a `/=` compound assignment. Whether a `/` starts a regex literal or is division is decided by the standard preceding-token heuristic, so ordinary division (`a / b`, `f(a) / g(b)`) keeps its existing behavior.
 - In Rust, a line with an odd number of lifetime apostrophes (e.g. `fn foo<'a>(x: &'a str, y: &'static str)`) no longer desyncs the cross-line block-comment tracking: a `/* ... */` opened on such a line and closed on a later line is now recognized, so an `=` inside the comment's continuation is no longer mistaken for a real assignment. Char literals containing a quote (`'"'`) and raw strings with an odd number of `"` (`r#"a " b"#`) are handled the same way.
 - A YAML block scalar whose header carries an explicit indentation indicator (`key: |2`, and either indicator order such as `|2-` / `|-2`) is now recognized, so a `:` inside its content lines is no longer mistaken for a mapping colon and pulled into alignment.
+- Flag emoji (Regional Indicator Symbols, U+1F1E6-U+1F1FF, e.g. 🇯🇵) are now counted at their rendered width (2 columns per code point), so lines containing them no longer misalign in Markdown tables, CSV cells, comments, or string literals.
 
 ## [1.6.0] - 2026-07-16
 

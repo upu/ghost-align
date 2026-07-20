@@ -49,6 +49,7 @@ const WIDE_CHAR_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0xfe30, 0xfe6f], // CJK Compatibility Forms, Small Form Variants
   [0xff00, 0xff60], // Fullwidth Forms
   [0xffe0, 0xffe6], // Fullwidth signs
+  [0x1f1e6, 0x1f1ff], // Regional Indicator Symbols (flag emoji pairs)
   [0x1f300, 0x1faff], // Emoji and pictographs (Misc Symbols .. Ext-A)
   [0x20000, 0x3fffd], // CJK Unified Ideographs Extension B and beyond
 ];
