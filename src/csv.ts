@@ -72,6 +72,15 @@ export interface CsvLineMetrics {
    * per-column numeric-ness for ghostAlign.csv.alignNumbersRight.
    */
   numeric: boolean[];
+  /**
+   * Visual width from the cell's start (like widths) to the end of its
+   * integer part — up to the decimal point, or the whole numeric value when
+   * it has none — index-for-index with delims/widths. Meaningless where
+   * numeric[k] is false (defaults to widths[k] there). Used to decimal-point
+   * align a numeric column (see computeCsvDecimalWidths) instead of just
+   * right-aligning the whole cell.
+   */
+  intEndWidths: number[];
 }
 
 /**
@@ -119,16 +128,28 @@ function computeCsvLineState(
   const widths: number[] = [];
   const contentStarts: number[] = [];
   const numeric: boolean[] = [];
+  const intEndWidths: number[] = [];
   delims.forEach((d, k) => {
     const cellStart = k === 0 ? 0 : delims[k - 1] + 1;
-    widths.push(
-      visualColumn(lineText, d, tabSize) - visualColumn(lineText, cellStart, tabSize)
-    );
+    const cellStartCol = visualColumn(lineText, cellStart, tabSize);
+    const width = visualColumn(lineText, d, tabSize) - cellStartCol;
+    widths.push(width);
     const contentStart = cellContentStart(lineText, cellStart, d);
     contentStarts.push(contentStart);
-    numeric.push(NUMERIC_CELL_RE.test(lineText.slice(contentStart, d).trimEnd()));
+    const trimmed = lineText.slice(contentStart, d).trimEnd();
+    const isNumeric = NUMERIC_CELL_RE.test(trimmed);
+    numeric.push(isNumeric);
+    if (isNumeric) {
+      const dotIndex = trimmed.indexOf(".");
+      const intLen = dotIndex === -1 ? trimmed.length : dotIndex;
+      intEndWidths.push(
+        visualColumn(lineText, contentStart + intLen, tabSize) - cellStartCol
+      );
+    } else {
+      intEndWidths.push(width);
+    }
   });
-  return { metrics: { delims, widths, contentStarts, numeric }, endInQuotes };
+  return { metrics: { delims, widths, contentStarts, numeric, intEndWidths }, endInQuotes };
 }
 
 /**
@@ -192,6 +213,63 @@ export function computeCsvNumericColumns(
     numericColumns.push(sawData && allNumeric);
   }
   return numericColumns;
+}
+
+/**
+ * Per-column decimal-point alignment widths for ghostAlign.csv.alignNumbersRight,
+ * restricted to columns `numericColumns` marks numeric (see
+ * computeCsvNumericColumns) and, within them, to rows whose own cell is
+ * numeric (a header row typically isn't).
+ *
+ * `maxIntWidths[k]` is the widest integer part (see CsvLineMetrics.intEndWidths)
+ * among those rows — the amount of left-padding a narrower row's integer part
+ * needs so every row's decimal point lands in the same column.
+ *
+ * `minTotalWidths[k]` is the narrowest column width that can fit every row's
+ * integer part AND fractional part simultaneously aligned — `maxIntWidths[k]`
+ * plus the widest fractional part (digits after the dot, including the dot
+ * itself) among those rows. This can exceed the column's plain max cell width
+ * (see computeCsvMaxWidths) when no single row has both the widest integer
+ * part and the widest fractional part, so computeCsvPaddingsFromMax widens
+ * the column's plan target to at least this before splitting each row's
+ * padding into a left part (aligning the decimal point) and a right part
+ * (the remainder, still landing the delimiter at the same target position as
+ * before this widening).
+ */
+export function computeCsvDecimalWidths(
+  rows: Iterable<CsvLineMetrics | null | undefined>,
+  numericColumns: readonly boolean[]
+): { maxIntWidths: number[]; minTotalWidths: number[] } {
+  const maxIntWidths: number[] = [];
+  for (const row of rows) {
+    if (!row) {
+      continue;
+    }
+    for (let k = 0; k < row.numeric.length; k++) {
+      if (!numericColumns[k] || !row.numeric[k]) {
+        continue;
+      }
+      if (maxIntWidths[k] === undefined || row.intEndWidths[k] > maxIntWidths[k]) {
+        maxIntWidths[k] = row.intEndWidths[k];
+      }
+    }
+  }
+  const minTotalWidths: number[] = [];
+  for (const row of rows) {
+    if (!row) {
+      continue;
+    }
+    for (let k = 0; k < row.numeric.length; k++) {
+      if (!numericColumns[k] || !row.numeric[k]) {
+        continue;
+      }
+      const total = maxIntWidths[k] + (row.widths[k] - row.intEndWidths[k]);
+      if (minTotalWidths[k] === undefined || total > minTotalWidths[k]) {
+        minTotalWidths[k] = total;
+      }
+    }
+  }
+  return { maxIntWidths, minTotalWidths };
 }
 
 /**
@@ -264,24 +342,48 @@ export function computeCsvColumnPlan(
  * it just makes them align relative to each row's real position rather than
  * a position inherited from the skipped column.
  *
- * `numericColumns[k]` (see computeCsvNumericColumns), when true, inserts a
- * column's padding at the cell's content start instead of at the delimiter —
- * right-aligning it — for ghostAlign.csv.alignNumbersRight. Defaults to an
- * empty array, so every column left-aligns (pre-#399 behavior) unless a
- * caller opts in.
+ * `numericColumns[k]` (see computeCsvNumericColumns), when true, right-aligns
+ * a column instead of left-aligning it, for ghostAlign.csv.alignNumbersRight.
+ * Defaults to an empty array, so every column left-aligns (pre-#399 behavior)
+ * unless a caller opts in. For a row whose own cell is numeric, the padding
+ * is further split at the decimal point (see computeCsvDecimalWidths) using
+ * `maxIntWidths`/`minTotalWidths`: a left part at the cell's content start
+ * that aligns the decimal point with other rows, and a right part at the
+ * delimiter for whatever padding remains — a header row (typically not
+ * numeric even in a numeric column) keeps the pre-#429 single-part
+ * right-align instead. `maxIntWidths`/`minTotalWidths` default to empty, so
+ * omitting them (or leaving numericColumns empty) reduces to that behavior.
  */
 export function computeCsvPaddingsFromMax(
   rows: { lineIndex: number; metrics: CsvLineMetrics }[],
   plan: readonly (number | null)[],
   delimiter: string,
   tabSize: number,
-  numericColumns: readonly boolean[] = []
+  numericColumns: readonly boolean[] = [],
+  maxIntWidths: readonly number[] = [],
+  minTotalWidths: readonly number[] = []
 ): Placement[] {
   const advance = delimiterAdvance(delimiter, tabSize);
   const pos = new Array<number>(rows.length).fill(0);
   const placements: Placement[] = [];
   for (let k = 0; k < plan.length; k++) {
-    const target = plan[k];
+    const planTarget = plan[k];
+    // plan[k] is an absolute running position (pos[i] carried in from earlier
+    // columns plus this column's own width), while minTotalWidths[k] is only
+    // this column's own decimal-aligned width — so widening must compare
+    // against pos[i] + minTotalWidths[k], not minTotalWidths[k] alone.
+    let target = planTarget;
+    if (planTarget !== null && numericColumns[k] && minTotalWidths[k] !== undefined) {
+      rows.forEach((row, i) => {
+        if (row.metrics.delims.length <= k) {
+          return;
+        }
+        const decimalTarget = pos[i] + minTotalWidths[k];
+        if (decimalTarget > target!) {
+          target = decimalTarget;
+        }
+      });
+    }
     rows.forEach((row, i) => {
       if (row.metrics.delims.length <= k) {
         return;
@@ -293,14 +395,33 @@ export function computeCsvPaddingsFromMax(
       }
       const padding = target - raw;
       if (padding > 0) {
-        const character = numericColumns[k]
-          ? row.metrics.contentStarts[k]
-          : row.metrics.delims[k];
-        placements.push({
-          lineIndex: row.lineIndex,
-          character,
-          padding,
-        });
+        if (numericColumns[k] && row.metrics.numeric[k]) {
+          const leftPad = Math.max(0, (maxIntWidths[k] ?? 0) - row.metrics.intEndWidths[k]);
+          const rightPad = padding - leftPad;
+          if (leftPad > 0) {
+            placements.push({
+              lineIndex: row.lineIndex,
+              character: row.metrics.contentStarts[k],
+              padding: leftPad,
+            });
+          }
+          if (rightPad > 0) {
+            placements.push({
+              lineIndex: row.lineIndex,
+              character: row.metrics.delims[k],
+              padding: rightPad,
+            });
+          }
+        } else {
+          const character = numericColumns[k]
+            ? row.metrics.contentStarts[k]
+            : row.metrics.delims[k];
+          placements.push({
+            lineIndex: row.lineIndex,
+            character,
+            padding,
+          });
+        }
       }
       pos[i] = advance(target);
     });
@@ -351,7 +472,18 @@ export function computeCsvPaddings(
   const numericColumns = alignNumbersRight
     ? computeCsvNumericColumns(rows.map((r) => r.metrics))
     : [];
-  return computeCsvPaddingsFromMax(rows, plan, delimiter, tabSize, numericColumns);
+  const { maxIntWidths, minTotalWidths } = alignNumbersRight
+    ? computeCsvDecimalWidths(rows.map((r) => r.metrics), numericColumns)
+    : { maxIntWidths: [], minTotalWidths: [] };
+  return computeCsvPaddingsFromMax(
+    rows,
+    plan,
+    delimiter,
+    tabSize,
+    numericColumns,
+    maxIntWidths,
+    minTotalWidths
+  );
 }
 
 /**
@@ -374,6 +506,7 @@ export class CsvWidthCache {
   private plan: (number | null)[] | null = null;
   private planMaxPadding = 0;
   private numericCols: boolean[] | null = null;
+  private decimalWidthsCache: { maxIntWidths: number[]; minTotalWidths: number[] } | null = null;
   private tabSize = 0;
 
   constructor(public readonly delimiter: string) {}
@@ -403,6 +536,7 @@ export class CsvWidthCache {
     this.max = null;
     this.plan = null;
     this.numericCols = null;
+    this.decimalWidthsCache = null;
   }
 
   /**
@@ -431,6 +565,7 @@ export class CsvWidthCache {
       this.max = null;
       this.plan = null;
       this.numericCols = null;
+      this.decimalWidthsCache = null;
     }
     let carry = false;
     for (let i = 0; i < this.metrics.length; i++) {
@@ -486,6 +621,28 @@ export class CsvWidthCache {
       this.numericCols = computeCsvNumericColumns(this.metrics);
     }
     return this.numericCols;
+  }
+
+  /**
+   * Per-column decimal-alignment widths over all cached lines — see
+   * computeCsvDecimalWidths, which this also depends on numericColumns() for
+   * — memoized like numericColumns(). Call sync() first.
+   */
+  private decimalWidths(): { maxIntWidths: number[]; minTotalWidths: number[] } {
+    if (!this.decimalWidthsCache) {
+      this.decimalWidthsCache = computeCsvDecimalWidths(this.metrics, this.numericColumns());
+    }
+    return this.decimalWidthsCache;
+  }
+
+  /** Per-column widest integer part among numeric rows — see computeCsvDecimalWidths. */
+  maxIntWidths(): number[] {
+    return this.decimalWidths().maxIntWidths;
+  }
+
+  /** Per-column narrowest width fitting every numeric row's decimal-aligned form — see computeCsvDecimalWidths. */
+  minTotalWidths(): number[] {
+    return this.decimalWidths().minTotalWidths;
   }
 
   /** Cached metrics of one line (null if it has no delimiter). */

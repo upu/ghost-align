@@ -41,7 +41,7 @@ Markdown の `|` テーブル列を、パイプの位置が揃うように整列
 
 ### CSV・TSV
 
-`csv` / `tsv` 言語 ID のドキュメントで、区切り文字の位置が揃うように整列する。RFC 4180 のクォート規則（`"` で囲まれたフィールド内の区切り文字は無視）を考慮する。`ghostAlign.csv.alignNumbersRight`（既定 false）を有効にすると、データセルが全て数値とみなせる列だけ右寄せになる（1行目はヘッダーとして数値判定から除外されるが、右寄せ自体は適用される）。
+`csv` / `tsv` 言語 ID のドキュメントで、区切り文字の位置が揃うように整列する。RFC 4180 のクォート規則（`"` で囲まれたフィールド内の区切り文字は無視）を考慮する。`ghostAlign.csv.alignNumbersRight`（既定 false）を有効にすると、データセルが全て数値とみなせる列だけ右寄せになる（1行目はヘッダーとして数値判定から除外されるが、右寄せ自体は適用される）。小数を含む列では、セル全体の右寄せでなく小数点の位置で揃える（整数のみのセルは整数部の桁数で揃う）。
 
 - 設定キー: `ghostAlign.csv.enabled`, `ghostAlign.csv.delimiters`, `ghostAlign.csv.alignNumbersRight`
 - 既定の区切り文字は `DEFAULT_CSV_DELIMITERS`（`src/config.ts`）が真実（既定は `csv` = `,`、`tsv` = タブ）。

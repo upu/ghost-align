@@ -749,6 +749,35 @@ suite("decorateEditor と可視範囲モード（大きい CSV/TSV）", () => {
       assert.strictEqual(d.renderOptions?.before?.contentText, " ".repeat(2));
     }
   });
+
+  test("csv.alignNumbersRight=true: キャッシュ経由でも可視範囲外を含む全行から小数点位置揃えの幅を計算する（#429）", () => {
+    const lines = new Array<string>(10001).fill("1.5,note");
+    lines[0] = "id,note"; // ヘッダー（数値判定・小数点位置揃えの集計から除外される）
+    lines[9500] = "23.45,note"; // 可視範囲外：整数部2桁で列の整数部最大幅を広げる
+    const { editor, calls } = mockEditor("csv", lines, [
+      { start: 9000, end: 9040 },
+    ]);
+    decorateEditor(
+      editor,
+      mockConfig({
+        "csv.alignNumbersRight": true,
+      }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    // 可視範囲内は全行 "1.5" だが、可視範囲外の "23.45"（整数部2桁）に合わせて
+    // セル先頭（小数点合わせ）に1、区切り直前（残りの幅合わせ）に1、それぞれ入る。
+    const leftPads = calls[0].filter((d) => d.range.start.character === 0);
+    const rightPads = calls[0].filter((d) => d.range.start.character === 3);
+    assert.ok(leftPads.length > 0);
+    assert.ok(rightPads.length > 0);
+    for (const d of leftPads) {
+      assert.strictEqual(d.renderOptions?.before?.contentText, " ".repeat(1));
+    }
+    for (const d of rightPads) {
+      assert.strictEqual(d.renderOptions?.before?.contentText, " ".repeat(1));
+    }
+  });
 });
 
 suite("decorateEditor と可視範囲モード（大きい Markdown テーブル）", () => {

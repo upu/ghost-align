@@ -321,7 +321,9 @@ export function decorateEditor(
       cache.columnPlan(maxPadding),
       path.delimiter,
       tabSize,
-      path.alignNumbersRight ? cache.numericColumns() : []
+      path.alignNumbersRight ? cache.numericColumns() : [],
+      path.alignNumbersRight ? cache.maxIntWidths() : [],
+      path.alignNumbersRight ? cache.minTotalWidths() : []
     );
   } else {
     const sliceLines = (): string[] => {

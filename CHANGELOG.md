@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `ghostAlign.csv.alignNumbersRight` now aligns numeric columns at the decimal point instead of just right-aligning the whole cell, so values with a differing number of digits (e.g. `1.5`, `23.45`, `100`) line up their decimal points instead of their right edges.
+
 ### Fixed
 
 - A `:` or `=` inside a TypeScript/JavaScript regex literal (`const re = /:/;`, `input.replace(/=/g, "")`) is no longer treated as an alignment target — in particular, `/=/` is no longer mistaken for a `/=` compound assignment. Whether a `/` starts a regex literal or is division is decided by the standard preceding-token heuristic, so ordinary division (`a / b`, `f(a) / g(b)`) keeps its existing behavior.
