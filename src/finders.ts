@@ -735,10 +735,12 @@ function yamlLeadingWhitespace(lineText: string): number {
 
 /**
  * Trailing chunk after a YAML mapping colon that opens a block scalar: `|`/`>`
- * optionally followed by a chomping indicator (`-` strip / `+` keep), then
- * nothing but whitespace or a trailing `#` comment to the end of the line.
+ * optionally followed by a chomping indicator (`-` strip / `+` keep) and/or an
+ * explicit indentation indicator (a single digit `1`-`9`, in either order per
+ * the YAML block-header grammar), then nothing but whitespace or a trailing
+ * `#` comment to the end of the line.
  */
-const YAML_BLOCK_SCALAR_TAIL = /^\s*[|>][+-]?\s*(#.*)?$/;
+const YAML_BLOCK_SCALAR_TAIL = /^\s*[|>](?:[1-9][+-]?|[+-][1-9]?)?\s*(#.*)?$/;
 
 /**
  * Leading-whitespace indent of `lineText` if it opens a YAML block scalar, or

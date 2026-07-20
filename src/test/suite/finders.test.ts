@@ -2342,6 +2342,44 @@ suite("YAML ブロックスカラー継続状態", () => {
     }
   });
 
+  test("明示的インデント指示子（`|2` `>2`）つきでも認識する", () => {
+    for (const header of ["b: |2", "b: >2", "b: |1", "b: |9"]) {
+      assert.strictEqual(nextYamlBlockScalarState(header, null), 0, header);
+    }
+  });
+
+  test("`key: |2` の次の行はブロックスカラーの中身として扱う（`:` を通常スキャンさせない）", () => {
+    const state = nextYamlBlockScalarState("script: |2", null);
+    assert.strictEqual(state, 0);
+    assert.strictEqual(
+      isYamlBlockScalarContent("    x: this is scalar text", state),
+      true
+    );
+  });
+
+  test("インデント指示子と chomping indicator の順序は両方認識する（`|2-` / `|-2`）", () => {
+    for (const header of [
+      "b: |2-",
+      "b: |-2",
+      "b: |2+",
+      "b: |+2",
+      "b: >2-",
+      "b: >-2",
+    ]) {
+      assert.strictEqual(nextYamlBlockScalarState(header, null), 0, header);
+    }
+  });
+
+  test("インデント指示子つきヘッダーのトレーリングコメントも許容する", () => {
+    assert.strictEqual(nextYamlBlockScalarState("b: |2 # note", null), 0);
+  });
+
+  test("無効なインデント指示子はブロックスカラーの開始と認識しない", () => {
+    for (const header of ["b: |0", "b: |22", "b: |2x", "b: |-2-"]) {
+      assert.strictEqual(nextYamlBlockScalarState(header, null), null, header);
+    }
+  });
+
   test("インデントがキー行以下に戻った行はブロックスカラーの中身ではない", () => {
     const opened = nextYamlBlockScalarState("b: |", null);
     const afterContent = nextYamlBlockScalarState(
