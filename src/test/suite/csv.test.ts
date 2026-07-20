@@ -29,6 +29,20 @@ suite("findCsvDelimiterPositions", () => {
       [5, 8]
     );
   });
+
+  test("startInQuotes=true: 継続行の閉じクォート前のカンマは区切りにせず、閉じクォート後のカンマは区切りにする", () => {
+    // 前の物理行で開いたクォートが継続している行。"still quoted" 直前のカンマは
+    // クォート内なので区切りではなく、閉じクォート `"` の後のカンマだけが区切り。
+    const line = 'world,still quoted",x';
+    assert.deepStrictEqual(findCsvDelimiterPositions(line, ",", true), [19]);
+  });
+
+  test("startInQuotes=false（既定）: 同じ行をクォート状態を引き継がず単独行として解析すると誤検出する", () => {
+    // 継続状態を渡さない旧来の挙動では、まだ閉じていないクォートの内側にある
+    // カンマを区切りと誤認し、本来の区切り（閉じクォート後のカンマ）を見逃す。
+    const line = 'world,still quoted",x';
+    assert.deepStrictEqual(findCsvDelimiterPositions(line, ","), [5]);
+  });
 });
 
 suite("computeCsvPaddings", () => {
@@ -115,6 +129,26 @@ suite("computeCsvPaddings", () => {
     const placements = computeCsvPaddings(lines, ",", 4, 10);
     assert.deepStrictEqual(placements, [
       { lineIndex: 0, character: 17, padding: 9 },
+    ]);
+  });
+
+  test("改行を含むクォートフィールドをまたいでもクォート状態が引き継がれ、継続行内のカンマを区切りと誤認しない（#430）", () => {
+    const lines = [
+      "id,note,value",
+      '1,"hello',
+      'world,still quoted",x',
+      "2,ok,y",
+    ];
+    const placements = computeCsvPaddings(lines, ",", 4);
+    // 3行目 'world,still quoted",x' は "note" フィールドの継続行。"still quoted"
+    // 直前のカンマ（char5）を区切りと誤認していれば列0の最大幅が5相当になり
+    // 全行のパディングが崩れる。閉じクォート後のカンマ（char19）だけを区切りとして
+    // 扱うと、この行自身は列0の最大幅そのものなのでパディング不要になる。
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 0, character: 2, padding: 17 },
+      { lineIndex: 1, character: 1, padding: 18 },
+      { lineIndex: 3, character: 1, padding: 18 },
+      { lineIndex: 3, character: 4, padding: 2 },
     ]);
   });
 });
@@ -231,6 +265,25 @@ suite("computeCsvLineMetrics", () => {
       contentStarts: [0, 3, 5],
       numeric: [false, false, false],
     });
+  });
+
+  test("startInQuotes=true: 前行から継続する `\"\"` エスケープ込みのクォートフィールドを正しく閉じ、閉じクォート後のカンマを区切りとして返す", () => {
+    // 前行 'a,"He said ""hi' はクォートを開いたまま終わる（1行目のテストで確認済み）。
+    // この行はその継続で、`\"\"` エスケープの後の `\"` で閉じ、その後のカンマだけが区切り。
+    const line = 'there""",b';
+    assert.deepStrictEqual(computeCsvLineMetrics(line, ",", 4, true), {
+      delims: [8],
+      widths: [8],
+      contentStarts: [0],
+      numeric: [false],
+    });
+  });
+
+  test("startInQuotes 省略（既定false）だと同じ行のクォート継続を認識できず区切りを1つも検出しない", () => {
+    // 継続状態を渡さないと、行頭の `"` を新規のクォート開始と誤認し、直後の `\"\"` を
+    // エスケープとして飲み込んでしまい、本来の区切り（カンマ）まで見失う。
+    const line = 'there""",b';
+    assert.strictEqual(computeCsvLineMetrics(line, ",", 4), null);
   });
 });
 
@@ -431,5 +484,50 @@ suite("CsvWidthCache", () => {
     cache.applyEdit(1, 1, 1);
     syncWithSpy(cache, lines, []);
     assert.deepStrictEqual(cache.numericColumns(), [false]);
+  });
+
+  test("複数行クォートフィールドの開始行を編集してクォート状態が変わると、ダーティでない後続行までカスケードして再走査する（#430）", () => {
+    const lines = ['a,"b', 'c",d', "e,f"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    // 初回: 1行目末尾でクォートが開いたまま終わり、2行目でその継続が閉じてから
+    // カンマが区切りになる（"c\",d" の delims=[2]）。列0の最大幅は2。
+    assert.deepStrictEqual(cache.maxWidths(), [2]);
+
+    // 1行目の `"` を消し、クォートを一切開かない行に変える。
+    lines[0] = "a,b";
+    cache.applyEdit(0, 1, 1);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+    // 1行目だけがダーティだが、1行目の終端クォート状態が true→false に変わったため、
+    // 2行目・3行目もそれを踏まえて再走査しないと誤った結果のまま残ってしまう。
+    assert.deepStrictEqual(reads, [0, 1, 2]);
+    // 2行目は継続クォートが無くなったことで `"` が新規開始と解釈され、以降クォート内
+    // 扱いになってカンマが区切りでなくなる（delims=[] → null）。3行目もクォートが
+    // 閉じないまま終わるので同様に区切りが無くなる。
+    assert.deepStrictEqual(cache.metricsAt(0), {
+      delims: [1],
+      widths: [1],
+      contentStarts: [0],
+      numeric: [false],
+    });
+    assert.strictEqual(cache.metricsAt(1), null);
+    assert.strictEqual(cache.metricsAt(2), null);
+    assert.deepStrictEqual(cache.maxWidths(), [1]);
+  });
+
+  test("クォート状態が変わらない編集では、ダーティ行だけ読み直しカスケードしない", () => {
+    const lines = ['a,"b', 'c",d', "e,f"];
+    const cache = new CsvWidthCache(",");
+    syncWithSpy(cache, lines, []);
+    assert.deepStrictEqual(cache.maxWidths(), [2]);
+
+    // クォートは開いたままで幅だけ変わる編集。終端のクォート状態(true)は変わらない。
+    lines[0] = 'aa,"bb';
+    cache.applyEdit(0, 1, 1);
+    const reads: number[] = [];
+    syncWithSpy(cache, lines, reads);
+    assert.deepStrictEqual(reads, [0]);
+    assert.deepStrictEqual(cache.maxWidths(), [2]);
   });
 });
