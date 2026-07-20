@@ -278,6 +278,8 @@ export const TS_JS_LANGUAGES = new Set([
  * Excludes:
  *   - `:` inside `"..."` / `'...'` / single-line-closed `` `...` `` strings
  *   - `:` inside `//` line comments or single-line `/* ... *​/` block comments
+ *   - `:` inside a regex literal (`/a:b/`) — see {@link jsRegexLiteralEnd}
+ *     for the regex-vs-division heuristic (#425)
  *   - the ternary-operator `:` (the branch separator matching a preceding
  *     `? ... :` at the same bracket depth)
  *
@@ -497,6 +499,13 @@ function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
     if (comment !== false) {
       i = comment; // loop's i++ advances past the closing `/`
       continue;
+    }
+    if (ch === "/") {
+      const regexEnd = jsRegexLiteralEnd(lineText, i);
+      if (regexEnd !== -1) {
+        i = regexEnd - 1; // loop's i++ advances past the literal (#425)
+        continue;
+      }
     }
     if (ch === "(" || ch === "[" || ch === "{") {
       depth++;
@@ -920,6 +929,117 @@ function isDigitSeparatorNeighbor(ch: string | undefined): boolean {
 }
 
 /**
+ * Characters that, as the last non-whitespace character before a `/`, leave
+ * it in expression-start position — where JS/TS grammar reads `/` as the
+ * start of a regex literal, since division would need a value on its left.
+ * Deliberately excludes `)`/`]`/`}`/quotes/identifier characters (a value
+ * just ended: division) and `<`/`>` — a bare `>` more often closes a JSX tag
+ * (`<td>/…`) than ends an arrow, so `=>` gets its own two-character check in
+ * {@link jsRegexLiteralEnd} instead.
+ */
+const REGEX_PRECEDING_CHARS = new Set([
+  "(", "[", "{", ",", ";", ":", "!", "&", "|", "?", "=", "+", "-", "*", "%", "^", "~",
+]);
+
+/**
+ * Keywords after which a `/` starts a regex literal (`return /re/.test(s)`).
+ * All are reserved words that end with the expression still unstarted; an
+ * ordinary identifier in the same position would be a value, i.e. division.
+ */
+const REGEX_PRECEDING_KEYWORDS = new Set([
+  "return", "typeof", "instanceof", "in", "of", "new", "delete", "void",
+  "case", "do", "else", "yield", "await", "throw",
+]);
+
+/**
+ * If `lineText[i]` (a `/`, already known not to start a `//` or `/* ... *​/`
+ * comment) opens a TS/JS regex literal, returns the index just past its
+ * closing `/` and any trailing flags. Otherwise returns -1 and the `/` is
+ * left to mean division (#425).
+ *
+ * Whether a `/` starts a regex or is division depends on the preceding token
+ * (JS's classic lexing ambiguity); without a full parser this uses the
+ * standard heuristic over the last non-whitespace character:
+ *   - nothing on the line before it, one of {@link REGEX_PRECEDING_CHARS},
+ *     the `>` of a `=>` arrow, or one of {@link REGEX_PRECEDING_KEYWORDS}
+ *     (as a whole word, not preceded by `.` — `obj.return` is a property) →
+ *     expression position, so a regex can start here
+ *   - anything else — an identifier/number, `)`, `]`, `}`, a closing quote,
+ *     a postfix `++`/`--` — a value just ended, so it's division
+ *
+ * Both misjudgment directions are possible in principle; each side errs
+ * toward the smaller blast radius: a regex read as division just keeps the
+ * pre-#425 behavior for that line, and a division read as a regex requires a
+ * second `/` later on the same line (no closing `/` → -1 → division), since
+ * a real regex literal cannot span lines.
+ *
+ * The body scan tracks `\` escapes and `[...]` character classes (an
+ * unescaped `/` inside a class does not close the literal, per the regex
+ * grammar); trailing flags are consumed as ASCII letters.
+ */
+function jsRegexLiteralEnd(lineText: string, i: number): number {
+  let p = i - 1;
+  while (p >= 0 && (lineText[p] === " " || lineText[p] === "\t")) {
+    p--;
+  }
+  if (p >= 0) {
+    const prev = lineText[p];
+    if (prev === ">") {
+      if (lineText[p - 1] !== "=") {
+        return -1; // comparison / JSX tag close, not a `=>` arrow
+      }
+    } else if ((prev === "+" || prev === "-") && lineText[p - 1] === prev) {
+      return -1; // postfix `++`/`--`: its operand is a value, so `/` is division
+    } else if (!REGEX_PRECEDING_CHARS.has(prev)) {
+      if (!/[A-Za-z0-9_$]/.test(prev)) {
+        return -1; // `)`, `]`, `}`, a quote, ...: a value just ended
+      }
+      let start = p;
+      while (start > 0 && /[A-Za-z0-9_$]/.test(lineText[start - 1])) {
+        start--;
+      }
+      if (
+        !REGEX_PRECEDING_KEYWORDS.has(lineText.slice(start, p + 1)) ||
+        lineText[start - 1] === "."
+      ) {
+        return -1; // identifier/number (or a keyword-named property): division
+      }
+    }
+  }
+  let inClass = false;
+  let escaped = false;
+  for (let j = i + 1; j < lineText.length; j++) {
+    const c = lineText[j];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (c === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (inClass) {
+      if (c === "]") {
+        inClass = false;
+      }
+      continue;
+    }
+    if (c === "[") {
+      inClass = true;
+      continue;
+    }
+    if (c === "/") {
+      let end = j + 1;
+      while (end < lineText.length && /[a-zA-Z]/.test(lineText[end])) {
+        end++; // trailing flags (g, i, m, s, u, v, y, d)
+      }
+      return end;
+    }
+  }
+  return -1; // no closing `/` on this line: regex literals cannot span lines
+}
+
+/**
  * Result of {@link advanceCodeScan} at one character position:
  *   - `{ kind: "code" }` — `ch` is itself a normal code character; the caller
  *     should run its own token-matching logic for this iteration
@@ -953,6 +1073,7 @@ interface CodeScanOptions {
   lifetimeLang?: boolean;
   digitSeparators?: boolean;
   pyTripleQuote?: boolean;
+  jsRegex?: boolean;
 }
 
 /**
@@ -1024,6 +1145,13 @@ function advanceCodeScan(
   }
   if (comment !== false) {
     return { kind: "skip", nextIndex: comment + 1 };
+  }
+  if (opts.jsRegex && ch === "/") {
+    // Reached only after the comment check above, so `//`/`/*` never lands here.
+    const end = jsRegexLiteralEnd(lineText, i);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
   }
   return { kind: "code" };
 }
@@ -1339,6 +1467,8 @@ function findGenericTypeArgListRanges(
  *   - for {@link GENERIC_TYPE_ARG_LANGUAGES}, any `=` inside a same-line
  *     generic/template type-argument list `<...>` (a default type argument)
  *     — see {@link findGenericTypeArgListRanges} (#413)
+ *   - for TS/JS, any `=` inside a regex literal (`/=/` is not a compound
+ *     `/=` assignment) — see {@link jsRegexLiteralEnd} (#425)
  *
  * Compound assignments (`+=`, `:=`, `**=`, `<<=`, ...) are targets: `align`
  * is the `=` and `insert` is the operator's first character, so padding never
@@ -1376,6 +1506,7 @@ export function findAssignmentEquals(
       languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
     pyTripleQuote:
       languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
+    jsRegex: languageId !== undefined && TS_JS_LANGUAGES.has(languageId),
   };
   const patternRanges =
     languageId !== undefined && TS_JS_LANGUAGES.has(languageId)

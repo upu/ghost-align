@@ -1546,6 +1546,185 @@ suite("findOperatorColumn: ジェネリクス既定型引数の `=`（#413）", 
   });
 });
 
+suite("findOperatorColumn: TS/JS 正規表現リテラル内の `:`（#425）", () => {
+  test("正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const re = /:/;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("JS でも正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const re = /:/;", [":"], "javascript"),
+      null
+    );
+  });
+
+  test("関数引数の正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("str.split(/:/);", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("フラグ付き正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const re = /:/gi;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("文字クラス内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const re = /[:=]/;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("エスケープされた / を含む正規表現内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const re = /\\/:/;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("return 直後の正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("return /a:b/.test(s);", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("! 直後の正規表現リテラル内の : は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("if (!/x:y/.test(s)) f();", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("型注釈の : は正規表現リテラルがあっても検出する", () => {
+    const line = "const re: RegExp = /:/;";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "typescript"),
+      line.indexOf(":")
+    );
+  });
+
+  test("オブジェクトキーの : は正規表現の値があっても検出する", () => {
+    const line = "const m = { re: /:/ };";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "typescript"),
+      line.indexOf(":")
+    );
+  });
+
+  test("三項演算子の分岐に正規表現があっても誤検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn("const x = ok ? /a:b/ : fallback;", [":"], "typescript"),
+      null
+    );
+  });
+
+  test("除算を含む行の型注釈 : は従来どおり検出する", () => {
+    const line = "const ratio: number = a / b;";
+    assert.strictEqual(
+      findOperatorColumn(line, [":"], "typescript"),
+      line.indexOf(":")
+    );
+  });
+});
+
+suite("findAssignmentEquals: TS/JS 正規表現リテラル内の `=`（#425）", () => {
+  test("正規表現リテラル内の = を /= 複合代入と誤検出しない", () => {
+    const line = "const re = /=/;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("=")]
+    );
+  });
+
+  test("関数引数の正規表現リテラル内の = は検出しない", () => {
+    assert.strictEqual(
+      findOperatorColumn('input.replace(/=/g, "");', ["="], "typescript"),
+      null
+    );
+  });
+
+  test("実際の複合代入 /= は従来どおり検出する", () => {
+    const line = "total /= 2;";
+    assert.deepStrictEqual(findAssignmentEquals(line, "typescript"), [
+      { insert: line.indexOf("/"), align: line.indexOf("=") },
+    ]);
+  });
+
+  test("除算を含む代入は従来どおり = を検出する", () => {
+    const line = "const ratio = total / count;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("=")]
+    );
+  });
+
+  test("連続する除算も正規表現と誤認しない", () => {
+    const line = "x = a / b / c;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("=")]
+    );
+  });
+
+  test("関数呼び出し結果同士の除算（`)` の後の /）も除算のまま", () => {
+    const line = "const x = f(a) / g(b);";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("=")]
+    );
+  });
+
+  test("正規表現の先読み `(?=` が括弧の深さを狂わせない", () => {
+    const line = "const re = /(?=x)/, y = 1;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("="), line.lastIndexOf("=")]
+    );
+  });
+
+  test("文字クラス内の `[` が括弧の深さを狂わせない", () => {
+    const line = "const re = /[(]/, x = 1;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("="), line.lastIndexOf("=")]
+    );
+  });
+
+  test("アロー `=>` の直後の正規表現リテラル内の = は検出しない", () => {
+    const line = "const f = () => /=/;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("=")]
+    );
+  });
+
+  test("後置インクリメントの後の / は除算のまま（後続の = を飲み込まない）", () => {
+    const line = "i = n++ / d; j = x / y;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line, "typescript").map((t) => t.align),
+      [line.indexOf("="), line.indexOf("=", line.indexOf(";"))]
+    );
+  });
+
+  test("スコープ外の言語（languageId 未指定）では従来どおりの挙動のまま", () => {
+    // この修正は TS/JS 限定。`/` が正規表現リテラルを開始するかは言語依存の
+    // 曖昧性であり、意図的に対象を広げない。
+    const line = "const re = /=/;";
+    assert.deepStrictEqual(
+      findAssignmentEquals(line).map((t) => t.align),
+      [line.indexOf("="), line.lastIndexOf("=")]
+    );
+  });
+});
+
 suite("findOperatorColumn: Python の `:`（辞書リテラル・型注釈）（#412）", () => {
   test("辞書リテラルのキー（クォート文字列キー）を検出する", () => {
     const line = '{"a": 1, "bb": 2}';
