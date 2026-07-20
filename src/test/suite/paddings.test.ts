@@ -81,6 +81,34 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups[0][1].columns[0].insert, 15);
   });
 
+  test("Rust: ライフタイムが奇数個ある行で開いたブロックコメントの続き行は、コメント内の = を整列対象にしない", () => {
+    const continuation = "    let should_not_align = 5; */ let real = 10;";
+    const doc = mockDocument([
+      "fn foo<'a>(x: &'a str, y: &'static str) -> i32 { /* comment",
+      continuation,
+      "    let x = 1;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "rust");
+    const entry = groups.flat().find((g) => g.lineIndex === 1);
+    assert.ok(entry, "続き行の実コード側 = はグループに入る");
+    assert.strictEqual(entry!.columns[0].insert, continuation.indexOf("= 10"));
+  });
+
+  test("Rust: ライフタイム付きの通常コード（ブロックコメントなし）は引き続き整列される", () => {
+    const doc = mockDocument([
+      "let s: &'a str = x;",
+      "let longer: &'static str = y;",
+    ]);
+    const groups = findAlignmentGroups(doc, ["="], "rust");
+    assert.strictEqual(groups.length, 1);
+    assert.strictEqual(groups[0].length, 2);
+    assert.strictEqual(groups[0][0].columns[0].insert, "let s: &'a str ".length);
+    assert.strictEqual(
+      groups[0][1].columns[0].insert,
+      "let longer: &'static str ".length
+    );
+  });
+
   test("インデント幅が変わったら別グループになる", () => {
     const doc = mockDocument([
       '  "name": "foo",',     // indent 2

@@ -2155,6 +2155,11 @@ function isHeredocTerminatorLine(lineText: string, terminator: string): boolean 
  * `heredocLanguage` is {@link HEREDOC_LANGUAGES} (Ruby/PHP); unlike
  * `markers`, {@link findHeredocOpener} resolves its own comment markers
  * internally, so it stays independent of the other constructs' options here.
+ * `lifetimeLang` is {@link LIFETIME_LANGUAGES} (Rust), matching
+ * advanceCodeScan's option of the same name: `'` must not be tracked as a
+ * generic quote char there, or an odd number of lifetime apostrophes on a
+ * line would leave the quote toggle "open" and hide a real `/*` from the
+ * cross-line state (#426).
  */
 function resolveDocScanOptions(
   languageId: string | undefined
@@ -2164,6 +2169,7 @@ function resolveDocScanOptions(
   pyTripleQuote: boolean;
   markers?: readonly string[];
   heredocLanguage?: "ruby" | "php";
+  lifetimeLang?: boolean;
 } {
   const isMarkerOnly =
     languageId !== undefined &&
@@ -2186,6 +2192,7 @@ function resolveDocScanOptions(
     pyTripleQuote,
     markers: pyTripleQuote ? lineCommentMarkers(languageId) : undefined,
     heredocLanguage,
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
   };
 }
 
@@ -2351,6 +2358,7 @@ function advanceLineDocState(
     pyTripleQuote: boolean;
     markers?: readonly string[];
     heredocLanguage?: "ruby" | "php";
+    lifetimeLang?: boolean;
   }
 ): DocScanState {
   let i = 0;
@@ -2380,7 +2388,11 @@ function advanceLineDocState(
     i = close + 1;
   }
   const quote = initialQuoteState();
-  const quoteChars = opts.template ? new Set<string>(['"', "'"]) : TEMPLATE_QUOTE_CHARS;
+  const quoteChars = opts.template
+    ? new Set<string>(['"', "'"])
+    : opts.lifetimeLang
+      ? NON_LIFETIME_QUOTE_CHARS
+      : TEMPLATE_QUOTE_CHARS;
   for (; i < lineText.length; i++) {
     const ch = lineText[i];
     if (
@@ -2389,6 +2401,25 @@ function advanceLineDocState(
       startsLineComment(lineText, i, opts.markers)
     ) {
       return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
+    }
+    if (opts.lifetimeLang && !quote.quote) {
+      // Same skips advanceCodeScan applies for Rust: consume a char literal
+      // (`'"'` would otherwise open a string) or a raw string (`r#"a " b"#`
+      // holds an odd number of `"`) whole; a lifetime's `'` falls through
+      // harmlessly since quoteChars excludes `'` here.
+      if (ch === "'") {
+        const end = rustCharLiteralEnd(lineText, i);
+        if (end !== -1) {
+          i = end - 1;
+          continue;
+        }
+      } else if (ch === "r") {
+        const end = rustRawStringEnd(lineText, i);
+        if (end !== -1) {
+          i = end - 1;
+          continue;
+        }
+      }
     }
     if (
       opts.pyTripleQuote &&
