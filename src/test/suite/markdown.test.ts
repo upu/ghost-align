@@ -60,6 +60,22 @@ suite("isDelimiterRow", () => {
   test("`|` を含まない `---` は区切り行でない", () => {
     assert.strictEqual(isDelimiterRow("---"), false);
   });
+
+  test("先頭・末尾パイプを省略した区切り行も真", () => {
+    assert.strictEqual(isDelimiterRow("--- | :---:"), true);
+  });
+
+  test("コロンだけのセルを含む行は区切り行でない", () => {
+    assert.strictEqual(isDelimiterRow("| : | --- |"), false);
+  });
+
+  test("空セルを含む行は区切り行でない", () => {
+    assert.strictEqual(isDelimiterRow("| --- | | --- |"), false);
+  });
+
+  test("コロンが片側2個以上のセルを含む行は区切り行でない", () => {
+    assert.strictEqual(isDelimiterRow("| ::--- | --- |"), false);
+  });
 });
 
 suite("findMarkdownTables", () => {
@@ -78,6 +94,31 @@ suite("findMarkdownTables", () => {
   test("区切り行がなければテーブルにしない", () => {
     const tables = findMarkdownTables(["| a | b |", "| c | d |"]);
     assert.deepStrictEqual(tables, []);
+  });
+
+  test("区切り行のセル数がヘッダーより少なければテーブルにしない", () => {
+    const tables = findMarkdownTables(["| a | b |", "| --- |", "| x |"]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("区切り行のセル数がヘッダーより多ければテーブルにしない", () => {
+    const tables = findMarkdownTables(["| a |", "| --- | --- |"]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("ハイフンを持たないセルを含む区切り行はテーブルにしない", () => {
+    const tables = findMarkdownTables(["| a | b |", "| : | --- |"]);
+    assert.deepStrictEqual(tables, []);
+  });
+
+  test("先頭・末尾パイプを省略した有効なテーブルは検出する", () => {
+    const tables = findMarkdownTables(["a | b", "--- | ---", "x | y"]);
+    assert.deepStrictEqual(tables, [[0, 1, 2]]);
+  });
+
+  test("データ行のセル数はヘッダーと一致しなくてもテーブルに含める", () => {
+    const tables = findMarkdownTables(["| a | b |", "| --- | --- |", "| x |"]);
+    assert.deepStrictEqual(tables, [[0, 1, 2]]);
   });
 
   test("フェンスドコードブロック内のテーブル風行は対象外", () => {
@@ -211,6 +252,14 @@ suite("computeMarkdownTablePaddings", () => {
   test("テーブルがなければ空を返す（他言語に影響しない）", () => {
     const placements = computeMarkdownTablePaddings(
       ["const x = 1;", "a | b without delimiter"],
+      4
+    );
+    assert.deepStrictEqual(placements, []);
+  });
+
+  test("ヘッダーと区切り行のセル数が一致しない無効な表形式テキストにはパディングしない", () => {
+    const placements = computeMarkdownTablePaddings(
+      ["| a | b |", "| --- |", "| x |"],
       4
     );
     assert.deepStrictEqual(placements, []);

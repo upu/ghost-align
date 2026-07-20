@@ -75,13 +75,45 @@ export function findPipePositions(lineText: string): number[] {
   return positions;
 }
 
-/** Whether a line is a GFM table delimiter row, e.g. `|---|:--:|`. */
+/**
+ * A row's real cells: the segments between delimiter pipes, trimmed. The
+ * whitespace-only segments a leading/trailing `|` produces are not cells
+ * (GFM treats those pipes as the table edge), so `| a | b |`, `a | b` and
+ * `| a | b` all yield the same two cells — letting header/delimiter cell
+ * counts be compared regardless of pipe style.
+ */
+function splitTableCells(lineText: string): string[] {
+  const segments: string[] = [];
+  let start = 0;
+  for (const pipe of findPipePositions(lineText)) {
+    segments.push(lineText.slice(start, pipe));
+    start = pipe + 1;
+  }
+  segments.push(lineText.slice(start));
+  if (segments.length > 1 && segments[0].trim() === "") {
+    segments.shift();
+  }
+  if (segments.length > 1 && segments[segments.length - 1].trim() === "") {
+    segments.pop();
+  }
+  return segments.map((segment) => segment.trim());
+}
+
+/** A GFM delimiter cell: one or more hyphens with optional leading/trailing colon. */
+const DELIMITER_CELL_RE = /^:?-+:?$/;
+
+/**
+ * Whether a line is a GFM table delimiter row, e.g. `|---|:--:|`. Requires at
+ * least one unescaped `|` (a bare `---` is a setext heading / thematic break,
+ * not a table row) and every real cell to match {@link DELIMITER_CELL_RE} —
+ * a whole-line character-class check would also accept rows with hyphen-less
+ * cells like `| : | --- |`.
+ */
 export function isDelimiterRow(lineText: string): boolean {
-  const t = lineText.trim();
-  if (!t.includes("|") || !t.includes("-")) {
+  if (findPipePositions(lineText).length === 0) {
     return false;
   }
-  return /^[|\-:\s]+$/.test(t);
+  return splitTableCells(lineText).every((cell) => DELIMITER_CELL_RE.test(cell));
 }
 
 /** Matches a fenced code block's opening/closing delimiter line (``` or ~~~, 3+ chars). */
@@ -169,8 +201,10 @@ export function computeFenceStateBefore(
 }
 
 /**
- * Detect GFM table blocks: a header row (containing `|`), a delimiter row, then
- * data rows (non-blank, containing `|`). Returns each block as its line indices.
+ * Detect GFM table blocks: a header row (containing `|`), a delimiter row with
+ * the same cell count as the header (GFM rejects the pair otherwise; data rows
+ * may differ), then data rows (non-blank, containing `|`). Returns each block
+ * as its line indices.
  * Lines inside fenced code blocks (``` or ~~~) are skipped. `initialState` seeds the
  * fence state as of line 0 (see computeFenceStateBefore).
  *
@@ -201,7 +235,8 @@ export function findMarkdownTables(
       isHeader &&
       i + 1 < lines.length &&
       !fenced[i + 1] &&
-      isDelimiterRow(lines[i + 1])
+      isDelimiterRow(lines[i + 1]) &&
+      splitTableCells(lines[i]).length === splitTableCells(lines[i + 1]).length
     ) {
       const block = [i, i + 1];
       let j = i + 2;
