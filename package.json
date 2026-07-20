@@ -269,6 +269,11 @@
           "default": false,
           "description": "Right-align a CSV/TSV column instead of left-aligning it when every data cell in that column looks like a plain number (an optional leading -, digits, and an optional decimal part; thousands separators and exponents are not recognized). The first row (typically a header) is excluded from that judgment but still gets right-aligned when its column qualifies. Columns with any non-numeric data cell are left-aligned as before. When the column has decimal values, they are aligned at the decimal point instead of just right-aligning the whole cell (an integer cell with no decimal point aligns by its digit count alone)."
         },
+        "ghostAlign.shortenUrls": {
+          "type": "boolean",
+          "default": false,
+          "description": "Shorten an http(s) URL in a CSV/TSV cell (any column) or a Markdown table cell to just its host (e.g. \"https://github.com/foo/bar?q=1\" displays as \"[github.com]\"), so one long URL no longer stretches the whole column. Only the scheme/userinfo and path/query/fragment are visually hidden; the host is real, unmodified document text, so Ctrl+click still opens the full URL, Ctrl+F and copy still see the full text, and moving the cursor/selection into a shortened URL temporarily expands it back to full text. Column alignment is computed against the shortened width so the table doesn't stretch for a hidden URL."
+        },
         "ghostAlign.alignJsdocParams": {
           "type": "boolean",
           "default": true,

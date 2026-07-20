@@ -46,6 +46,12 @@ Markdown の `|` テーブル列を、パイプの位置が揃うように整列
 - 設定キー: `ghostAlign.csv.enabled`, `ghostAlign.csv.delimiters`, `ghostAlign.csv.alignNumbersRight`
 - 既定の区切り文字は `DEFAULT_CSV_DELIMITERS`（`src/config.ts`）が真実（既定は `csv` = `,`、`tsv` = タブ）。
 
+### URL 短縮表示（テーブルセル内、#418）
+
+CSV/TSV の全セル、および Markdown テーブルセル内（テーブル外の本文は対象外）の http(s) URL を、ホスト部分だけの表示に短縮する。`[github.com]` のようにホスト名を実テキストのまま `[` `]` で囲み、scheme・userinfo・パス・クエリ・フラグメントは decoration（`textDecoration` への CSS 注入）で視覚的に隠すだけで、ソースバッファは変更しない。ホストが実テキストのため VS Code 標準のリンク検出・Ctrl+クリックがそのまま働く。カーソル・選択が短縮中の URL に触れると一時的に全文表示へ展開する。列の整列（ゴーストパディング）は短縮後の幅を基準に計算するため、長い URL のせいで列が間延びしない。opt-in のブール1つで on/off する（既定オフ、長さしきい値なし＝検出したら常に短縮）。
+
+- 設定キー: `ghostAlign.shortenUrls`
+
 ### JSDoc @param
 
 JavaScript/TypeScript で、連続する JSDoc `@param` 行のパラメータ名列・説明列を揃える。
@@ -84,6 +90,7 @@ JavaScript/TypeScript で、連続する JSDoc `@param` 行のパラメータ名
 - `ghostAlign.csv.enabled`
 - `ghostAlign.csv.delimiters`
 - `ghostAlign.csv.alignNumbersRight`
+- `ghostAlign.shortenUrls`
 - `ghostAlign.alignJsdocParams`（非推奨。`ghostAlign.jsdoc.enabled` 未設定時のみ参照される）
 - `ghostAlign.maxPadding`
 - `ghostAlign.ghostColor`

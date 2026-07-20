@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 
 - `ghostAlign.csv.alignNumbersRight` now aligns numeric columns at the decimal point instead of just right-aligning the whole cell, so values with a differing number of digits (e.g. `1.5`, `23.45`, `100`) line up their decimal points instead of their right edges.
+- New opt-in setting `ghostAlign.shortenUrls` (default off) shortens an http(s) URL in a CSV/TSV cell or a Markdown table cell to just its host (e.g. `https://github.com/foo/bar?q=1` displays as `[github.com]`), so one long URL no longer stretches the whole column. Only the scheme/userinfo and path/query/fragment are visually hidden — the host is real, unmodified document text, so Ctrl+click still opens the full URL, Ctrl+F and copy still see the full text, and moving the cursor/selection into a shortened URL temporarily expands it back to full text.
 
 ### Fixed
 

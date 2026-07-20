@@ -4,6 +4,7 @@ import {
   isDelimiterRow,
   findMarkdownTables,
   computeMarkdownTablePaddings,
+  computeMarkdownTableUrlTargets,
   computeFenceStateBefore,
   MarkdownTableWidthCache,
 } from "../../markdown";
@@ -696,5 +697,91 @@ suite("MarkdownTableWidthCache", () => {
     syncWithSpy(cache, lines, reads);
 
     assert.deepStrictEqual(reads, lines.map((_, i) => i));
+  });
+});
+
+suite("computeMarkdownTablePaddings: shortenUrls (#418)", () => {
+  // 列1: ヘッダー " url "(5幅) 対 URL セル " https://github.com/foo "(24幅、
+  // 短縮後は "[github.com]" 相当の12幅ぶん(8+4-2=10)縮む→14幅)。
+  const lines = [
+    "| url | note |",
+    "| --- | --- |",
+    "| https://github.com/foo | x |",
+  ];
+
+  function headerColumn1Padding(shortenUrls: boolean): number {
+    const placements = computeMarkdownTablePaddings(lines, 4, undefined, 0, shortenUrls);
+    const p = placements.find((pl) => pl.lineIndex === 0 && pl.character === 6);
+    return p ? p.padding : 0;
+  }
+
+  test("既定(false)では URL セルの生の幅で列を揃える", () => {
+    assert.strictEqual(headerColumn1Padding(false), 19);
+  });
+
+  test("true: URL セルは短縮後の幅（[host] 相当）で列を揃える", () => {
+    assert.strictEqual(headerColumn1Padding(true), 9);
+  });
+});
+
+suite("computeMarkdownTableUrlTargets (#418)", () => {
+  test("テーブルセル内の URL を検出し、区切り行は対象外にする", () => {
+    const lines = [
+      "| url | note |",
+      "| --- | --- |",
+      "| https://github.com/foo | x |",
+    ];
+    const targets = computeMarkdownTableUrlTargets(lines, 4);
+    assert.strictEqual(targets.length, 1);
+    assert.strictEqual(targets[0].lineIndex, 2);
+    assert.strictEqual(
+      lines[2].slice(targets[0].start, targets[0].end),
+      "https://github.com/foo"
+    );
+    assert.strictEqual(
+      lines[2].slice(targets[0].hostStart, targets[0].hostEnd),
+      "github.com"
+    );
+  });
+
+  test("テーブル外の本文中の URL は対象外", () => {
+    const lines = [
+      "see https://example.com for details",
+      "",
+      "| a | b |",
+      "| --- | --- |",
+      "| 1 | 2 |",
+    ];
+    assert.deepStrictEqual(computeMarkdownTableUrlTargets(lines, 4), []);
+  });
+});
+
+suite("MarkdownTableWidthCache.urlTargetsForRange (#418)", () => {
+  test("キャッシュされた行メトリクスから URL ターゲットを返す", () => {
+    const lines = [
+      "| url | note |",
+      "| --- | --- |",
+      "| https://github.com/foo | x |",
+    ];
+    const cache = new MarkdownTableWidthCache();
+    cache.sync(lines.length, (i) => lines[i], 4);
+    const targets = cache.urlTargetsForRange(0, lines.length - 1);
+    assert.strictEqual(targets.length, 1);
+    assert.strictEqual(targets[0].lineIndex, 2);
+    assert.strictEqual(
+      lines[2].slice(targets[0].start, targets[0].end),
+      "https://github.com/foo"
+    );
+  });
+
+  test("範囲外の行は含めない", () => {
+    const lines = [
+      "| url | note |",
+      "| --- | --- |",
+      "| https://github.com/foo | x |",
+    ];
+    const cache = new MarkdownTableWidthCache();
+    cache.sync(lines.length, (i) => lines[i], 4);
+    assert.deepStrictEqual(cache.urlTargetsForRange(0, 1), []);
   });
 });

@@ -2,8 +2,10 @@ import * as vscode from "vscode";
 import {
   isAlignableScheme,
   isLanguageDisabled,
+  resolveAlignmentPath,
   resolveDisabledLanguagesTarget,
   resolveGhostSettings,
+  resolveShortenUrls,
   toggleDisabledLanguage,
 } from "./config";
 import {
@@ -12,6 +14,7 @@ import {
   clearDecorations,
   clearEditorDecorations,
   createAlignDecorationType,
+  createUrlShortenDecorationTypes,
   decorateEditor,
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
@@ -68,6 +71,9 @@ export function statusBarText(
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(createAlignDecorationType());
+  const { hide: urlHideDecorationType, host: urlHostDecorationType } =
+    createUrlShortenDecorationTypes();
+  context.subscriptions.push(urlHideDecorationType, urlHostDecorationType);
 
   enabled = resolveInitialEnabled(context.globalState, context.workspaceState);
 
@@ -190,6 +196,21 @@ export function activate(context: vscode.ExtensionContext) {
     // decorations are unaffected by this editor's scroll position.
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       if (e.textEditor.document.lineCount >= LARGE_FILE_LINE_THRESHOLD) {
+        scheduleUpdate([e.textEditor]);
+      }
+    }),
+    // ghostAlign.shortenUrls (#418) expands a URL back to full text while the
+    // cursor/selection touches it, so a plain cursor move must re-decorate.
+    // Guarded to CSV/Markdown-with-the-setting-on so an unrelated editor's
+    // every keystroke-driven cursor move doesn't pay for a config read and a
+    // scheduled (debounced) re-render it will never need.
+    vscode.window.onDidChangeTextEditorSelection((e) => {
+      const config = vscode.workspace.getConfiguration("ghostAlign");
+      if (!resolveShortenUrls(config)) {
+        return;
+      }
+      const path = resolveAlignmentPath(e.textEditor.document.languageId, config);
+      if (path.kind === "csv" || path.kind === "markdown") {
         scheduleUpdate([e.textEditor]);
       }
     }),

@@ -347,6 +347,18 @@ export function resolveMaxPadding(
     : 0;
 }
 
+/**
+ * Resolve `ghostAlign.shortenUrls` (#418, default false): a single opt-in
+ * toggle for both the CSV/TSV (every cell) and Markdown table (table cells
+ * only) alignment paths, so it lives here as a standalone resolver rather
+ * than inside AlignmentPath's per-path settings.
+ */
+export function resolveShortenUrls(
+  config: { get<T>(key: string, defaultValue: T): T }
+): boolean {
+  return config.get<boolean>("shortenUrls", false);
+}
+
 // Allowlist of URI schemes that receive alignment decorations. Editors like
 // the output panel (`output`), debug console, or search editor also appear in
 // visibleTextEditors; an allowlist keeps unknown non-file schemes out, which

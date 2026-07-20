@@ -12,6 +12,7 @@
 ### Added
 
 - `ghostAlign.csv.alignNumbersRight` が、セル全体を右寄せするだけでなく、数値列を小数点の位置で揃えるようになった。桁数が異なる値（例: `1.5`、`23.45`、`100`）でも右端でなく小数点の位置が揃う。
+- 新しい opt-in 設定 `ghostAlign.shortenUrls`（既定オフ）を追加。CSV/TSV セルや Markdown テーブルセル内の http(s) URL をホスト部分だけの表示に短縮する（例: `https://github.com/foo/bar?q=1` は `[github.com]` と表示）。長い URL が1つあるだけで列全体が間延びしなくなる。視覚的に隠すのは scheme・userinfo とパス・クエリ・フラグメントのみで、ホスト部分は実際のドキュメントテキストのままなので、Ctrl+クリックで全 URL を開け、Ctrl+F やコピーも常に全文を対象にする。カーソル・選択が短縮中の URL に入ると一時的に全文表示に戻る。
 
 ### Fixed
 
