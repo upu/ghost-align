@@ -5,6 +5,7 @@ import {
   computePaddings,
   computeColumnPlan,
   computeSliceBounds,
+  LongOperatorGroupCache,
 } from "../../paddings";
 import { findOperatorTargets, initialLineScanState } from "../../finders";
 import { mockDocument } from "./testHelpers";
@@ -1199,5 +1200,55 @@ suite("computeSliceBounds", () => {
       findAlignmentGroups(mockDocument(lines), ["="])
     );
     assert.deepStrictEqual(slicePlacements, fullPlacements);
+  });
+});
+
+suite("LongOperatorGroupCache", () => {
+  test("findFor は範囲を包含するエントリのみヒットする", () => {
+    const cache = new LongOperatorGroupCache();
+    cache.sync("key");
+    const placements = [{ lineIndex: 3500, character: 0, padding: 5 }];
+    cache.set(3000, 6999, placements);
+    assert.deepStrictEqual(cache.findFor(4900, 6999), placements);
+    assert.strictEqual(cache.findFor(2000, 3500), undefined); // 範囲外(下)
+    assert.strictEqual(cache.findFor(3500, 7500), undefined); // 範囲外(上)
+  });
+
+  test("sync はパラメータキーが変わると全エントリを破棄する", () => {
+    const cache = new LongOperatorGroupCache();
+    cache.sync("a");
+    cache.set(0, 100, [{ lineIndex: 0, character: 0, padding: 1 }]);
+    assert.notStrictEqual(cache.findFor(0, 100), undefined);
+    cache.sync("b"); // tabSize/maxPadding/operators等の変更を模す
+    assert.strictEqual(cache.findFor(0, 100), undefined);
+  });
+
+  test("sync は同じキーなら既存エントリを保持する", () => {
+    const cache = new LongOperatorGroupCache();
+    cache.sync("a");
+    cache.set(0, 100, [{ lineIndex: 0, character: 0, padding: 1 }]);
+    cache.sync("a");
+    assert.notStrictEqual(cache.findFor(0, 100), undefined);
+  });
+
+  test("invalidate は全エントリを破棄する", () => {
+    const cache = new LongOperatorGroupCache();
+    cache.sync("a");
+    cache.set(0, 100, [{ lineIndex: 0, character: 0, padding: 1 }]);
+    cache.invalidate();
+    assert.strictEqual(cache.findFor(0, 100), undefined);
+  });
+
+  test("エントリ数が上限を超えると最も古いものから破棄される", () => {
+    const cache = new LongOperatorGroupCache();
+    cache.sync("a");
+    // MAX_ENTRIES=4: 5件目を入れると最初の [0,10) が追い出される想定。
+    cache.set(0, 10, [{ lineIndex: 0, character: 0, padding: 1 }]);
+    cache.set(20, 30, [{ lineIndex: 20, character: 0, padding: 1 }]);
+    cache.set(40, 50, [{ lineIndex: 40, character: 0, padding: 1 }]);
+    cache.set(60, 70, [{ lineIndex: 60, character: 0, padding: 1 }]);
+    cache.set(80, 90, [{ lineIndex: 80, character: 0, padding: 1 }]);
+    assert.strictEqual(cache.findFor(0, 10), undefined);
+    assert.notStrictEqual(cache.findFor(80, 90), undefined);
   });
 });

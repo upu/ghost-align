@@ -8,6 +8,7 @@ import {
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
   notifyLineScanDocumentChange,
+  notifyLongOperatorGroupDocumentChange,
 } from "../../decorate";
 import { mockConfig, mockDocument, mockEditor } from "./testHelpers";
 
@@ -828,5 +829,140 @@ suite("decorateEditor と可視範囲モード（大きい Markdown テーブル
     for (const d of calls[1]) {
       assert.strictEqual(d.renderOptions?.before?.contentText?.length, 2);
     }
+  });
+});
+
+suite("decorateEditor と可視範囲モード（長大な operator group, #434）", () => {
+  // GROUP_EXPANSION_LIMIT(1000) + VISIBLE_RANGE_BUFFER(100) を超える 4000 行
+  // (> 2000) の連続 operator group。最大列を決める外れ値行はグループの先頭
+  // (groupStart) に置き、可視範囲を中央付近にすることで、拡張前のスライスが
+  // 外れ値行に届かない状況を作る。
+  const groupStart = 3000;
+  const groupEnd = 6999;
+  const normalLine = "a =1:2";
+  // "=" と ":" の間隔を normalLine より広くして、opIndex0 のパディングが
+  // opIndex1 の比較にシフトとして伝播しないと正しい値が出ないようにする。
+  const outlierLine = "x".repeat(30) + " =1    :2";
+  const eqColNormal = normalLine.indexOf("=");
+  const colonColNormal = normalLine.indexOf(":");
+  const eqColOutlier = outlierLine.indexOf("=");
+  const colonColOutlier = outlierLine.indexOf(":");
+  const padding0 = eqColOutlier - eqColNormal;
+  const shiftedColon0 = colonColNormal + padding0;
+  const padding1 = Math.max(shiftedColon0, colonColOutlier) - shiftedColon0;
+
+  function buildLines(): string[] {
+    const lines = new Array<string>(10001).fill("filler");
+    for (let i = groupStart; i <= groupEnd; i++) {
+      lines[i] = normalLine;
+    }
+    lines[groupStart] = outlierLine;
+    return lines;
+  }
+
+  const config = () =>
+    mockConfig({
+      operators: ["=", ":"],
+    }) as unknown as vscode.WorkspaceConfiguration;
+
+  test("2,000行超のグループで、最大列がスライス外にあっても正しい列に揃う（回帰）", () => {
+    const lines = buildLines();
+    const { editor, calls } = mockEditor("plaintext", lines, [
+      { start: 5000, end: 5040 },
+    ]);
+    decorateEditor(editor, config(), " ", "gray");
+    const lineDecos = calls[0].filter((d) => d.range.start.line === 5000);
+    const eqDeco = lineDecos.find((d) => d.range.start.character === eqColNormal);
+    assert.ok(eqDeco);
+    assert.strictEqual(eqDeco?.renderOptions?.before?.contentText?.length, padding0);
+    // opIndex1 は前列(opIndex0)のシフトを反映した比較でなければ padding1 にならない。
+    assert.ok(padding1 > 0);
+    const colonDeco = lineDecos.find((d) => d.range.start.character === colonColNormal);
+    assert.ok(colonDeco);
+    assert.strictEqual(colonDeco?.renderOptions?.before?.contentText?.length, padding1);
+  });
+
+  test("同じグループの整列先はスクロール位置が変わっても一致する", () => {
+    const lines = buildLines();
+    const { editor, calls } = mockEditor("plaintext", lines, [
+      { start: 5000, end: 5040 },
+    ]);
+    decorateEditor(editor, config(), " ", "gray");
+    const first = calls[0].find(
+      (d) => d.range.start.line === 5000 && d.range.start.character === eqColNormal
+    );
+
+    (editor as unknown as {
+      visibleRanges: { start: { line: number }; end: { line: number } }[];
+    }).visibleRanges = [{ start: { line: 6000 }, end: { line: 6040 } }];
+    decorateEditor(editor, config(), " ", "gray");
+    const second = calls[1].find(
+      (d) => d.range.start.line === 6000 && d.range.start.character === eqColNormal
+    );
+
+    assert.ok(first);
+    assert.ok(second);
+    assert.strictEqual(
+      second?.renderOptions?.before?.contentText?.length,
+      first?.renderOptions?.before?.contentText?.length
+    );
+  });
+
+  test("キャッシュされた範囲内へのスクロールでは可視範囲外の行を大量に再読込しない", () => {
+    const lines = buildLines();
+    let lineAtCalls = 0;
+    const calls: vscode.DecorationOptions[][] = [];
+    const editor = {
+      document: {
+        languageId: "plaintext",
+        lineCount: lines.length,
+        lineAt(i: number) {
+          lineAtCalls++;
+          return { text: lines[i] };
+        },
+      },
+      visibleRanges: [{ start: { line: 5000 }, end: { line: 5040 } }],
+      options: { tabSize: 2 },
+      selection: new vscode.Selection(0, 0, 0, 0),
+      selections: [new vscode.Selection(0, 0, 0, 0)],
+      setDecorations(_type: unknown, decorations: vscode.DecorationOptions[]) {
+        calls.push(decorations);
+      },
+    } as unknown as vscode.TextEditor;
+
+    decorateEditor(editor, config(), " ", "gray"); // 1回目: グループの真の範囲を解決してキャッシュする
+    lineAtCalls = 0;
+    (editor as unknown as {
+      visibleRanges: { start: { line: number }; end: { line: number } }[];
+    }).visibleRanges = [{ start: { line: 6000 }, end: { line: 6040 } }];
+    decorateEditor(editor, config(), " ", "gray"); // 2回目: キャッシュ済み範囲内なのでヒットするはず
+
+    // グループ全体(4000行)やファイル全体(10001行)を読み直していれば
+    // この回数を大きく超える。通常のスライス読み込み分だけに収まることを確認する。
+    assert.ok(lineAtCalls < 3000, `lineAt calls: ${lineAtCalls}`);
+  });
+
+  test("グループ内の最長行を編集して外れ値を解消すると、再走査後は揃え直しが不要になる", () => {
+    const lines = buildLines();
+    const { editor, calls } = mockEditor("plaintext", lines, [
+      { start: 5000, end: 5040 },
+    ]);
+    decorateEditor(editor, config(), " ", "gray");
+    const before = calls[0].find(
+      (d) => d.range.start.line === 5000 && d.range.start.character === eqColNormal
+    );
+    assert.ok(before);
+    assert.ok((before?.renderOptions?.before?.contentText?.length ?? 0) > 0);
+
+    const oldLine = lines[groupStart];
+    lines[groupStart] = normalLine; // 外れ値を解消し、グループ全体が同一内容になる
+    const change = {
+      range: new vscode.Range(groupStart, 0, groupStart, oldLine.length),
+      text: normalLine,
+    };
+    notifyLongOperatorGroupDocumentChange(editor.document, [change]);
+    notifyLineScanDocumentChange(editor.document, [change]);
+    decorateEditor(editor, config(), " ", "gray");
+    assert.deepStrictEqual(calls[1], []);
   });
 });
