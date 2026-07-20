@@ -3,17 +3,24 @@
 import { Placement, computeColumnPlan, visualColumn } from "./paddings";
 
 /**
- * Char indices of the field delimiters in one CSV/TSV line. Follows RFC 4180
- * quoting: a delimiter inside a double-quoted field is content, and `""` is
- * an escaped quote that keeps the quoted state. Quoted fields spanning
- * multiple lines are not tracked (single-line scope, like the other finders).
+ * Scan one CSV/TSV line for delimiter positions, following RFC 4180 quoting:
+ * a delimiter inside a double-quoted field is content, and `""` is an
+ * escaped quote that keeps the quoted state. `startInQuotes` seeds the quote
+ * state from a field left open by a previous physical line (a quoted field
+ * may contain a literal newline, per RFC 4180); `endInQuotes` reports
+ * whether this line ends with a field still open, for the caller to carry
+ * into the next line. A `"` right before this line's own end and a `"` at
+ * the very start of the next line are never treated as one `""` escape —
+ * they aren't adjacent characters once the real newline between them is
+ * accounted for, and this line-by-line scan naturally keeps them apart.
  */
-export function findCsvDelimiterPositions(
+function scanCsvLine(
   lineText: string,
-  delimiter: string
-): number[] {
+  delimiter: string,
+  startInQuotes: boolean
+): { positions: number[]; endInQuotes: boolean } {
   const positions: number[] = [];
-  let inQuotes = false;
+  let inQuotes = startInQuotes;
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     if (ch === '"') {
@@ -26,7 +33,22 @@ export function findCsvDelimiterPositions(
       positions.push(i);
     }
   }
-  return positions;
+  return { positions, endInQuotes: inQuotes };
+}
+
+/**
+ * Char indices of the field delimiters in one CSV/TSV line (see
+ * scanCsvLine). `startInQuotes` (default false) seeds the quote state
+ * carried over from a previous physical line for a multi-line quoted field —
+ * callers that track state across a whole document (computeCsvPaddings,
+ * CsvWidthCache) pass it; a bare single-line call defaults to unquoted.
+ */
+export function findCsvDelimiterPositions(
+  lineText: string,
+  delimiter: string,
+  startInQuotes: boolean = false
+): number[] {
+  return scanCsvLine(lineText, delimiter, startInQuotes).positions;
 }
 
 /** Delimiter positions and visual cell widths of one CSV/TSV line. */
@@ -75,18 +97,24 @@ function cellContentStart(
 }
 
 /**
- * Metrics of one line, or null when the line has no delimiter and therefore
- * takes no part in column alignment. Cell widths are measured in visual
- * columns, so tabs and full-width characters count by their rendered width.
+ * computeCsvLineMetrics plus the quote state to carry into the next physical
+ * line (see scanCsvLine). Metrics are still per physical line — a cell
+ * that continues a quoted field opened on a previous line measures only its
+ * portion on this line, since there is no single-line width to report for a
+ * field split across lines — but the delimiter it ends on is classified
+ * correctly using the carried-in quote state, and callers that track state
+ * across a document (computeCsvPaddings, CsvWidthCache) use `endInQuotes` to
+ * classify the next line's delimiters correctly in turn.
  */
-export function computeCsvLineMetrics(
+function computeCsvLineState(
   lineText: string,
   delimiter: string,
-  tabSize: number
-): CsvLineMetrics | null {
-  const delims = findCsvDelimiterPositions(lineText, delimiter);
+  tabSize: number,
+  startInQuotes: boolean
+): { metrics: CsvLineMetrics | null; endInQuotes: boolean } {
+  const { positions: delims, endInQuotes } = scanCsvLine(lineText, delimiter, startInQuotes);
   if (delims.length === 0) {
-    return null;
+    return { metrics: null, endInQuotes };
   }
   const widths: number[] = [];
   const contentStarts: number[] = [];
@@ -100,7 +128,23 @@ export function computeCsvLineMetrics(
     contentStarts.push(contentStart);
     numeric.push(NUMERIC_CELL_RE.test(lineText.slice(contentStart, d).trimEnd()));
   });
-  return { delims, widths, contentStarts, numeric };
+  return { metrics: { delims, widths, contentStarts, numeric }, endInQuotes };
+}
+
+/**
+ * Metrics of one line, or null when the line has no delimiter and therefore
+ * takes no part in column alignment. Cell widths are measured in visual
+ * columns, so tabs and full-width characters count by their rendered width.
+ * `startInQuotes` (default false) seeds the quote state carried over from a
+ * previous physical line, like findCsvDelimiterPositions.
+ */
+export function computeCsvLineMetrics(
+  lineText: string,
+  delimiter: string,
+  tabSize: number,
+  startInQuotes: boolean = false
+): CsvLineMetrics | null {
+  return computeCsvLineState(lineText, delimiter, tabSize, startInQuotes).metrics;
 }
 
 /**
@@ -285,11 +329,18 @@ export function computeCsvPaddings(
   alignNumbersRight: boolean = false
 ): Placement[] {
   const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
+  let inQuotes = false;
   for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const metrics = computeCsvLineMetrics(lines[lineIndex], delimiter, tabSize);
+    const { metrics, endInQuotes } = computeCsvLineState(
+      lines[lineIndex],
+      delimiter,
+      tabSize,
+      inQuotes
+    );
     if (metrics) {
       rows.push({ lineIndex, metrics });
     }
+    inQuotes = endInQuotes;
   }
   const plan = computeCsvColumnPlan(
     rows.map((r) => r.metrics.widths),
@@ -315,6 +366,10 @@ export function computeCsvPaddings(
 export class CsvWidthCache {
   // undefined = dirty slot awaiting re-scan; null = line has no delimiter.
   private metrics: (CsvLineMetrics | null | undefined)[] = [];
+  // Quote state each line started/ended with, index-for-index with metrics.
+  // Only meaningful where metrics[i] !== undefined (kept in sync with it).
+  private startInQuotes: boolean[] = [];
+  private endInQuotes: boolean[] = [];
   private max: number[] | null = null;
   private plan: (number | null)[] | null = null;
   private planMaxPadding = 0;
@@ -338,6 +393,13 @@ export class CsvWidthCache {
     this.metrics = this.metrics
       .slice(0, startLine)
       .concat(filler, this.metrics.slice(startLine + deletedLineCount));
+    const boolFiller = new Array<boolean>(insertedLineCount).fill(false);
+    this.startInQuotes = this.startInQuotes
+      .slice(0, startLine)
+      .concat(boolFiller, this.startInQuotes.slice(startLine + deletedLineCount));
+    this.endInQuotes = this.endInQuotes
+      .slice(0, startLine)
+      .concat(boolFiller, this.endInQuotes.slice(startLine + deletedLineCount));
     this.max = null;
     this.plan = null;
     this.numericCols = null;
@@ -347,6 +409,16 @@ export class CsvWidthCache {
    * Bring the cache in line with the document: re-scan dirty lines only, or
    * rebuild everything when the line count disagrees (an edit was missed)
    * or the tab size changed.
+   *
+   * A quoted field can carry its open state across a physical line (see
+   * scanCsvLine in findCsvDelimiterPositions), so a dirty line's rescan can
+   * change the quote state it hands off to the line after it even when that
+   * next line wasn't itself touched by the edit. This walks top to bottom
+   * tracking the running quote state and re-scans any line whose incoming
+   * state (`carry`) no longer matches what it was last scanned with, in
+   * addition to lines applyEdit marked dirty — cascading forward until a
+   * line's incoming state matches its cached one again, which also means
+   * its cached outgoing state is still valid and the cascade can stop.
    */
   sync(lineCount: number, lineAt: (line: number) => string, tabSize: number) {
     if (this.metrics.length !== lineCount || this.tabSize !== tabSize) {
@@ -354,18 +426,28 @@ export class CsvWidthCache {
       this.metrics = new Array<CsvLineMetrics | null | undefined>(
         lineCount
       ).fill(undefined);
+      this.startInQuotes = new Array<boolean>(lineCount).fill(false);
+      this.endInQuotes = new Array<boolean>(lineCount).fill(false);
       this.max = null;
       this.plan = null;
       this.numericCols = null;
     }
+    let carry = false;
     for (let i = 0; i < this.metrics.length; i++) {
-      if (this.metrics[i] === undefined) {
-        this.metrics[i] = computeCsvLineMetrics(
-          lineAt(i),
-          this.delimiter,
-          this.tabSize
-        );
+      if (this.metrics[i] !== undefined && this.startInQuotes[i] === carry) {
+        carry = this.endInQuotes[i];
+        continue;
       }
+      const { metrics, endInQuotes } = computeCsvLineState(
+        lineAt(i),
+        this.delimiter,
+        this.tabSize,
+        carry
+      );
+      this.metrics[i] = metrics;
+      this.startInQuotes[i] = carry;
+      this.endInQuotes[i] = endInQuotes;
+      carry = endInQuotes;
     }
   }
 
