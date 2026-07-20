@@ -280,6 +280,93 @@ suite("computeLineStateBefore（Ruby/PHP ヒアドキュメント）", () => {
   });
 });
 
+suite("computeLineStateBefore（Rust ライフタイム）", () => {
+  test("奇数個のライフタイムがある行の未終端 /* は blockComment を返す", () => {
+    const lines = [
+      "fn foo<'a>(x: &'a str, y: &'static str) -> i32 { /* comment",
+    ];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "blockComment"
+    );
+  });
+
+  test("奇数個のライフタイムがある行で開いたブロックコメントが次の行で閉じれば code に戻る", () => {
+    const lines = [
+      "fn foo<'a>(x: &'a str, y: &'static str) -> i32 { /* comment",
+      "    let should_not_align = 5; */ let real = 10;",
+    ];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+
+  test("ライフタイムだけの行（コメントなし）は code のまま", () => {
+    const lines = ["fn f<'a, 'b>(x: &'a str, y: &'b str) -> &'a str {", "}"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+
+  test('`"` を含む char リテラルの後の未終端 /* は blockComment を返す', () => {
+    const lines = [`let q = '"'; /* comment`];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "blockComment"
+    );
+  });
+
+  test("エスケープ付き char リテラル（'\\''）の後の未終端 /* は blockComment を返す", () => {
+    const lines = ["let c = '\\''; /* comment"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "blockComment"
+    );
+  });
+
+  test("通常文字列内の /* はコメント開始として扱わない", () => {
+    const lines = ['let s = " /* not a comment";', "let x = 1;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+
+  test('奇数個の `"` を含む raw string の後の未終端 /* は blockComment を返す', () => {
+    const lines = ['let s = r#"a " b"#; /* comment'];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "blockComment"
+    );
+  });
+
+  test("raw string 内の /* はコメント開始として扱わない", () => {
+    const lines = ['let s = r#" /* "#;', "let x = 1;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+
+  test("blockComment 状態からライフタイムを含む行で閉じれば code に戻る", () => {
+    const lines = ["/* comment", "done */ fn f<'a>(x: &'a str) {}"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+
+  test("ライフタイムの後の行コメント内の /* はコメント開始として扱わない", () => {
+    const lines = ["fn f<'a>() {} // see /* note", "let x = 1;"];
+    assert.strictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "rust"),
+      "code"
+    );
+  });
+});
+
 suite("isWholeLineComment", () => {
   test("`//` 全行コメントは true", () => {
     assert.strictEqual(isWholeLineComment("// comment", undefined, "code"), true);
