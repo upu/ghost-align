@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - In Rust, a line with an odd number of lifetime apostrophes (e.g. `fn foo<'a>(x: &'a str, y: &'static str)`) no longer desyncs the cross-line block-comment tracking: a `/* ... */` opened on such a line and closed on a later line is now recognized, so an `=` inside the comment's continuation is no longer mistaken for a real assignment. Char literals containing a quote (`'"'`) and raw strings with an odd number of `"` (`r#"a " b"#`) are handled the same way.
 - A YAML block scalar whose header carries an explicit indentation indicator (`key: |2`, and either indicator order such as `|2-` / `|-2`) is now recognized, so a `:` inside its content lines is no longer mistaken for a mapping colon and pulled into alignment.
 - Flag emoji (Regional Indicator Symbols, U+1F1E6-U+1F1FF, e.g. 🇯🇵) are now counted at their rendered width (2 columns per code point), so lines containing them no longer misalign in Markdown tables, CSV cells, comments, or string literals.
+- An emoji with a skin tone modifier (e.g. 👍🏽, base + U+1F3FB-U+1F3FF) is now counted as a single 2-column glyph instead of 4 columns, so tokens after it no longer shift 2 columns right. A modifier standing alone, or following a non-modifier-base code point, still counts as its own 2-column swatch.
 
 ## [1.6.0] - 2026-07-16
 
