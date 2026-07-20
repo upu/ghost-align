@@ -1055,6 +1055,15 @@ suite("visualColumn", () => {
     assert.strictEqual(visualColumn("a😀b", 3, 4), 3);
   });
 
+  test("国旗絵文字（Regional Indicator Symbols）は各コードポイントを幅2として数える", () => {
+    // 日本国旗は U+1F1EF U+1F1F5 の 2 コードポイント（4 コードユニット）。
+    // VS Code は各 Regional Indicator を幅 2 で描画するため、
+    // 直後の = （インデックス4）の視覚カラムは 2+2=4。
+    assert.strictEqual(visualColumn("\u{1f1ef}\u{1f1f5}=", 4, 4), 4);
+    // "a" + 国旗 + "b": a=1, Regional Indicator 2つ=4。b の直後は 5。
+    assert.strictEqual(visualColumn("a\u{1f1ef}\u{1f1f5}b", 5, 4), 5);
+  });
+
   test("CJK 拡張 B（U+20000 以降）は幅2として数える", () => {
     // "𠀀=" の 𠀀 は 2 コードユニット・視覚幅 2。
     assert.strictEqual(visualColumn("𠀀=", 2, 4), 2);
