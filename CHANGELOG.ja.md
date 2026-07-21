@@ -9,6 +9,8 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-22
+
 ### Added
 
 - `ghostAlign.csv.alignNumbersRight` が、セル全体を右寄せするだけでなく、数値列を小数点の位置で揃えるようになった。桁数が異なる値（例: `1.5`、`23.45`、`100`）でも右端でなく小数点の位置が揃う。
@@ -285,7 +287,8 @@
 - ゴーストパディングを実際の空白と視覚的に区別できるよう色付け。
 - 文字列・括弧内、および行・ブロックコメント内の `=` をアライメント対象から除外。
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/upu/ghost-align/releases/tag/v1.7.0
 [1.6.0]: https://github.com/upu/ghost-align/releases/tag/v1.6.0
 [1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
