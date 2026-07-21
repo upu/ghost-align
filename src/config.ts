@@ -348,15 +348,15 @@ export function resolveMaxPadding(
 }
 
 /**
- * Resolve `ghostAlign.shortenUrls` (#418, default false): a single opt-in
- * toggle for both the CSV/TSV (every cell) and Markdown table (table cells
- * only) alignment paths, so it lives here as a standalone resolver rather
- * than inside AlignmentPath's per-path settings.
+ * Resolve `ghostAlign.shortenUrls` (#418, default true): a single toggle for
+ * both the CSV/TSV (every cell) and Markdown table (table cells only)
+ * alignment paths, so it lives here as a standalone resolver rather than
+ * inside AlignmentPath's per-path settings.
  */
 export function resolveShortenUrls(
   config: { get<T>(key: string, defaultValue: T): T }
 ): boolean {
-  return config.get<boolean>("shortenUrls", false);
+  return config.get<boolean>("shortenUrls", true);
 }
 
 // Allowlist of URI schemes that receive alignment decorations. Editors like

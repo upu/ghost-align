@@ -271,7 +271,7 @@
         },
         "ghostAlign.shortenUrls": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Shorten an http(s) URL in a CSV/TSV cell (any column) or a Markdown table cell to just its host (e.g. \"https://github.com/foo/bar?q=1\" displays as \"[github.com]\"), so one long URL no longer stretches the whole column. Only the scheme/userinfo and path/query/fragment are visually hidden; the host is real, unmodified document text, so Ctrl+click still opens the full URL, Ctrl+F and copy still see the full text, and moving the cursor/selection into a shortened URL temporarily expands it back to full text. Column alignment is computed against the shortened width so the table doesn't stretch for a hidden URL."
         },
         "ghostAlign.alignJsdocParams": {

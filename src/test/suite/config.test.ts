@@ -176,12 +176,12 @@ suite("resolveAlignmentPath", () => {
 });
 
 suite("resolveShortenUrls", () => {
-  test("既定は false", () => {
-    assert.strictEqual(resolveShortenUrls(mockConfig({})), false);
+  test("既定は true", () => {
+    assert.strictEqual(resolveShortenUrls(mockConfig({})), true);
   });
 
-  test("ユーザーが true に設定すればそれが使われる", () => {
-    assert.strictEqual(resolveShortenUrls(mockConfig({ shortenUrls: true })), true);
+  test("ユーザーが false に設定すればそれが使われる", () => {
+    assert.strictEqual(resolveShortenUrls(mockConfig({ shortenUrls: false })), false);
   });
 });
 
@@ -976,10 +976,10 @@ suite("package.json との既定値同期", () => {
     assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.default, false);
   });
 
-  test("shortenUrls が default false で boolean 型で登録されている", () => {
+  test("shortenUrls が default true で boolean 型で登録されている", () => {
     const props = configProperties();
     assert.strictEqual(props["ghostAlign.shortenUrls"]?.type, "boolean");
-    assert.strictEqual(props["ghostAlign.shortenUrls"]?.default, false);
+    assert.strictEqual(props["ghostAlign.shortenUrls"]?.default, true);
   });
 
   test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {
