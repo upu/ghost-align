@@ -1,6 +1,11 @@
 // ── Markdown table alignment ──────────────────────────────────────────────
 
 import { Placement, computeColumnPlan, visualColumn } from "./paddings";
+import {
+  UrlShortenTarget,
+  computeUrlShortenReduction,
+  findUrlShortenTargets,
+} from "./urlShorten";
 
 /**
  * Char ranges `[start, end)` inside inline code spans (CommonMark: opened by
@@ -410,21 +415,36 @@ function cellContentStart(text: string, segStart: number, segEnd: number): numbe
   return j;
 }
 
-/** Compute {@link TableRowMetrics} for each line index in `block`. */
+/**
+ * Compute {@link TableRowMetrics} for each line index in `block`.
+ *
+ * `shortenUrls` (ghostAlign.shortenUrls, #418), when true, reduces each
+ * cell segment's reported width by the visual space its URLs' shortened
+ * display (`[host]`) would save (see computeUrlShortenReduction) — so a
+ * column plan built from these widths sizes itself for the shortened form
+ * instead of being widened by text that renders hidden.
+ */
 function computeTableRowMetrics(
   lines: string[],
   block: number[],
-  tabSize: number
+  tabSize: number,
+  shortenUrls: boolean = false
 ): TableRowMetrics[] {
   return block.map((lineIndex) => {
     const text = lines[lineIndex];
     const pipes = findPipePositions(text);
     const segWidths: number[] = [];
     let prevVisual = 0;
+    let prevIndex = 0;
     for (const pipe of pipes) {
       const pipeVisual = visualColumn(text, pipe, tabSize);
-      segWidths.push(pipeVisual - prevVisual);
+      let segWidth = pipeVisual - prevVisual;
+      if (shortenUrls) {
+        segWidth -= computeUrlShortenReduction(text, prevIndex, pipe, tabSize);
+      }
+      segWidths.push(segWidth);
       prevVisual = pipeVisual + 1; // skip the pipe character (width 1)
+      prevIndex = pipe + 1;
     }
     return { lineIndex, text, pipes, segWidths };
   });
@@ -559,22 +579,66 @@ function placementsForTableRows(
  * `maxPadding` caps how many ghost characters a single column may insert on
  * any one line (see computeTableColumnPlan); 0 (the default) means
  * unlimited, aligning every column regardless of outlier cells.
+ *
+ * `shortenUrls` (ghostAlign.shortenUrls, default true) sizes the column
+ * plan for each cell's shortened width instead of its raw width (see
+ * computeTableRowMetrics) — the ghost-padding placements this returns don't
+ * themselves shorten any URL text; that's a separate decoration pass (see
+ * computeMarkdownTableUrlTargets) driven by the same setting.
  */
 export function computeMarkdownTablePaddings(
   lines: string[],
   tabSize: number,
   initialState: FenceState = NO_FENCE,
-  maxPadding: number = 0
+  maxPadding: number = 0,
+  shortenUrls: boolean = false
 ): Placement[] {
   const placements: Placement[] = [];
   for (const block of findMarkdownTables(lines, initialState)) {
-    const rows = computeTableRowMetrics(lines, block, tabSize);
+    const rows = computeTableRowMetrics(lines, block, tabSize, shortenUrls);
     const plan = computeTableColumnPlan(rows, maxPadding);
     const delimiterRow = rows[1];
     const alignments = parseDelimiterAlignments(delimiterRow.text, delimiterRow.pipes);
     placements.push(...placementsForTableRows(rows, plan, alignments));
   }
   return placements;
+}
+
+/**
+ * {@link UrlShortenTarget}s for every real cell of one table row (skips the
+ * delimiter row, e.g. `|---|:--:|`, which never contains a URL).
+ */
+function urlTargetsForRow(row: TableRowMetrics): UrlShortenTarget[] {
+  if (isDelimiterRow(row.text)) {
+    return [];
+  }
+  const targets: UrlShortenTarget[] = [];
+  let segStart = 0;
+  for (const pipe of row.pipes) {
+    targets.push(...findUrlShortenTargets(row.lineIndex, row.text, segStart, pipe));
+    segStart = pipe + 1;
+  }
+  return targets;
+}
+
+/**
+ * {@link UrlShortenTarget}s for every table cell in `lines` (ghostAlign.shortenUrls,
+ * #418) — the small-file counterpart of {@link MarkdownTableWidthCache.urlTargetsForRange},
+ * which large files use instead.
+ */
+export function computeMarkdownTableUrlTargets(
+  lines: string[],
+  tabSize: number,
+  initialState: FenceState = NO_FENCE
+): UrlShortenTarget[] {
+  const targets: UrlShortenTarget[] = [];
+  for (const block of findMarkdownTables(lines, initialState)) {
+    const rows = computeTableRowMetrics(lines, block, tabSize);
+    for (const row of rows) {
+      targets.push(...urlTargetsForRow(row));
+    }
+  }
+  return targets;
 }
 
 /**
@@ -663,6 +727,7 @@ export class MarkdownTableWidthCache {
   private lineCount = -1;
   private tabSize = 0;
   private maxPadding = 0;
+  private shortenUrls = false;
   private dirty = true;
 
   /** Mark the cache stale so the next {@link sync} rebuilds it from scratch. */
@@ -700,27 +765,31 @@ export class MarkdownTableWidthCache {
 
   /**
    * Bring the cache in line with the document. Rebuilds fully when dirty, or
-   * when `tabSize`/`maxPadding` changed (both affect the per-table plan, and
-   * `maxPadding` can change from a settings edit with no document edit at
-   * all, so it can't rely on {@link markDirty}/{@link applyEdit}).
+   * when `tabSize`/`maxPadding`/`shortenUrls` changed (all affect the
+   * per-table plan, and each can change from a settings edit with no
+   * document edit at all, so none can rely on {@link markDirty}/{@link
+   * applyEdit}).
    */
   sync(
     lineCount: number,
     lineAt: (line: number) => string,
     tabSize: number,
-    maxPadding: number = 0
+    maxPadding: number = 0,
+    shortenUrls: boolean = false
   ): void {
     if (
       !this.dirty &&
       lineCount === this.lineCount &&
       tabSize === this.tabSize &&
-      maxPadding === this.maxPadding
+      maxPadding === this.maxPadding &&
+      shortenUrls === this.shortenUrls
     ) {
       return;
     }
     this.lineCount = lineCount;
     this.tabSize = tabSize;
     this.maxPadding = maxPadding;
+    this.shortenUrls = shortenUrls;
     this.dirty = false;
     this.rowMetrics.clear();
     this.tableIndexByLine.clear();
@@ -738,7 +807,7 @@ export class MarkdownTableWidthCache {
     );
     this.fencedSpans = spansFromFlags(fenced);
     this.tables.forEach((block, tableIndex) => {
-      const rows = computeTableRowMetrics(lines, block, tabSize);
+      const rows = computeTableRowMetrics(lines, block, tabSize, shortenUrls);
       for (const row of rows) {
         this.rowMetrics.set(row.lineIndex, row);
         this.tableIndexByLine.set(row.lineIndex, tableIndex);
@@ -769,5 +838,24 @@ export class MarkdownTableWidthCache {
       );
     }
     return placements;
+  }
+
+  /**
+   * {@link UrlShortenTarget}s for the table rows in `[sliceStart, sliceEnd]`
+   * (ghostAlign.shortenUrls, #418) — mirrors {@link placementsForRange},
+   * using the same cached row metrics regardless of `shortenUrls` (URL
+   * detection doesn't depend on the shortened-width plan, only on cell
+   * text/boundaries). Call sync() first.
+   */
+  urlTargetsForRange(sliceStart: number, sliceEnd: number): UrlShortenTarget[] {
+    const targets: UrlShortenTarget[] = [];
+    for (let lineIndex = sliceStart; lineIndex <= sliceEnd; lineIndex++) {
+      const row = this.rowMetrics.get(lineIndex);
+      if (!row) {
+        continue;
+      }
+      targets.push(...urlTargetsForRow(row));
+    }
+    return targets;
   }
 }

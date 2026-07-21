@@ -9,6 +9,7 @@ import {
   resolveAlignmentPath,
   resolveOperatorsForLanguage,
   resolveCsvDelimiter,
+  resolveShortenUrls,
   isLanguageDisabled,
   toggleDisabledLanguage,
   resolveDisabledLanguagesTarget,
@@ -171,6 +172,16 @@ suite("resolveAlignmentPath", () => {
       path.kind === "operators" ? path.alignJsdoc : undefined,
       true
     );
+  });
+});
+
+suite("resolveShortenUrls", () => {
+  test("既定は true", () => {
+    assert.strictEqual(resolveShortenUrls(mockConfig({})), true);
+  });
+
+  test("ユーザーが false に設定すればそれが使われる", () => {
+    assert.strictEqual(resolveShortenUrls(mockConfig({ shortenUrls: false })), false);
   });
 });
 
@@ -963,6 +974,12 @@ suite("package.json との既定値同期", () => {
     const props = configProperties();
     assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.type, "boolean");
     assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.default, false);
+  });
+
+  test("shortenUrls が default true で boolean 型で登録されている", () => {
+    const props = configProperties();
+    assert.strictEqual(props["ghostAlign.shortenUrls"]?.type, "boolean");
+    assert.strictEqual(props["ghostAlign.shortenUrls"]?.default, true);
   });
 
   test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {

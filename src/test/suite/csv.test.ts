@@ -8,7 +8,9 @@ import {
   computeCsvNumericColumns,
   computeCsvPaddings,
   computeCsvPaddingsFromMax,
+  computeCsvUrlTargets,
   findCsvDelimiterPositions,
+  urlTargetsForCsvLine,
 } from "../../csv";
 
 suite("findCsvDelimiterPositions", () => {
@@ -632,5 +634,68 @@ suite("CsvWidthCache", () => {
     syncWithSpy(cache, lines, reads);
     assert.deepStrictEqual(reads, [0]);
     assert.deepStrictEqual(cache.maxWidths(), [2]);
+  });
+});
+
+suite("computeCsvPaddings: shortenUrls (#418)", () => {
+  // 列1: ヘッダー "url"(3幅) 対 URL セル "https://github.com/foo"(22幅、
+  // 短縮後は "[github.com]" 相当の12幅 = 22 - (8+4-2))。
+  const lines = ["id,url,note", "1,https://github.com/foo,x"];
+
+  test("既定(false)では URL セルの生の幅で列を揃える", () => {
+    const placements = computeCsvPaddings(lines, ",", 4);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 1, padding: 1 },
+      { lineIndex: 0, character: 6, padding: 19 },
+    ]);
+  });
+
+  test("true: URL セルは短縮後の幅（[host] 相当）で列を揃える", () => {
+    const placements = computeCsvPaddings(lines, ",", 4, 0, false, true);
+    assert.deepStrictEqual(placements, [
+      { lineIndex: 1, character: 1, padding: 1 },
+      { lineIndex: 0, character: 6, padding: 9 },
+    ]);
+  });
+});
+
+suite("computeCsvUrlTargets / urlTargetsForCsvLine (#418)", () => {
+  test("区切り文字境界のセルと末尾セル（行末まで）の両方から URL を検出する", () => {
+    const lines = [
+      "id,https://github.com/foo,note",
+      "2,plain,https://example.com/path",
+    ];
+    const targets = computeCsvUrlTargets(lines, ",", 4);
+    assert.strictEqual(targets.length, 2);
+    assert.strictEqual(targets[0].lineIndex, 0);
+    assert.strictEqual(
+      lines[0].slice(targets[0].start, targets[0].end),
+      "https://github.com/foo"
+    );
+    assert.strictEqual(
+      lines[0].slice(targets[0].hostStart, targets[0].hostEnd),
+      "github.com"
+    );
+    // 末尾セル（最後の区切り文字より後ろ、行末まで）にある URL も検出する。
+    assert.strictEqual(targets[1].lineIndex, 1);
+    assert.strictEqual(
+      lines[1].slice(targets[1].start, targets[1].end),
+      "https://example.com/path"
+    );
+  });
+
+  test("urlTargetsForCsvLine は1行分のメトリクスから computeCsvUrlTargets と同じ結果を返す", () => {
+    const lineText = "id,https://github.com/foo,note";
+    const metrics = computeCsvLineMetrics(lineText, ",", 4)!;
+    const targets = urlTargetsForCsvLine(0, lineText, metrics);
+    assert.strictEqual(targets.length, 1);
+    assert.strictEqual(
+      lineText.slice(targets[0].start, targets[0].end),
+      "https://github.com/foo"
+    );
+  });
+
+  test("URL を含まない行では空配列", () => {
+    assert.deepStrictEqual(computeCsvUrlTargets(["a,b,c"], ",", 4), []);
   });
 });

@@ -18,6 +18,7 @@ import {
   FenceState,
   MarkdownTableWidthCache,
   computeMarkdownTablePaddings,
+  computeMarkdownTableUrlTargets,
   findPipePositions,
 } from "./markdown";
 import {
@@ -25,9 +26,17 @@ import {
   CsvWidthCache,
   computeCsvPaddings,
   computeCsvPaddingsFromMax,
+  computeCsvUrlTargets,
+  urlTargetsForCsvLine,
 } from "./csv";
+import { UrlShortenTarget } from "./urlShorten";
 import { TextRange, buildAlignedText } from "./copyAligned";
-import { isLanguageDisabled, resolveAlignmentPath, resolveMaxPadding } from "./config";
+import {
+  isLanguageDisabled,
+  resolveAlignmentPath,
+  resolveMaxPadding,
+  resolveShortenUrls,
+} from "./config";
 
 /**
  * Compute the ghost-padding placements for `lines`, dispatching to whichever
@@ -39,6 +48,13 @@ import { isLanguageDisabled, resolveAlignmentPath, resolveMaxPadding } from "./c
  * decorateEditor's large-file mode), seeding the state a fence / block
  * comment / template literal / CSS rule block / YAML block scalar opened
  * above the slice left behind.
+ *
+ * `shortenUrls` (ghostAlign.shortenUrls, #418, default true) sizes the
+ * Markdown/CSV column plan for each cell's shortened URL width instead of
+ * its raw width — see computeMarkdownTablePaddings/computeCsvPaddings.
+ * buildCopyAlignedText never passes it (stays false), so Copy with
+ * Alignment's real-space padding always matches the full text it copies —
+ * the setting only controls the live *decoration*, not the copy.
  */
 export function computeDocumentPlacements(
   lines: string[],
@@ -47,7 +63,8 @@ export function computeDocumentPlacements(
   config: vscode.WorkspaceConfiguration,
   tabSize: number,
   markdownFenceState?: FenceState,
-  initialState?: LineScanState
+  initialState?: LineScanState,
+  shortenUrls: boolean = false
 ): Placement[] {
   const path = resolveAlignmentPath(languageId, config);
   const maxPadding = resolveMaxPadding(config);
@@ -56,7 +73,13 @@ export function computeDocumentPlacements(
     return [];
   }
   if (path.kind === "markdown") {
-    return computeMarkdownTablePaddings(lines, tabSize, markdownFenceState, maxPadding);
+    return computeMarkdownTablePaddings(
+      lines,
+      tabSize,
+      markdownFenceState,
+      maxPadding,
+      shortenUrls
+    );
   }
   if (path.kind === "csv") {
     return computeCsvPaddings(
@@ -64,7 +87,8 @@ export function computeDocumentPlacements(
       path.delimiter,
       tabSize,
       maxPadding,
-      path.alignNumbersRight
+      path.alignNumbersRight,
+      shortenUrls
     );
   }
 
@@ -252,6 +276,7 @@ export function createAlignDecorationType(): vscode.TextEditorDecorationType {
 /** Clear ghost-align decorations from a single editor. */
 export function clearEditorDecorations(editor: vscode.TextEditor) {
   editor.setDecorations(alignDecorationType, []);
+  clearUrlShortenDecorationsIfNeeded(editor);
 }
 
 /** Clear ghost-align decorations from every visible editor. */
@@ -259,6 +284,208 @@ export function clearDecorations() {
   for (const editor of vscode.window.visibleTextEditors) {
     clearEditorDecorations(editor);
   }
+}
+
+// Two decoration types for ghostAlign.shortenUrls (#418), alongside
+// alignDecorationType above. `urlHideDecorationType`'s ranges cover a URL's
+// scheme/userinfo prefix and path/query/fragment suffix (see UrlShortenTarget
+// in urlShorten.ts); `urlHostDecorationType`'s ranges cover the host[:port]
+// kept as real, visible document text, carrying the `[`/`]` markers and the
+// hover tooltip. Both created (and their disposal registered) alongside
+// alignDecorationType in extension.ts's activate().
+let urlHideDecorationType: vscode.TextEditorDecorationType;
+let urlHostDecorationType: vscode.TextEditorDecorationType;
+
+/**
+ * Create (or replace) the two decoration types ghostAlign.shortenUrls draws
+ * with. `urlHideDecorationType`'s `textDecoration` is a CSS-injection hack:
+ * VS Code passes the string straight into the decorated span's inline
+ * `text-decoration` style, so terminating it with `;` and appending further
+ * declarations collapses the hidden text to near-zero width. This is
+ * unsupported by the extension API (documented as an accepted risk in #418)
+ * but is a long-standing pattern in inline-fold-style extensions, and
+ * degrades safely: if VS Code ever stops honoring it, the hidden text simply
+ * reappears at full size instead of rendering incorrectly.
+ */
+export function createUrlShortenDecorationTypes(): {
+  hide: vscode.TextEditorDecorationType;
+  host: vscode.TextEditorDecorationType;
+} {
+  urlHideDecorationType = vscode.window.createTextEditorDecorationType({
+    textDecoration: "none; font-size: 0.01px;",
+  });
+  urlHostDecorationType = vscode.window.createTextEditorDecorationType({});
+  return { hide: urlHideDecorationType, host: urlHostDecorationType };
+}
+
+// Editors currently showing shortened-URL decorations, so decorateEditor can
+// tell whether it needs to actively clear urlHide/urlHostDecorationType (a
+// real setDecorations([]) call) or can skip touching them entirely — the
+// common case, since ghostAlign.shortenUrls defaults off. Skipping when
+// there was never anything to clear keeps a plain decorateEditor() call from
+// growing extra no-op renders for every editor that never used the feature.
+const urlShortenAppliedEditors = new WeakSet<vscode.TextEditor>();
+
+/** Clear urlHide/urlHostDecorationType for `editor` if a previous pass set them. */
+function clearUrlShortenDecorationsIfNeeded(editor: vscode.TextEditor) {
+  if (urlShortenAppliedEditors.has(editor)) {
+    editor.setDecorations(urlHideDecorationType, []);
+    editor.setDecorations(urlHostDecorationType, []);
+    urlShortenAppliedEditors.delete(editor);
+  }
+}
+
+/**
+ * A vscode.DocumentLinkProvider so Ctrl+click on a shortened URL's visible
+ * host span always opens exactly that URL, regardless of what surrounds it
+ * in the raw text. VS Code's own generic link detector (used when no
+ * provider covers a position) treats an ASCII `,` as trimmable only at the
+ * very end of a candidate, not as a mid-token boundary — so on a CSV/TSV
+ * line with no surrounding whitespace (the normal case), it would otherwise
+ * swallow the rest of the line after the URL's delimiter into the same
+ * "link" (e.g. `https://example.com,note` opens with `,note` attached).
+ * Markdown table cells don't have this problem (`|` *is* one of the
+ * generic detector's terminator characters), but the provider covers both
+ * paths uniformly since it's driven by the same UrlShortenTarget data
+ * `decorateEditor` already computes for the visible `[host]` decoration.
+ */
+/**
+ * The testable core of {@link createUrlShortenLinkProvider}: computes the
+ * document links for `document` given an explicit `config`, so tests can
+ * inject a mock config the way every other decorate.ts entry point does,
+ * instead of going through vscode.workspace.getConfiguration.
+ */
+export function computeUrlShortenLinks(
+  document: Pick<vscode.TextDocument, "languageId" | "lineCount" | "lineAt">,
+  config: vscode.WorkspaceConfiguration
+): vscode.DocumentLink[] {
+  const languageId = document.languageId;
+  if (isLanguageDisabled(config, languageId) || !resolveShortenUrls(config)) {
+    return [];
+  }
+  const path = resolveAlignmentPath(languageId, config);
+  if (path.kind !== "csv" && path.kind !== "markdown") {
+    return [];
+  }
+  const lines: string[] = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    lines.push(document.lineAt(i).text);
+  }
+  const targets =
+    path.kind === "csv"
+      ? computeCsvUrlTargets(lines, path.delimiter, DEFAULT_TAB_SIZE)
+      : computeMarkdownTableUrlTargets(lines, DEFAULT_TAB_SIZE);
+  const links: vscode.DocumentLink[] = [];
+  for (const target of targets) {
+    let uri: vscode.Uri;
+    try {
+      uri = vscode.Uri.parse(target.url, true);
+    } catch {
+      continue;
+    }
+    links.push(
+      new vscode.DocumentLink(
+        new vscode.Range(target.lineIndex, target.hostStart, target.lineIndex, target.hostEnd),
+        uri
+      )
+    );
+  }
+  return links;
+}
+
+/**
+ * A vscode.DocumentLinkProvider so Ctrl+click on a shortened URL's visible
+ * host span always opens exactly that URL, regardless of what surrounds it
+ * in the raw text. VS Code's own generic link detector (used when no
+ * provider covers a position) treats an ASCII `,` as trimmable only at the
+ * very end of a candidate, not as a mid-token boundary — so on a CSV/TSV
+ * line with no surrounding whitespace (the normal case), it would otherwise
+ * swallow the rest of the line after the URL's delimiter into the same
+ * "link" (e.g. `https://example.com,note` opens with `,note` attached).
+ * Markdown table cells don't have this problem (`|` *is* one of the
+ * generic detector's terminator characters), but the provider covers both
+ * paths uniformly since it's driven by the same UrlShortenTarget data
+ * `decorateEditor` already computes for the visible `[host]` decoration.
+ */
+export function createUrlShortenLinkProvider(): vscode.DocumentLinkProvider {
+  return {
+    provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
+      return computeUrlShortenLinks(
+        document,
+        vscode.workspace.getConfiguration("ghostAlign", document)
+      );
+    },
+  };
+}
+
+/**
+ * Whether the cursor or a selection in `selections` overlaps `target`'s full
+ * URL span — such a target renders in full instead of shortened (#418's
+ * expand-on-cursor-entry behavior), matching the Inline Fold convention of
+ * revealing hidden text the moment the user's attention (cursor/selection)
+ * touches it.
+ */
+function isUrlTargetExpanded(
+  target: UrlShortenTarget,
+  selections: readonly vscode.Selection[]
+): boolean {
+  return selections.some((sel) => {
+    if (target.lineIndex < sel.start.line || target.lineIndex > sel.end.line) {
+      return false;
+    }
+    const rangeStart = target.lineIndex === sel.start.line ? sel.start.character : 0;
+    const rangeEnd =
+      target.lineIndex === sel.end.line ? sel.end.character : Number.MAX_SAFE_INTEGER;
+    return rangeStart <= target.end && rangeEnd >= target.start;
+  });
+}
+
+/**
+ * Apply ghostAlign.shortenUrls decorations to `editor`: for every target not
+ * currently expanded (see isUrlTargetExpanded), hide its scheme/userinfo
+ * prefix and path/query/fragment suffix (urlHideDecorationType) and frame
+ * its host[:port] with `[`/`]` markers plus a hover tooltip of the full URL
+ * (urlHostDecorationType) — an expanded target gets neither, rendering as
+ * plain, unmodified text.
+ */
+function applyUrlShortenDecorations(
+  editor: vscode.TextEditor,
+  targets: readonly UrlShortenTarget[]
+) {
+  const selections = editor.selections;
+  const hideRanges: vscode.Range[] = [];
+  const hostDecorations: vscode.DecorationOptions[] = [];
+  for (const target of targets) {
+    if (isUrlTargetExpanded(target, selections)) {
+      continue;
+    }
+    if (target.start < target.hostStart) {
+      hideRanges.push(
+        new vscode.Range(target.lineIndex, target.start, target.lineIndex, target.hostStart)
+      );
+    }
+    if (target.hostEnd < target.end) {
+      hideRanges.push(
+        new vscode.Range(target.lineIndex, target.hostEnd, target.lineIndex, target.end)
+      );
+    }
+    hostDecorations.push({
+      range: new vscode.Range(
+        target.lineIndex,
+        target.hostStart,
+        target.lineIndex,
+        target.hostEnd
+      ),
+      renderOptions: {
+        before: { contentText: "[" },
+        after: { contentText: "]" },
+      },
+      hoverMessage: target.url,
+    });
+  }
+  editor.setDecorations(urlHideDecorationType, hideRanges);
+  editor.setDecorations(urlHostDecorationType, hostDecorations);
+  urlShortenAppliedEditors.add(editor);
 }
 
 /** Apply ghost-align decorations to a single editor. */
@@ -273,6 +500,7 @@ export function decorateEditor(
 
   if (isLanguageDisabled(config, languageId)) {
     editor.setDecorations(alignDecorationType, []);
+    clearUrlShortenDecorationsIfNeeded(editor);
     return;
   }
 
@@ -282,9 +510,14 @@ export function decorateEditor(
   const path = resolveAlignmentPath(languageId, config);
   if (path.kind === "none") {
     editor.setDecorations(alignDecorationType, []);
+    clearUrlShortenDecorationsIfNeeded(editor);
     return;
   }
   const maxPadding = resolveMaxPadding(config);
+  // ghostAlign.shortenUrls (#418) only applies to the Markdown/CSV table
+  // paths — computed once here regardless of `path.kind` since it's cheap,
+  // and every branch below that can use it checks `path.kind` itself.
+  const shortenUrls = resolveShortenUrls(config);
 
   // Large files are computed per visible range instead of whole-file, and
   // re-decorated on scroll. The slice is expanded to group boundaries so a
@@ -329,6 +562,10 @@ export function decorateEditor(
   }
 
   let placements: Placement[];
+  // Populated only for the CSV/Markdown paths when ghostAlign.shortenUrls is
+  // on; left undefined otherwise so the block after this if/else chain knows
+  // to clear rather than apply (see clearUrlShortenDecorationsIfNeeded).
+  let urlTargets: UrlShortenTarget[] | undefined;
   if (path.kind === "markdown" && useVisibleRange) {
     // Whole-document table widths come from the cache — rebuilt in full only
     // on an edit (see notifyMarkdownDocumentChange) — so scrolling alone
@@ -338,8 +575,11 @@ export function decorateEditor(
       cache = new MarkdownTableWidthCache();
       markdownTableWidthCaches.set(document, cache);
     }
-    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, maxPadding);
+    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, maxPadding, shortenUrls);
     placements = cache.placementsForRange(sliceStart, sliceEnd);
+    if (shortenUrls) {
+      urlTargets = cache.urlTargetsForRange(sliceStart, sliceEnd);
+    }
   } else if (path.kind === "csv" && useVisibleRange) {
     // Whole-file column widths come from the cache — built once, then only
     // the lines an edit touched are re-scanned (see notifyCsvDocumentChange)
@@ -349,7 +589,7 @@ export function decorateEditor(
       cache = new CsvWidthCache(path.delimiter);
       csvWidthCaches.set(document, cache);
     }
-    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize);
+    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, shortenUrls);
     const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
     for (let i = sliceStart; i <= sliceEnd; i++) {
       const metrics = cache.metricsAt(i);
@@ -366,6 +606,11 @@ export function decorateEditor(
       path.alignNumbersRight ? cache.maxIntWidths() : [],
       path.alignNumbersRight ? cache.minTotalWidths() : []
     );
+    if (shortenUrls) {
+      urlTargets = rows.flatMap((row) =>
+        urlTargetsForCsvLine(row.lineIndex, document.lineAt(row.lineIndex).text, row.metrics)
+      );
+    }
   } else {
     const sliceLines = (): string[] => {
       const lines: string[] = [];
@@ -463,8 +708,9 @@ export function decorateEditor(
               lineCount: sliceEnd - sliceStart + 1,
               lineAt: (i: number) => document.lineAt(sliceStart + i),
             };
+      const lines = sliceLines();
       placements = computeDocumentPlacements(
-        sliceLines(),
+        lines,
         source,
         languageId,
         config,
@@ -474,15 +720,29 @@ export function decorateEditor(
         // via MarkdownTableWidthCache instead), so there's no fence state to
         // seed here.
         undefined,
-        initialState
+        initialState,
+        shortenUrls
       );
+      if (shortenUrls && path.kind === "csv") {
+        urlTargets = computeCsvUrlTargets(lines, path.delimiter, tabSize);
+      } else if (shortenUrls && path.kind === "markdown") {
+        // Markdown never reaches this branch with sliceStart > 0 — see comment above.
+        urlTargets = computeMarkdownTableUrlTargets(lines, tabSize);
+      }
       if (sliceStart > 0) {
         placements = placements.map((p) => ({
           ...p,
           lineIndex: p.lineIndex + sliceStart,
         }));
+        urlTargets = urlTargets?.map((t) => ({ ...t, lineIndex: t.lineIndex + sliceStart }));
       }
     }
+  }
+
+  if (urlTargets) {
+    applyUrlShortenDecorations(editor, urlTargets);
+  } else {
+    clearUrlShortenDecorationsIfNeeded(editor);
   }
 
   const decorations: vscode.DecorationOptions[] = placements.map(

@@ -7,6 +7,7 @@ README 用のスクリーンショット/GIF（[#59](https://github.com/upu/ghos
 - `sample.js` — `=` の整列（デフォルトで有効）。主役の GIF 向け。
 - `sample.json` — `:` の整列（JSON はデフォルトで有効）。
 - `sample.md` — Markdown テーブルの列整列。
+- `sample.csv` — CSV の区切り文字整列と `ghostAlign.shortenUrls`（URL のドメイン短縮表示）。
 
 ## GIF の撮り方（目安）
 

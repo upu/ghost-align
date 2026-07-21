@@ -1,6 +1,11 @@
 // ── CSV / TSV column alignment ────────────────────────────────────────────
 
 import { Placement, computeColumnPlan, visualColumn } from "./paddings";
+import {
+  UrlShortenTarget,
+  computeUrlShortenReduction,
+  findUrlShortenTargets,
+} from "./urlShorten";
 
 /**
  * Scan one CSV/TSV line for delimiter positions, following RFC 4180 quoting:
@@ -114,12 +119,19 @@ function cellContentStart(
  * correctly using the carried-in quote state, and callers that track state
  * across a document (computeCsvPaddings, CsvWidthCache) use `endInQuotes` to
  * classify the next line's delimiters correctly in turn.
+ *
+ * `shortenUrls` (ghostAlign.shortenUrls, #418), when true, reduces each
+ * cell's reported width by the visual space its URLs' shortened display
+ * (`[host]`) would save (see computeUrlShortenReduction) — so a column plan
+ * built from these widths sizes itself for the shortened form instead of
+ * being widened by text that renders hidden.
  */
 function computeCsvLineState(
   lineText: string,
   delimiter: string,
   tabSize: number,
-  startInQuotes: boolean
+  startInQuotes: boolean,
+  shortenUrls: boolean = false
 ): { metrics: CsvLineMetrics | null; endInQuotes: boolean } {
   const { positions: delims, endInQuotes } = scanCsvLine(lineText, delimiter, startInQuotes);
   if (delims.length === 0) {
@@ -132,7 +144,10 @@ function computeCsvLineState(
   delims.forEach((d, k) => {
     const cellStart = k === 0 ? 0 : delims[k - 1] + 1;
     const cellStartCol = visualColumn(lineText, cellStart, tabSize);
-    const width = visualColumn(lineText, d, tabSize) - cellStartCol;
+    let width = visualColumn(lineText, d, tabSize) - cellStartCol;
+    if (shortenUrls) {
+      width -= computeUrlShortenReduction(lineText, cellStart, d, tabSize);
+    }
     widths.push(width);
     const contentStart = cellContentStart(lineText, cellStart, d);
     contentStarts.push(contentStart);
@@ -441,13 +456,20 @@ export function computeCsvPaddingsFromMax(
  * participates in alignment (`rows[0]`, typically the header line) is
  * excluded from that judgment but still gets the resulting right-alignment
  * applied to it, like a header label sitting above right-aligned numbers.
+ *
+ * `shortenUrls` (ghostAlign.shortenUrls, default true) sizes the column
+ * plan for each cell's shortened width instead of its raw width (see
+ * computeCsvLineState) — the ghost-padding placements this returns don't
+ * themselves shorten any URL text; that's a separate decoration pass (see
+ * computeCsvUrlTargets) driven by the same setting.
  */
 export function computeCsvPaddings(
   lines: string[],
   delimiter: string,
   tabSize: number,
   maxPadding: number = 0,
-  alignNumbersRight: boolean = false
+  alignNumbersRight: boolean = false,
+  shortenUrls: boolean = false
 ): Placement[] {
   const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
   let inQuotes = false;
@@ -456,7 +478,8 @@ export function computeCsvPaddings(
       lines[lineIndex],
       delimiter,
       tabSize,
-      inQuotes
+      inQuotes,
+      shortenUrls
     );
     if (metrics) {
       rows.push({ lineIndex, metrics });
@@ -508,6 +531,7 @@ export class CsvWidthCache {
   private numericCols: boolean[] | null = null;
   private decimalWidthsCache: { maxIntWidths: number[]; minTotalWidths: number[] } | null = null;
   private tabSize = 0;
+  private shortenUrls = false;
 
   constructor(public readonly delimiter: string) {}
 
@@ -553,10 +577,25 @@ export class CsvWidthCache {
    * addition to lines applyEdit marked dirty — cascading forward until a
    * line's incoming state matches its cached one again, which also means
    * its cached outgoing state is still valid and the cascade can stop.
+   *
+   * `shortenUrls` (ghostAlign.shortenUrls) is treated like `tabSize`: a
+   * change forces a full rebuild, since it's a per-document setting rather
+   * than something tracked line-by-line, and can flip with no document edit
+   * at all (a settings change).
    */
-  sync(lineCount: number, lineAt: (line: number) => string, tabSize: number) {
-    if (this.metrics.length !== lineCount || this.tabSize !== tabSize) {
+  sync(
+    lineCount: number,
+    lineAt: (line: number) => string,
+    tabSize: number,
+    shortenUrls: boolean = false
+  ) {
+    if (
+      this.metrics.length !== lineCount ||
+      this.tabSize !== tabSize ||
+      this.shortenUrls !== shortenUrls
+    ) {
       this.tabSize = tabSize;
+      this.shortenUrls = shortenUrls;
       this.metrics = new Array<CsvLineMetrics | null | undefined>(
         lineCount
       ).fill(undefined);
@@ -577,7 +616,8 @@ export class CsvWidthCache {
         lineAt(i),
         this.delimiter,
         this.tabSize,
-        carry
+        carry,
+        this.shortenUrls
       );
       this.metrics[i] = metrics;
       this.startInQuotes[i] = carry;
@@ -649,4 +689,53 @@ export class CsvWidthCache {
   metricsAt(line: number): CsvLineMetrics | null {
     return this.metrics[line] ?? null;
   }
+}
+
+/**
+ * {@link UrlShortenTarget}s for every cell of one CSV/TSV row (ghostAlign.shortenUrls,
+ * #418) — every delimiter-bounded cell plus the trailing cell after the last
+ * delimiter (which `metrics.delims`/`widths` don't cover, since there's no
+ * column-width plan for a cell nothing follows, but it can still contain a
+ * URL worth shortening).
+ */
+export function urlTargetsForCsvLine(
+  lineIndex: number,
+  lineText: string,
+  metrics: CsvLineMetrics
+): UrlShortenTarget[] {
+  const targets: UrlShortenTarget[] = [];
+  let cellStart = 0;
+  for (const d of metrics.delims) {
+    targets.push(...findUrlShortenTargets(lineIndex, lineText, cellStart, d));
+    cellStart = d + 1;
+  }
+  targets.push(...findUrlShortenTargets(lineIndex, lineText, cellStart, lineText.length));
+  return targets;
+}
+
+/**
+ * {@link UrlShortenTarget}s for every cell of every row in a CSV/TSV
+ * document — the small-file counterpart of {@link urlTargetsForCsvLine},
+ * which large files instead call per cached row via CsvWidthCache.metricsAt.
+ */
+export function computeCsvUrlTargets(
+  lines: string[],
+  delimiter: string,
+  tabSize: number
+): UrlShortenTarget[] {
+  const targets: UrlShortenTarget[] = [];
+  let inQuotes = false;
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+    const { metrics, endInQuotes } = computeCsvLineState(
+      lines[lineIndex],
+      delimiter,
+      tabSize,
+      inQuotes
+    );
+    if (metrics) {
+      targets.push(...urlTargetsForCsvLine(lineIndex, lines[lineIndex], metrics));
+    }
+    inQuotes = endInQuotes;
+  }
+  return targets;
 }
