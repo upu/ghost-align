@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-07-22
+
 ### Added
 
 - `ghostAlign.csv.alignNumbersRight` now aligns numeric columns at the decimal point instead of just right-aligning the whole cell, so values with a differing number of digits (e.g. `1.5`, `23.45`, `100`) line up their decimal points instead of their right edges.
@@ -285,7 +287,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Colored ghost padding so it is visually distinguishable from real whitespace.
 - Excluded `=` inside strings, brackets, and line/block comments from alignment.
 
-[Unreleased]: https://github.com/upu/ghost-align/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/upu/ghost-align/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/upu/ghost-align/releases/tag/v1.7.0
 [1.6.0]: https://github.com/upu/ghost-align/releases/tag/v1.6.0
 [1.5.0]: https://github.com/upu/ghost-align/releases/tag/v1.5.0
 [1.4.0]: https://github.com/upu/ghost-align/releases/tag/v1.4.0
