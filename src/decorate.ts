@@ -49,7 +49,7 @@ import {
  * comment / template literal / CSS rule block / YAML block scalar opened
  * above the slice left behind.
  *
- * `shortenUrls` (ghostAlign.shortenUrls, #418, default false) sizes the
+ * `shortenUrls` (ghostAlign.shortenUrls, #418, default true) sizes the
  * Markdown/CSV column plan for each cell's shortened URL width instead of
  * its raw width — see computeMarkdownTablePaddings/computeCsvPaddings.
  * buildCopyAlignedText never passes it (stays false), so Copy with
@@ -276,6 +276,7 @@ export function createAlignDecorationType(): vscode.TextEditorDecorationType {
 /** Clear ghost-align decorations from a single editor. */
 export function clearEditorDecorations(editor: vscode.TextEditor) {
   editor.setDecorations(alignDecorationType, []);
+  clearUrlShortenDecorationsIfNeeded(editor);
 }
 
 /** Clear ghost-align decorations from every visible editor. */
@@ -332,6 +333,89 @@ function clearUrlShortenDecorationsIfNeeded(editor: vscode.TextEditor) {
     editor.setDecorations(urlHostDecorationType, []);
     urlShortenAppliedEditors.delete(editor);
   }
+}
+
+/**
+ * A vscode.DocumentLinkProvider so Ctrl+click on a shortened URL's visible
+ * host span always opens exactly that URL, regardless of what surrounds it
+ * in the raw text. VS Code's own generic link detector (used when no
+ * provider covers a position) treats an ASCII `,` as trimmable only at the
+ * very end of a candidate, not as a mid-token boundary — so on a CSV/TSV
+ * line with no surrounding whitespace (the normal case), it would otherwise
+ * swallow the rest of the line after the URL's delimiter into the same
+ * "link" (e.g. `https://example.com,note` opens with `,note` attached).
+ * Markdown table cells don't have this problem (`|` *is* one of the
+ * generic detector's terminator characters), but the provider covers both
+ * paths uniformly since it's driven by the same UrlShortenTarget data
+ * `decorateEditor` already computes for the visible `[host]` decoration.
+ */
+/**
+ * The testable core of {@link createUrlShortenLinkProvider}: computes the
+ * document links for `document` given an explicit `config`, so tests can
+ * inject a mock config the way every other decorate.ts entry point does,
+ * instead of going through vscode.workspace.getConfiguration.
+ */
+export function computeUrlShortenLinks(
+  document: Pick<vscode.TextDocument, "languageId" | "lineCount" | "lineAt">,
+  config: vscode.WorkspaceConfiguration
+): vscode.DocumentLink[] {
+  const languageId = document.languageId;
+  if (isLanguageDisabled(config, languageId) || !resolveShortenUrls(config)) {
+    return [];
+  }
+  const path = resolveAlignmentPath(languageId, config);
+  if (path.kind !== "csv" && path.kind !== "markdown") {
+    return [];
+  }
+  const lines: string[] = [];
+  for (let i = 0; i < document.lineCount; i++) {
+    lines.push(document.lineAt(i).text);
+  }
+  const targets =
+    path.kind === "csv"
+      ? computeCsvUrlTargets(lines, path.delimiter, DEFAULT_TAB_SIZE)
+      : computeMarkdownTableUrlTargets(lines, DEFAULT_TAB_SIZE);
+  const links: vscode.DocumentLink[] = [];
+  for (const target of targets) {
+    let uri: vscode.Uri;
+    try {
+      uri = vscode.Uri.parse(target.url, true);
+    } catch {
+      continue;
+    }
+    links.push(
+      new vscode.DocumentLink(
+        new vscode.Range(target.lineIndex, target.hostStart, target.lineIndex, target.hostEnd),
+        uri
+      )
+    );
+  }
+  return links;
+}
+
+/**
+ * A vscode.DocumentLinkProvider so Ctrl+click on a shortened URL's visible
+ * host span always opens exactly that URL, regardless of what surrounds it
+ * in the raw text. VS Code's own generic link detector (used when no
+ * provider covers a position) treats an ASCII `,` as trimmable only at the
+ * very end of a candidate, not as a mid-token boundary — so on a CSV/TSV
+ * line with no surrounding whitespace (the normal case), it would otherwise
+ * swallow the rest of the line after the URL's delimiter into the same
+ * "link" (e.g. `https://example.com,note` opens with `,note` attached).
+ * Markdown table cells don't have this problem (`|` *is* one of the
+ * generic detector's terminator characters), but the provider covers both
+ * paths uniformly since it's driven by the same UrlShortenTarget data
+ * `decorateEditor` already computes for the visible `[host]` decoration.
+ */
+export function createUrlShortenLinkProvider(): vscode.DocumentLinkProvider {
+  return {
+    provideDocumentLinks(document: vscode.TextDocument): vscode.DocumentLink[] {
+      return computeUrlShortenLinks(
+        document,
+        vscode.workspace.getConfiguration("ghostAlign", document)
+      );
+    },
+  };
 }
 
 /**

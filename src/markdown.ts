@@ -580,7 +580,7 @@ function placementsForTableRows(
  * any one line (see computeTableColumnPlan); 0 (the default) means
  * unlimited, aligning every column regardless of outlier cells.
  *
- * `shortenUrls` (ghostAlign.shortenUrls, default false) sizes the column
+ * `shortenUrls` (ghostAlign.shortenUrls, default true) sizes the column
  * plan for each cell's shortened width instead of its raw width (see
  * computeTableRowMetrics) — the ghost-padding placements this returns don't
  * themselves shorten any URL text; that's a separate decoration pass (see

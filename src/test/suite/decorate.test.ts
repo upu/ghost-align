@@ -3,7 +3,9 @@ import * as vscode from "vscode";
 import { buildAlignedText } from "../../copyAligned";
 import {
   decorateEditor,
+  clearEditorDecorations,
   computeDocumentPlacements,
+  computeUrlShortenLinks,
   buildCopyAlignedText,
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
@@ -1093,6 +1095,23 @@ suite("decorateEditor と ghostAlign.shortenUrls (#418)", () => {
     );
     assert.strictEqual(calls.length, 1);
   });
+
+  test("clearEditorDecorations（ghostAlign.toggle OFF）で align に加え短縮 decoration も空配列でクリアする", () => {
+    const { editor, calls } = mockEditor("csv", ["id,url", "1,https://github.com/foo"]);
+    decorateEditor(
+      editor,
+      mockConfig({ shortenUrls: true }) as unknown as vscode.WorkspaceConfiguration,
+      " ",
+      "gray"
+    );
+    assert.strictEqual(calls.length, 3);
+
+    clearEditorDecorations(editor);
+    assert.strictEqual(calls.length, 6);
+    assert.deepStrictEqual(calls[3], []); // align のクリア
+    assert.deepStrictEqual(calls[4], []); // hide のクリア
+    assert.deepStrictEqual(calls[5], []); // host のクリア
+  });
 });
 
 suite("decorateEditor と可視範囲モード（大きい ghostAlign.shortenUrls）", () => {
@@ -1128,5 +1147,61 @@ suite("decorateEditor と可視範囲モード（大きい ghostAlign.shortenUrl
     const hostDecos = calls[1];
     assert.strictEqual(hostDecos.length, 1);
     assert.strictEqual(hostDecos[0].range.start.line, 9007);
+  });
+});
+
+suite("computeUrlShortenLinks（Ctrl+click の DocumentLinkProvider）", () => {
+  test("CSV: リンク範囲は host のみで、区切り直後の隣のセルは含まない", () => {
+    const lines = ["id,url,note", "1,https://github.com/foo/bar?q=1,test"];
+    const doc = { ...mockDocument(lines), languageId: "csv" };
+    const links = computeUrlShortenLinks(
+      doc as unknown as vscode.TextDocument,
+      mockConfig({ shortenUrls: true }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(links.length, 1);
+    assert.strictEqual(links[0].target?.toString(true), "https://github.com/foo/bar?q=1");
+    assert.strictEqual(
+      lines[1].slice(links[0].range.start.character, links[0].range.end.character),
+      "github.com"
+    );
+  });
+
+  test("Markdown テーブル: セル内 URL のリンク範囲は host のみ", () => {
+    const lines = [
+      "| url | note |",
+      "| --- | --- |",
+      "| https://github.com/foo | x |",
+    ];
+    const doc = { ...mockDocument(lines), languageId: "markdown" };
+    const links = computeUrlShortenLinks(
+      doc as unknown as vscode.TextDocument,
+      mockConfig({ shortenUrls: true }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.strictEqual(links.length, 1);
+    assert.strictEqual(links[0].range.start.line, 2);
+    assert.strictEqual(
+      lines[2].slice(links[0].range.start.character, links[0].range.end.character),
+      "github.com"
+    );
+  });
+
+  test("shortenUrls=false ではリンクを提供しない", () => {
+    const lines = ["id,url", "1,https://github.com/foo"];
+    const doc = { ...mockDocument(lines), languageId: "csv" };
+    const links = computeUrlShortenLinks(
+      doc as unknown as vscode.TextDocument,
+      mockConfig({ shortenUrls: false }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.deepStrictEqual(links, []);
+  });
+
+  test("CSV/Markdown 以外の言語ではリンクを提供しない", () => {
+    const lines = ["const url = 'https://github.com/foo';"];
+    const doc = { ...mockDocument(lines), languageId: "typescript" };
+    const links = computeUrlShortenLinks(
+      doc as unknown as vscode.TextDocument,
+      mockConfig({ shortenUrls: true }) as unknown as vscode.WorkspaceConfiguration
+    );
+    assert.deepStrictEqual(links, []);
   });
 });

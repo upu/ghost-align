@@ -15,6 +15,7 @@ import {
   clearEditorDecorations,
   createAlignDecorationType,
   createUrlShortenDecorationTypes,
+  createUrlShortenLinkProvider,
   decorateEditor,
   notifyCsvDocumentChange,
   notifyMarkdownDocumentChange,
@@ -74,6 +75,12 @@ export function activate(context: vscode.ExtensionContext) {
   const { hide: urlHideDecorationType, host: urlHostDecorationType } =
     createUrlShortenDecorationTypes();
   context.subscriptions.push(urlHideDecorationType, urlHostDecorationType);
+  // "*" (all languages): ghostAlign.csv.delimiters lets users add arbitrary
+  // language IDs to the CSV path, so the selector can't be narrowed to a
+  // fixed list — the provider itself early-returns via resolveAlignmentPath.
+  context.subscriptions.push(
+    vscode.languages.registerDocumentLinkProvider("*", createUrlShortenLinkProvider())
+  );
 
   enabled = resolveInitialEnabled(context.globalState, context.workspaceState);
 

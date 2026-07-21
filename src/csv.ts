@@ -457,7 +457,7 @@ export function computeCsvPaddingsFromMax(
  * excluded from that judgment but still gets the resulting right-alignment
  * applied to it, like a header label sitting above right-aligned numbers.
  *
- * `shortenUrls` (ghostAlign.shortenUrls, default false) sizes the column
+ * `shortenUrls` (ghostAlign.shortenUrls, default true) sizes the column
  * plan for each cell's shortened width instead of its raw width (see
  * computeCsvLineState) — the ghost-padding placements this returns don't
  * themselves shorten any URL text; that's a separate decoration pass (see
