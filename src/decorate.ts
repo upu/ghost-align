@@ -535,7 +535,6 @@ export function decorateEditor(
       }
       return lines;
     };
-    const lines = sliceLines();
 
     // Large files: an operator group longer than computeSliceBounds' normal
     // expansion limit would otherwise align only against its in-slice rows
@@ -625,8 +624,9 @@ export function decorateEditor(
               lineCount: sliceEnd - sliceStart + 1,
               lineAt: (i: number) => document.lineAt(sliceStart + i),
             };
+      const lines = sliceLines();
       placements = computeDocumentPlacements(
-        sliceLines(),
+        lines,
         source,
         languageId,
         config,
