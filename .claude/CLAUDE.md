@@ -2,7 +2,7 @@
 
 VS Code拡張機能。コードを変更せずに、表示上でオペレーター（`=`など）の位置を揃える。
 
-機能一覧とコンセプトの詳細は `docs/features.md` を参照。
+コンセプトと機能の柱の概要は `docs/features/overview.md`、設定キー・コマンド ID などの詳細は `docs/features/reference.md` を参照。
 
 ## ビルド・実行
 
