@@ -3,6 +3,7 @@
 .vscode-test/**
 .vscode-test.mjs
 .claude/**
+openwiki/**
 demo/**
 README.ja.md
 CHANGELOG.ja.md
@@ -17,6 +18,7 @@ node_modules/**
 .gitignore
 tsconfig.json
 eslint.config.mjs
+AGENTS.md
 CLAUDE.md
 **/*.map
 **/*.ts
