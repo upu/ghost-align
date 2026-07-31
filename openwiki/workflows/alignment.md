@@ -26,11 +26,11 @@ flowchart TD
 
 *各経路は同じ配置形式へ合流し、文書を変更せずに表示またはコピー結果を作ります。*
 
-`resolveAlignmentPath()` は `disabledLanguages` を最優先で確認し、Markdown、`ghostAlign.csv.delimiters` に登録された言語、通常の演算子という順で経路を選びます。設定の公開スキーマは `package.json`、防御的な解決は `src/config.ts` にあり、既定値の同期は `config.test.ts` で守られます。変更の起点は [ソースマップ](../architecture/source-map.md) を確認してください。
+`disabledLanguages` は装飾・コピーの入口で `isLanguageDisabled()` により最優先で判定されます。無効でなければ、`resolveAlignmentPath()` が Markdown、`ghostAlign.csv.delimiters` に登録された言語、通常の演算子という順で経路を選びます。設定の公開スキーマは `package.json`、防御的な解決は `src/config.ts` にあり、既定値の同期は `src/test/suite/config.test.ts` で守られます。変更の起点は [ソースマップ](../architecture/source-map.md) を確認してください。
 
 ## 演算子と JSDoc
 
-`findOperatorTargets()` は設定順に演算子列を検出します。文字列・コメント・正規表現を除外し、`LineScanState` で block comment、template literal、Python triple quote、Ruby/PHP heredoc、CSS ブロック、YAML block scalar などを行をまたいで管理します。新しい構文規則を追加する場合は、単純な文字列検索へ退行させず、状態走査・大ファイル slice・`finders.test.ts` を一緒に更新してください。
+`findOperatorTargets()` は設定順に演算子列を検出します。文字列・コメント・正規表現を除外し、`LineScanState` で block comment、template literal、Python triple quote、Ruby/PHP heredoc、CSS ブロック、YAML block scalar などを行をまたいで管理します。新しい構文規則を追加する場合は、単純な文字列検索へ退行させず、状態走査・大ファイル slice・`src/test/suite/finders.test.ts` を一緒に更新してください。
 
 `findAlignmentGroups()` は連続行を通常はインデントの表示幅で分け、`visualColumn()` がタブ、全角文字、絵文字、結合文字を含めて幅を測ります。`computePaddings()` は左側の列で追加した余白を後続列へ繰り越します。`ghostAlign.maxPadding` を使う演算子／JSDoc 経路では、過剰な余白を要する右側の外れ値行をその列から外し、残る行を整列します。
 
@@ -52,4 +52,4 @@ JavaScript / TypeScript では `src/jsdoc.ts` が連続する `@param`、`@prope
 
 ## 変更時の確認
 
-構文境界、複数行入力、URL の選択・リンク、数値列、`maxPadding`、大ファイルキャッシュを機能変更ごとに確認してください。`src/test/suite/finders.test.ts`、`paddings.test.ts`、`markdown.test.ts`、`csv.test.ts`、`jsdoc.test.ts`、`urlShorten.test.ts`、`decorate.test.ts` が主な回帰先です。実行コマンドと CI の検証順は [開発、テスト、パッケージ、リリース](../operations/contributing.md) にあります。
+構文境界、複数行入力、URL の選択・リンク、数値列、`maxPadding`、大ファイルキャッシュを機能変更ごとに確認してください。`src/test/suite/finders.test.ts`、`src/test/suite/paddings.test.ts`、`src/test/suite/markdown.test.ts`、`src/test/suite/csv.test.ts`、`src/test/suite/jsdoc.test.ts`、`src/test/suite/urlShorten.test.ts`、`src/test/suite/decorate.test.ts` が主な回帰先です。実行コマンドと CI の検証順は [開発、テスト、パッケージ、リリース](../operations/contributing.md) にあります。

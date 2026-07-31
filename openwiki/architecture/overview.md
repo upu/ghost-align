@@ -55,7 +55,7 @@ sequenceDiagram
 
 `disabledLanguages` は装飾を言語単位で止めます。演算子経路では `operatorsByLanguage` がグローバル `operators` より優先され、未登録言語へのフォールバックは `alignUnknownLanguages` で止められます。TS/JS 系では `jsdoc.enabled` が有効なら JSDoc 配置を追加します。feature 単位の enabled 設定は旧設定キーへの明示的なフォールバックを持ち、互換性を保ちます。
 
-設定を増減する場合は `package.json` の `contributes.configuration`、`src/config.ts`、README、`docs/features/reference.md` を同時に扱ってください。`config.test.ts` が既定値やドキュメント索引の同期を検証します。設定別の変更起点は [ソースマップ](source-map.md) にあります。
+設定を増減する場合は `package.json` の `contributes.configuration`、`src/config.ts`、README、`docs/features/reference.md` を同時に扱ってください。`src/test/suite/config.test.ts` が既定値やドキュメント索引の同期を検証します。設定別の変更起点は [ソースマップ](source-map.md) にあります。
 
 ## 配置計画と描画の境界
 
@@ -78,6 +78,6 @@ sequenceDiagram
 | Markdown | `MarkdownTableWidthCache` の表幅計画 | 編集範囲を通知して再計算 |
 | CSV/TSV | `CsvWidthCache` の行メトリクスと列幅計画 | 変更行を dirty にして必要範囲を再走査 |
 
-最近の #447 は、可視スライスの外に最大幅の行がある 2,000 行超の連続演算子グループで整列先が揺れる問題を修正しました。通常スライスが境界上限で切れているかを確認し、必要な場合だけ真のグループ全体で再計算して `LongOperatorGroupCache` に保存します。性能関連の変更は `decorate.test.ts` と `paddings.test.ts` の大規模文書ケースを必ず更新・実行してください。
+最近の #447 は、可視スライスの外に最大幅の行がある 2,000 行超の連続演算子グループで整列先が揺れる問題を修正しました。通常スライスが境界上限で切れているかを確認し、必要な場合だけ真のグループ全体で再計算して `LongOperatorGroupCache` に保存します。性能関連の変更は `src/test/suite/decorate.test.ts` と `src/test/suite/paddings.test.ts` の大規模文書ケースを必ず更新・実行してください。
 
 実装ファイルと変更起点の対応表は [ソースマップ](source-map.md) を参照してください。

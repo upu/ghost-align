@@ -29,13 +29,13 @@ tags: [operations, testing, release, vscode-extension]
 
 | 変更領域 | 主に更新するテスト | 重点 |
 | --- | --- | --- |
-| 設定・コマンド・互換性 | `config.test.ts`, `extension.test.ts` | `package.json`、README、`docs/features/reference.md` との同期 |
-| 演算子検出・構文状態 | `finders.test.ts`, `paddings.test.ts` | 文字列、コメント、正規表現、複数行構文 |
-| 装飾・可視範囲・キャッシュ | `decorate.test.ts`, `paddings.test.ts` | 大規模文書とスクロール安定性 |
-| Markdown 表 | `markdown.test.ts`, `decorate.test.ts` | コードブロック、区切り行、URL |
-| CSV/TSV | `csv.test.ts`, `decorate.test.ts` | RFC 4180、複数行クォート、数値列 |
-| URL 短縮・リンク | `urlShorten.test.ts`, `csv.test.ts`, `markdown.test.ts`, `decorate.test.ts` | URL 境界、選択時の復元、クリック先 |
-| コピー | `copyAligned.test.ts` | 選択範囲、EOL、Markdown 区切り行 |
+| 設定・コマンド・互換性 | `src/test/suite/config.test.ts`, `src/test/suite/extension.test.ts` | `package.json`、README、`docs/features/reference.md` との同期 |
+| 演算子検出・構文状態 | `src/test/suite/finders.test.ts`, `src/test/suite/paddings.test.ts` | 文字列、コメント、正規表現、複数行構文 |
+| 装飾・可視範囲・キャッシュ | `src/test/suite/decorate.test.ts`, `src/test/suite/paddings.test.ts` | 大規模文書とスクロール安定性 |
+| Markdown 表 | `src/test/suite/markdown.test.ts`, `src/test/suite/decorate.test.ts` | コードブロック、区切り行、URL |
+| CSV/TSV | `src/test/suite/csv.test.ts`, `src/test/suite/decorate.test.ts` | RFC 4180、複数行クォート、数値列 |
+| URL 短縮・リンク | `src/test/suite/urlShorten.test.ts`, `src/test/suite/csv.test.ts`, `src/test/suite/markdown.test.ts`, `src/test/suite/decorate.test.ts` | URL 境界、選択時の復元、クリック先 |
+| コピー | `src/test/suite/copyAligned.test.ts` | 選択範囲、EOL、Markdown 区切り行 |
 
 バグ修正では該当 suite に最小再現を追加します。10,000 行以上で処理が変わるため、性能やグループ化の変更では通常サイズだけでなく可視範囲モードも検証してください。
 
