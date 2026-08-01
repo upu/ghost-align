@@ -44,7 +44,7 @@ jobs:
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: steps.version.outputs.exists == 'false'
         with:
           node-version: 24.x
