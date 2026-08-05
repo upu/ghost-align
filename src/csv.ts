@@ -382,23 +382,14 @@ export function computeCsvPaddingsFromMax(
   const pos = new Array<number>(rows.length).fill(0);
   const placements: Placement[] = [];
   for (let k = 0; k < plan.length; k++) {
-    const planTarget = plan[k];
-    // plan[k] is an absolute running position (pos[i] carried in from earlier
-    // columns plus this column's own width), while minTotalWidths[k] is only
-    // this column's own decimal-aligned width — so widening must compare
-    // against pos[i] + minTotalWidths[k], not minTotalWidths[k] alone.
-    let target = planTarget;
-    if (planTarget !== null && numericColumns[k] && minTotalWidths[k] !== undefined) {
-      rows.forEach((row, i) => {
-        if (row.metrics.delims.length <= k) {
-          return;
-        }
-        const decimalTarget = pos[i] + minTotalWidths[k];
-        if (decimalTarget > target!) {
-          target = decimalTarget;
-        }
-      });
-    }
+    const target = widenNumericTarget(
+      rows,
+      pos,
+      k,
+      plan[k],
+      numericColumns,
+      minTotalWidths
+    );
     rows.forEach((row, i) => {
       if (row.metrics.delims.length <= k) {
         return;
@@ -410,38 +401,71 @@ export function computeCsvPaddingsFromMax(
       }
       const padding = target - raw;
       if (padding > 0) {
-        if (numericColumns[k] && row.metrics.numeric[k]) {
-          const leftPad = Math.max(0, (maxIntWidths[k] ?? 0) - row.metrics.intEndWidths[k]);
-          const rightPad = padding - leftPad;
-          if (leftPad > 0) {
-            placements.push({
-              lineIndex: row.lineIndex,
-              character: row.metrics.contentStarts[k],
-              padding: leftPad,
-            });
-          }
-          if (rightPad > 0) {
-            placements.push({
-              lineIndex: row.lineIndex,
-              character: row.metrics.delims[k],
-              padding: rightPad,
-            });
-          }
-        } else {
-          const character = numericColumns[k]
-            ? row.metrics.contentStarts[k]
-            : row.metrics.delims[k];
-          placements.push({
-            lineIndex: row.lineIndex,
-            character,
-            padding,
-          });
-        }
+        appendCsvPadding(placements, row, k, padding, numericColumns, maxIntWidths);
       }
       pos[i] = advance(target);
     });
   }
   return placements;
+}
+
+function widenNumericTarget(
+  rows: readonly { lineIndex: number; metrics: CsvLineMetrics }[],
+  positions: readonly number[],
+  column: number,
+  planTarget: number | null,
+  numericColumns: readonly boolean[],
+  minTotalWidths: readonly number[]
+): number | null {
+  if (planTarget === null || !numericColumns[column] || minTotalWidths[column] === undefined) {
+    return planTarget;
+  }
+  let target = planTarget;
+  rows.forEach((row, i) => {
+    if (row.metrics.delims.length > column) {
+      target = Math.max(target, positions[i] + minTotalWidths[column]);
+    }
+  });
+  return target;
+}
+
+function appendCsvPadding(
+  placements: Placement[],
+  row: { lineIndex: number; metrics: CsvLineMetrics },
+  column: number,
+  padding: number,
+  numericColumns: readonly boolean[],
+  maxIntWidths: readonly number[]
+): void {
+  if (numericColumns[column] && row.metrics.numeric[column]) {
+    const leftPad = Math.max(
+      0,
+      (maxIntWidths[column] ?? 0) - row.metrics.intEndWidths[column]
+    );
+    const rightPad = padding - leftPad;
+    if (leftPad > 0) {
+      placements.push({
+        lineIndex: row.lineIndex,
+        character: row.metrics.contentStarts[column],
+        padding: leftPad,
+      });
+    }
+    if (rightPad > 0) {
+      placements.push({
+        lineIndex: row.lineIndex,
+        character: row.metrics.delims[column],
+        padding: rightPad,
+      });
+    }
+    return;
+  }
+  placements.push({
+    lineIndex: row.lineIndex,
+    character: numericColumns[column]
+      ? row.metrics.contentStarts[column]
+      : row.metrics.delims[column],
+    padding,
+  });
 }
 
 /**

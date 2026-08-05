@@ -70,20 +70,18 @@ export function statusBarText(
     : "Ghost Align: ON";
 }
 
-export function activate(context: vscode.ExtensionContext) {
+type ScheduleUpdate = (editors?: readonly vscode.TextEditor[]) => void;
+
+function registerDecorationResources(context: vscode.ExtensionContext): void {
   context.subscriptions.push(createAlignDecorationType());
   const { hide: urlHideDecorationType, host: urlHostDecorationType } =
     createUrlShortenDecorationTypes();
   context.subscriptions.push(urlHideDecorationType, urlHostDecorationType);
-  // "*" (all languages): ghostAlign.csv.delimiters lets users add arbitrary
-  // language IDs to the CSV path, so the selector can't be narrowed to a
-  // fixed list — the provider itself early-returns via resolveAlignmentPath.
+  // CSV の languageId は設定で任意に追加できるため、固定リストではなく全言語を対象にする。
   context.subscriptions.push(
     vscode.languages.registerDocumentLinkProvider("*", createUrlShortenLinkProvider())
   );
-
   enabled = resolveInitialEnabled(context.globalState, context.workspaceState);
-
   statusBarItem = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     100
@@ -91,13 +89,10 @@ export function activate(context: vscode.ExtensionContext) {
   statusBarItem.command = "ghostAlign.toggle";
   statusBarItem.tooltip = "Toggle Ghost Align";
   context.subscriptions.push(statusBarItem);
+}
 
-  // Debounce document-edit updates so rapid typing in large files does not
-  // trigger a full re-scan on every keystroke. scheduleUpdate merges the
-  // editors requested across calls within the debounce window (#364): a
-  // scoped call followed by a full-update call before the timer fires still
-  // decorates everything, and multiple scoped calls decorate their union
-  // rather than redoing work for editors already covered.
+function createUpdateScheduler(context: vscode.ExtensionContext): ScheduleUpdate {
+  // debounce 中の全体更新と editor 限定更新を統合し、後から来た要求を取りこぼさない。
   let pendingFullUpdate = false;
   const pendingEditors = new Set<vscode.TextEditor>();
   const debouncedFlush = debounce(() => {
@@ -107,7 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
     pendingEditors.clear();
     updateDecorations(full ? undefined : editors);
   }, 80);
-  const scheduleUpdate = (editors?: readonly vscode.TextEditor[]) => {
+  const scheduleUpdate: ScheduleUpdate = (editors) => {
     if (editors) {
       for (const editor of editors) {
         pendingEditors.add(editor);
@@ -124,8 +119,10 @@ export function activate(context: vscode.ExtensionContext) {
       pendingEditors.clear();
     },
   });
+  return scheduleUpdate;
+}
 
-  // Toggle command
+function registerToggleCommand(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.toggle", () => {
       enabled = !enabled;
@@ -139,9 +136,9 @@ export function activate(context: vscode.ExtensionContext) {
       updateStatusBar();
     })
   );
+}
 
-  // Copy with Alignment: turns the current ghost padding into real ASCII
-  // spaces and copies it, without touching the source document.
+function registerCopyAlignedCommand(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.copyAligned", async () => {
       const editor = vscode.window.activeTextEditor;
@@ -153,10 +150,9 @@ export function activate(context: vscode.ExtensionContext) {
       await vscode.env.clipboard.writeText(text);
     })
   );
+}
 
-  // Disable/Enable for Current Language: one-touch toggle of the active
-  // editor's languageId in ghostAlign.disabledLanguages. Re-render is not
-  // needed here: the settings update fires onDidChangeConfiguration below.
+function registerToggleLanguageCommand(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("ghostAlign.toggleLanguage", async () => {
       const editor = vscode.window.activeTextEditor;
@@ -169,10 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
         config.get<string[]>("disabledLanguages", []),
         languageId
       );
-      // A workspace value (e.g. from .vscode/settings.json) always beats a
-      // global one when VS Code resolves the effective setting, so writing
-      // to Global while such a value exists would have no visible effect
-      // (#362) — write back to whichever scope is actually in effect.
+      // workspace 値があれば global 値を上書きしても表示に反映されないため、実効 scope に戻す。
       const target =
         resolveDisabledLanguagesTarget(config) === "workspace"
           ? vscode.ConfigurationTarget.Workspace
@@ -183,34 +176,30 @@ export function activate(context: vscode.ExtensionContext) {
       );
     })
   );
+}
 
-  // Update on editor / document / configuration changes
+function registerCommands(context: vscode.ExtensionContext): void {
+  registerToggleCommand(context);
+  registerCopyAlignedCommand(context);
+  registerToggleLanguageCommand(context);
+}
+
+function registerEditorListeners(
+  context: vscode.ExtensionContext,
+  scheduleUpdate: ScheduleUpdate
+): void {
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor(() => {
       updateDecorations();
-      // The status bar's language-disabled hint (#363) depends on the active
-      // editor's languageId, so switching editors must refresh it too.
       updateStatusBar();
     }),
     vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
-    // Alignment depends on tabSize (visualColumn), so a tabSize change —
-    // from the status bar, a command, or indentation auto-detection right
-    // after opening a file — must trigger a re-render.
     vscode.window.onDidChangeTextEditorOptions(() => scheduleUpdate()),
-    // Large files are decorated per visible range, so scrolling must
-    // recompute; small files are fully decorated and can ignore scrolling.
-    // Only the scrolled editor needs it (#364) — other visible editors'
-    // decorations are unaffected by this editor's scroll position.
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       if (e.textEditor.document.lineCount >= LARGE_FILE_LINE_THRESHOLD) {
         scheduleUpdate([e.textEditor]);
       }
     }),
-    // ghostAlign.shortenUrls (#418) expands a URL back to full text while the
-    // cursor/selection touches it, so a plain cursor move must re-decorate.
-    // Guarded to CSV/Markdown-with-the-setting-on so an unrelated editor's
-    // every keystroke-driven cursor move doesn't pay for a config read and a
-    // scheduled (debounced) re-render it will never need.
     vscode.window.onDidChangeTextEditorSelection((e) => {
       const config = vscode.workspace.getConfiguration("ghostAlign");
       if (!resolveShortenUrls(config)) {
@@ -220,14 +209,20 @@ export function activate(context: vscode.ExtensionContext) {
       if (path.kind === "csv" || path.kind === "markdown") {
         scheduleUpdate([e.textEditor]);
       }
-    }),
+    })
+  );
+}
+
+function registerWorkspaceListeners(
+  context: vscode.ExtensionContext,
+  scheduleUpdate: ScheduleUpdate
+): void {
+  context.subscriptions.push(
     vscode.workspace.onDidChangeTextDocument((e) => {
       notifyCsvDocumentChange(e.document, e.contentChanges);
       notifyMarkdownDocumentChange(e.document, e.contentChanges);
       notifyLineScanDocumentChange(e.document, e.contentChanges);
       notifyLongOperatorGroupDocumentChange(e.document, e.contentChanges);
-      // Only editors showing the changed document need to re-decorate
-      // (#364) — a split pane on an unrelated document is unaffected.
       const shownEditors = vscode.window.visibleTextEditors.filter(
         (editor) => editor.document === e.document
       );
@@ -241,10 +236,6 @@ export function activate(context: vscode.ExtensionContext) {
         updateStatusBar();
       }
     }),
-    // Changing an editor's language mode fires this with the new languageId
-    // but doesn't fire onDidChangeActiveTextEditor/VisibleTextEditors (#395),
-    // so without this the old language's alignment (and status bar hint)
-    // lingers until the next edit or editor switch.
     vscode.workspace.onDidOpenTextDocument((document) => {
       const shownEditors = vscode.window.visibleTextEditors.filter(
         (editor) => editor.document === document
@@ -255,7 +246,14 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+}
 
+export function activate(context: vscode.ExtensionContext) {
+  registerDecorationResources(context);
+  const scheduleUpdate = createUpdateScheduler(context);
+  registerCommands(context);
+  registerEditorListeners(context, scheduleUpdate);
+  registerWorkspaceListeners(context, scheduleUpdate);
   updateDecorations();
   updateStatusBar();
 }

@@ -25,6 +25,45 @@ function skipSpaces(lineText: string, from: number): number {
   return i;
 }
 
+function scanBalancedTokenEnd(
+  lineText: string,
+  from: number,
+  open: string,
+  close: string
+): number {
+  let depth = 0;
+  for (let i = from; i < lineText.length; i++) {
+    if (lineText[i] === open) {
+      depth++;
+    } else if (lineText[i] === close) {
+      depth--;
+      if (depth === 0) {
+        return i + 1;
+      }
+    }
+  }
+  return -1;
+}
+
+function skipOptionalJsdocType(lineText: string, from: number): number {
+  if (lineText[from] !== "{") {
+    return from;
+  }
+  const end = scanBalancedTokenEnd(lineText, from, "{", "}");
+  return end === -1 ? -1 : skipSpaces(lineText, end);
+}
+
+function jsdocNameEnd(lineText: string, from: number): number {
+  if (lineText[from] === "[") {
+    return scanBalancedTokenEnd(lineText, from, "[", "]");
+  }
+  let i = from;
+  while (i < lineText.length && lineText[i] !== " " && lineText[i] !== "\t") {
+    i++;
+  }
+  return i;
+}
+
 /**
  * Parse a JSDoc `@param` line into the character indices of its
  * parameter-name and description tokens (`descStart` is -1 when the line has
@@ -40,62 +79,20 @@ export function parseJsdocParamLine(
   if (!match) {
     return null;
   }
-  let i = skipSpaces(lineText, match[0].length);
-  if (lineText[i] === "{") {
-    let depth = 0;
-    let j = i;
-    for (; j < lineText.length; j++) {
-      if (lineText[j] === "{") {
-        depth++;
-      } else if (lineText[j] === "}") {
-        depth--;
-        if (depth === 0) {
-          j++;
-          break;
-        }
-      }
-    }
-    if (depth !== 0) {
-      return null; // unbalanced type braces
-    }
-    i = skipSpaces(lineText, j);
+  const i = skipOptionalJsdocType(
+    lineText,
+    skipSpaces(lineText, match[0].length)
+  );
+  if (i === -1) {
+    return null; // unbalanced type braces
   }
   if (i >= lineText.length) {
     return null; // no parameter name
   }
   const nameStart = i;
-  let nameEnd: number;
-  if (lineText[i] === "[") {
-    // Depth-counted like the {type} scan above: a default value such as
-    // `[indices=[]]` or `[items=["a","b"]]` nests its own `[`/`]`, so the
-    // first `]` found by a plain indexOf would close the wrong bracket.
-    let depth = 0;
-    let j = i;
-    for (; j < lineText.length; j++) {
-      if (lineText[j] === "[") {
-        depth++;
-      } else if (lineText[j] === "]") {
-        depth--;
-        if (depth === 0) {
-          j++;
-          break;
-        }
-      }
-    }
-    if (depth !== 0) {
-      return null; // unbalanced name brackets
-    }
-    nameEnd = j;
-  } else {
-    let j = i;
-    while (
-      j < lineText.length &&
-      lineText[j] !== " " &&
-      lineText[j] !== "\t"
-    ) {
-      j++;
-    }
-    nameEnd = j;
+  const nameEnd = jsdocNameEnd(lineText, i);
+  if (nameEnd === -1) {
+    return null; // unbalanced name brackets
   }
   const descStart = skipSpaces(lineText, nameEnd);
   return { nameStart, descStart: descStart < lineText.length ? descStart : -1 };

@@ -471,11 +471,48 @@ export function nextTsBraceState(lineText: string, state: TsBraceState): TsBrace
   return stack;
 }
 
+interface TsColonScanState {
+  results: number[];
+  ternaryDepths: number[];
+  depth: number;
+  pendingLabelColon: boolean;
+}
+
+function advanceTsColonCode(
+  lineText: string,
+  index: number,
+  ch: string,
+  state: TsColonScanState
+): number {
+  if (ch === "(" || ch === "[" || ch === "{") {
+    state.depth++;
+  } else if (ch === ")" || ch === "]" || ch === "}") {
+    state.depth = Math.max(0, state.depth - 1);
+  } else if (ch === "?") {
+    const next = lineText[index + 1];
+    if (next === ":") {
+      state.results.push(index + 1);
+      return index + 1;
+    }
+    if (next === "." || next === "?") {
+      return index + 1;
+    }
+    state.ternaryDepths.push(state.depth);
+  } else if (ch === ":") {
+    const ternaryDepth = state.ternaryDepths[state.ternaryDepths.length - 1];
+    if (ternaryDepth === state.depth) {
+      state.ternaryDepths.pop();
+    } else if (state.pendingLabelColon && state.depth === 0) {
+      state.pendingLabelColon = false;
+    } else {
+      state.results.push(index);
+    }
+  }
+  return index;
+}
+
 function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
-  const results: number[] = [];
-  const state = initialQuoteState();
-  const ternaryDepths: number[] = [];
-  let depth = 0;
+  const quoteState = initialQuoteState();
   const trimmed = lineText.trimStart();
   const notInSwitchBody = tsBraceTop === "other";
   const looksLikeCaseLabel =
@@ -486,10 +523,15 @@ function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
     !notInSwitchBody &&
     DEFAULT_LABEL_RE.test(trimmed) &&
     !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
-  let pendingLabelColon = looksLikeCaseLabel || looksLikeDefaultLabel;
+  const state: TsColonScanState = {
+    results: [],
+    ternaryDepths: [],
+    depth: 0,
+    pendingLabelColon: looksLikeCaseLabel || looksLikeDefaultLabel,
+  };
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
+    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
       continue;
     }
     const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
@@ -507,47 +549,9 @@ function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
         continue;
       }
     }
-    if (ch === "(" || ch === "[" || ch === "{") {
-      depth++;
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      if (depth > 0) {
-        depth--;
-      }
-      continue;
-    }
-    if (ch === "?") {
-      const next = lineText[i + 1];
-      if (next === ":") {
-        // optional-property marker `?:` — the `:` is a type colon
-        results.push(i + 1);
-        i++; // don't reprocess the `:` on the next iteration
-        continue;
-      }
-      if (next === "." || next === "?") {
-        i++; // `?.` optional chaining / `??` nullish coalescing, not a ternary
-        continue;
-      }
-      ternaryDepths.push(depth);
-      continue;
-    }
-    if (ch === ":") {
-      if (
-        ternaryDepths.length > 0 &&
-        ternaryDepths[ternaryDepths.length - 1] === depth
-      ) {
-        ternaryDepths.pop(); // ternary branch separator, not a type colon
-        continue;
-      }
-      if (pendingLabelColon && depth === 0) {
-        pendingLabelColon = false; // `case X:` / `default:` label colon, not a target
-        continue;
-      }
-      results.push(i);
-    }
+    i = advanceTsColonCode(lineText, i, ch, state);
   }
-  return results;
+  return state.results;
 }
 
 /** Language IDs with `//` line comments; CSS itself has no `//` comment syntax. */
@@ -953,6 +957,37 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
   "case", "do", "else", "yield", "await", "throw",
 ]);
 
+function regexMayStartAt(lineText: string, i: number): boolean {
+  let p = i - 1;
+  while (p >= 0 && (lineText[p] === " " || lineText[p] === "\t")) {
+    p--;
+  }
+  if (p < 0) {
+    return true;
+  }
+  const prev = lineText[p];
+  if (prev === ">") {
+    return lineText[p - 1] === "=";
+  }
+  if ((prev === "+" || prev === "-") && lineText[p - 1] === prev) {
+    return false;
+  }
+  if (REGEX_PRECEDING_CHARS.has(prev)) {
+    return true;
+  }
+  if (!/[A-Za-z0-9_$]/.test(prev)) {
+    return false;
+  }
+  let start = p;
+  while (start > 0 && /[A-Za-z0-9_$]/.test(lineText[start - 1])) {
+    start--;
+  }
+  return (
+    REGEX_PRECEDING_KEYWORDS.has(lineText.slice(start, p + 1)) &&
+    lineText[start - 1] !== "."
+  );
+}
+
 /**
  * If `lineText[i]` (a `/`, already known not to start a `//` or `/* ... *​/`
  * comment) opens a TS/JS regex literal, returns the index just past its
@@ -980,33 +1015,8 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
  * grammar); trailing flags are consumed as ASCII letters.
  */
 function jsRegexLiteralEnd(lineText: string, i: number): number {
-  let p = i - 1;
-  while (p >= 0 && (lineText[p] === " " || lineText[p] === "\t")) {
-    p--;
-  }
-  if (p >= 0) {
-    const prev = lineText[p];
-    if (prev === ">") {
-      if (lineText[p - 1] !== "=") {
-        return -1; // comparison / JSX tag close, not a `=>` arrow
-      }
-    } else if ((prev === "+" || prev === "-") && lineText[p - 1] === prev) {
-      return -1; // postfix `++`/`--`: its operand is a value, so `/` is division
-    } else if (!REGEX_PRECEDING_CHARS.has(prev)) {
-      if (!/[A-Za-z0-9_$]/.test(prev)) {
-        return -1; // `)`, `]`, `}`, a quote, ...: a value just ended
-      }
-      let start = p;
-      while (start > 0 && /[A-Za-z0-9_$]/.test(lineText[start - 1])) {
-        start--;
-      }
-      if (
-        !REGEX_PRECEDING_KEYWORDS.has(lineText.slice(start, p + 1)) ||
-        lineText[start - 1] === "."
-      ) {
-        return -1; // identifier/number (or a keyword-named property): division
-      }
-    }
+  if (!regexMayStartAt(lineText, i)) {
+    return -1;
   }
   let inClass = false;
   let escaped = false;
@@ -1078,6 +1088,49 @@ interface CodeScanOptions {
   jsRegex?: boolean;
 }
 
+function advanceLanguageLiteral(
+  lineText: string,
+  i: number,
+  ch: string,
+  quoteState: QuoteState,
+  opts: CodeScanOptions
+): CodeScanStep | null {
+  if (opts.lifetimeLang && quoteState.quote === false && ch === "'") {
+    const end = rustCharLiteralEnd(lineText, i);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
+  }
+  if (opts.lifetimeLang && quoteState.quote === false && ch === "r") {
+    const end = rustRawStringEnd(lineText, i);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
+  }
+  if (
+    ch === "'" &&
+    !quoteState.quote &&
+    opts.digitSeparators &&
+    isDigitSeparatorNeighbor(lineText[i - 1]) &&
+    isDigitSeparatorNeighbor(lineText[i + 1])
+  ) {
+    return { kind: "skip", nextIndex: i + 1 };
+  }
+  if (
+    opts.pyTripleQuote &&
+    !quoteState.quote &&
+    (ch === '"' || ch === "'") &&
+    lineText[i + 1] === ch &&
+    lineText[i + 2] === ch
+  ) {
+    const close = scanClosingTripleQuote(lineText, i + 3, ch);
+    return close === -1
+      ? { kind: "stop" }
+      : { kind: "skip", nextIndex: close + 1 };
+  }
+  return null;
+}
+
 /**
  * Shared per-character skip step for findAssignmentEquals / findArrow /
  * findLineContinuationMarker (see #243). These three finders each need to
@@ -1096,43 +1149,9 @@ function advanceCodeScan(
   quoteState: QuoteState,
   opts: CodeScanOptions
 ): CodeScanStep {
-  if (opts.lifetimeLang && quoteState.quote === false && ch === "'") {
-    const end = rustCharLiteralEnd(lineText, i);
-    if (end !== -1) {
-      return { kind: "skip", nextIndex: end };
-    }
-    // Otherwise a lifetime (`'a`, `'static`): leave the `'` alone below.
-  }
-  if (opts.lifetimeLang && quoteState.quote === false && ch === "r") {
-    const end = rustRawStringEnd(lineText, i);
-    if (end !== -1) {
-      return { kind: "skip", nextIndex: end };
-    }
-  }
-  if (
-    ch === "'" &&
-    !quoteState.quote &&
-    opts.digitSeparators &&
-    isDigitSeparatorNeighbor(lineText[i - 1]) &&
-    isDigitSeparatorNeighbor(lineText[i + 1])
-  ) {
-    return { kind: "skip", nextIndex: i + 1 }; // C++14 digit separator (1'000'000), not a quote
-  }
-  if (
-    opts.pyTripleQuote &&
-    !quoteState.quote &&
-    (ch === '"' || ch === "'") &&
-    lineText[i + 1] === ch &&
-    lineText[i + 2] === ch
-  ) {
-    // Python triple-quote (""" or '''): recognized as one token so an odd
-    // number of embedded same-char quotes in its content can't desync the
-    // naive single-char toggle below into treating embedded code as real.
-    const close = scanClosingTripleQuote(lineText, i + 3, ch);
-    if (close === -1) {
-      return { kind: "stop" }; // unterminated on this line: nothing after it is code
-    }
-    return { kind: "skip", nextIndex: close + 1 };
+  const literalStep = advanceLanguageLiteral(lineText, i, ch, quoteState, opts);
+  if (literalStep !== null) {
+    return literalStep;
   }
   if (advanceQuoteState(quoteState, ch, opts.quoteChars)) {
     return { kind: "skip", nextIndex: i + 1 };
@@ -1312,6 +1331,15 @@ const GENERIC_TYPE_ARG_LANGUAGES = new Set([
  */
 const TEMPLATE_KEYWORD_BEFORE_ANGLE_RE = /(?:^|[^\w$])template\s*$/;
 
+function isGenericExpressionBoundary(lineText: string, index: number): boolean {
+  const ch = lineText[index];
+  return (
+    ch === ";" ||
+    (ch === "&" && lineText[index + 1] === "&") ||
+    (ch === "|" && lineText[index + 1] === "|")
+  );
+}
+
 /**
  * Index of the `>` closing a generic/template type-argument list whose `<`
  * sits just before `from`, or -1 when the span until the end of the line
@@ -1385,14 +1413,8 @@ function scanGenericTypeArgListEnd(
       }
       continue;
     }
-    if (ch === ";") {
-      return -1; // statement boundary: expression context
-    }
-    if (
-      (ch === "&" && lineText[i + 1] === "&") ||
-      (ch === "|" && lineText[i + 1] === "|")
-    ) {
-      return -1; // boolean operator: expression context
+    if (isGenericExpressionBoundary(lineText, i)) {
+      return -1;
     }
   }
   return -1; // reached end of line with the list still open
@@ -1457,6 +1479,52 @@ function findGenericTypeArgListRanges(
   return ranges;
 }
 
+function assignmentScanOptions(languageId: string | undefined): CodeScanOptions {
+  const markers = lineCommentMarkers(languageId);
+  return {
+    quoteChars: assignmentQuoteChars(languageId),
+    markers,
+    cStyle:
+      markers === undefined ||
+      (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId)),
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
+    digitSeparators:
+      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
+    pyTripleQuote:
+      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
+    jsRegex: languageId !== undefined && TS_JS_LANGUAGES.has(languageId),
+  };
+}
+
+function assignmentTargetAt(lineText: string, index: number): OperatorTarget | null {
+  const prev = lineText[index - 1];
+  const next = lineText[index + 1];
+  if (next === "=" || next === ">" || next === "~") {
+    return null;
+  }
+  if (prev === "=" || prev === "!" || prev === "~") {
+    return null;
+  }
+  if (prev === "<" || prev === ">") {
+    if (lineText[index - 2] !== prev) {
+      return null;
+    }
+    const insert = prev === ">" && lineText[index - 3] === ">" ? index - 3 : index - 2;
+    return { insert, align: index };
+  }
+  if (prev === ".") {
+    return lineText[index - 2] === "." ? null : { insert: index - 1, align: index };
+  }
+  if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
+    const insert =
+      DOUBLED_PREFIX_CHARS.has(prev) && lineText[index - 2] === prev
+        ? index - 2
+        : index - 1;
+    return { insert, align: index };
+  }
+  return { insert: index, align: index };
+}
+
 /**
  * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
@@ -1495,21 +1563,7 @@ export function findAssignmentEquals(
   languageId?: string
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
-  const markers = lineCommentMarkers(languageId);
-  const cStyle =
-    markers === undefined ||
-    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
-  const opts: CodeScanOptions = {
-    quoteChars: assignmentQuoteChars(languageId),
-    markers,
-    cStyle,
-    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
-    digitSeparators:
-      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
-    pyTripleQuote:
-      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
-    jsRegex: languageId !== undefined && TS_JS_LANGUAGES.has(languageId),
-  };
+  const opts = assignmentScanOptions(languageId);
   const patternRanges =
     languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
       ? findDestructuringPatternRanges(lineText, opts)
@@ -1543,47 +1597,15 @@ export function findAssignmentEquals(
     if (depth !== 0) {
       continue;
     }
-    if (ch === "=") {
-      if (isWithinRanges(i, patternRanges)) {
-        continue; // destructuring-default `=` inside a same-line `{...}` pattern (#361)
+    if (
+      ch === "=" &&
+      !isWithinRanges(i, patternRanges) &&
+      !isWithinRanges(i, genericTypeArgRanges)
+    ) {
+      const target = assignmentTargetAt(lineText, i);
+      if (target !== null) {
+        results.push(target);
       }
-      if (isWithinRanges(i, genericTypeArgRanges)) {
-        continue; // generic/template default type argument inside `<...>` (#413)
-      }
-      const prev = lineText[i - 1];
-      const next = lineText[i + 1];
-      if (next === "=" || next === ">" || next === "~") {
-        continue; // ==, =>, and Ruby's regex match =~
-      }
-      if (prev === "=" || prev === "!" || prev === "~") {
-        continue; // ==, !=, and Lua's not-equal ~=
-      }
-      if (prev === "<" || prev === ">") {
-        if (lineText[i - 2] !== prev) {
-          continue; // comparison <= / >=
-        }
-        // shift assignment <<= / >>= (and >>>=)
-        const insert = prev === ">" && lineText[i - 3] === ">" ? i - 3 : i - 2;
-        results.push({ insert, align: i });
-        continue;
-      }
-      if (prev === ".") {
-        if (lineText[i - 2] === ".") {
-          continue; // Rust's closed-range operator ..=, not an assignment
-        }
-        // PHP's string-concatenation compound assignment .=
-        results.push({ insert: i - 1, align: i });
-        continue;
-      }
-      if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
-        const insert =
-          DOUBLED_PREFIX_CHARS.has(prev) && lineText[i - 2] === prev
-            ? i - 2
-            : i - 1;
-        results.push({ insert, align: i });
-        continue;
-      }
-      results.push({ insert: i, align: i });
     }
   }
   return results;
@@ -2163,16 +2185,18 @@ function isHeredocTerminatorLine(lineText: string, terminator: string): boolean 
  * line would leave the quote toggle "open" and hide a real `/*` from the
  * cross-line state (#426).
  */
-function resolveDocScanOptions(
-  languageId: string | undefined
-): {
+interface DocScanOptions {
   cStyle: boolean;
   template: boolean;
   pyTripleQuote: boolean;
   markers?: readonly string[];
   heredocLanguage?: "ruby" | "php";
   lifetimeLang?: boolean;
-} {
+}
+
+function resolveDocScanOptions(
+  languageId: string | undefined
+): DocScanOptions {
   const isMarkerOnly =
     languageId !== undefined &&
     Object.prototype.hasOwnProperty.call(
@@ -2339,6 +2363,76 @@ function codeEndState(
   return "code";
 }
 
+type DocScanResume = { index: number } | { state: DocScanState };
+
+function resumeDocScan(lineText: string, state: DocScanState): DocScanResume {
+  if (typeof state === "object") {
+    return isHeredocTerminatorLine(lineText, state.terminator)
+      ? { index: 0 }
+      : { state };
+  }
+  if (state === "blockComment") {
+    const close = lineText.indexOf("*/");
+    return close === -1 ? { state } : { index: close + 2 };
+  }
+  if (state === "template") {
+    const close = scanClosingQuote(lineText, 0, "`");
+    return close === -1 ? { state } : { index: close + 1 };
+  }
+  if (state === "pyTripleDouble" || state === "pyTripleSingle") {
+    const quoteChar = state === "pyTripleDouble" ? '"' : "'";
+    const close = scanClosingTripleQuote(lineText, 0, quoteChar);
+    return close === -1 ? { state } : { index: close + 1 };
+  }
+  return { index: 0 };
+}
+
+type LineDocTokenStep =
+  | { kind: "code" }
+  | { kind: "skip"; nextIndex: number }
+  | { kind: "state"; state: DocScanState };
+
+function advanceLineDocToken(
+  lineText: string,
+  index: number,
+  ch: string,
+  quote: QuoteState,
+  quoteChars: ReadonlySet<string>,
+  opts: DocScanOptions
+): LineDocTokenStep {
+  if (opts.lifetimeLang && !quote.quote && (ch === "'" || ch === "r")) {
+    const end =
+      ch === "'"
+        ? rustCharLiteralEnd(lineText, index)
+        : rustRawStringEnd(lineText, index);
+    if (end !== -1) {
+      return { kind: "skip", nextIndex: end };
+    }
+  }
+  if (
+    opts.pyTripleQuote &&
+    !quote.quote &&
+    (ch === '"' || ch === "'") &&
+    lineText[index + 1] === ch &&
+    lineText[index + 2] === ch
+  ) {
+    const close = scanClosingTripleQuote(lineText, index + 3, ch);
+    return close === -1
+      ? { kind: "state", state: ch === '"' ? "pyTripleDouble" : "pyTripleSingle" }
+      : { kind: "skip", nextIndex: close + 1 };
+  }
+  if (advanceQuoteState(quote, ch, quoteChars)) {
+    return { kind: "skip", nextIndex: index + 1 };
+  }
+  if (opts.template && ch === "`") {
+    const close = scanClosingQuote(lineText, index + 1, "`");
+    return close === -1
+      ? { kind: "state", state: "template" }
+      : { kind: "skip", nextIndex: close + 1 };
+  }
+  return { kind: "code" };
+}
+
 /**
  * The {@link DocScanState} that follows `lineText`, given the state it
  * started in. Mirrors the comment/quote handling the finders already do per
@@ -2354,41 +2448,13 @@ function codeEndState(
 function advanceLineDocState(
   lineText: string,
   state: DocScanState,
-  opts: {
-    cStyle: boolean;
-    template: boolean;
-    pyTripleQuote: boolean;
-    markers?: readonly string[];
-    heredocLanguage?: "ruby" | "php";
-    lifetimeLang?: boolean;
-  }
+  opts: DocScanOptions
 ): DocScanState {
-  let i = 0;
-  if (typeof state === "object") {
-    if (!isHeredocTerminatorLine(lineText, state.terminator)) {
-      return state; // still inside the heredoc body
-    }
-    // terminator line: fall through and scan it (i = 0) like any other line
-  } else if (state === "blockComment") {
-    const close = lineText.indexOf("*/");
-    if (close === -1) {
-      return "blockComment";
-    }
-    i = close + 2;
-  } else if (state === "template") {
-    const close = scanClosingQuote(lineText, 0, "`");
-    if (close === -1) {
-      return "template";
-    }
-    i = close + 1;
-  } else if (state === "pyTripleDouble" || state === "pyTripleSingle") {
-    const quoteChar = state === "pyTripleDouble" ? '"' : "'";
-    const close = scanClosingTripleQuote(lineText, 0, quoteChar);
-    if (close === -1) {
-      return state;
-    }
-    i = close + 1;
+  const resume = resumeDocScan(lineText, state);
+  if ("state" in resume) {
+    return resume.state;
   }
+  let i = resume.index;
   const quote = initialQuoteState();
   const quoteChars = opts.template
     ? new Set<string>(['"', "'"])
@@ -2404,48 +2470,12 @@ function advanceLineDocState(
     ) {
       return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
     }
-    if (opts.lifetimeLang && !quote.quote) {
-      // Same skips advanceCodeScan applies for Rust: consume a char literal
-      // (`'"'` would otherwise open a string) or a raw string (`r#"a " b"#`
-      // holds an odd number of `"`) whole; a lifetime's `'` falls through
-      // harmlessly since quoteChars excludes `'` here.
-      if (ch === "'") {
-        const end = rustCharLiteralEnd(lineText, i);
-        if (end !== -1) {
-          i = end - 1;
-          continue;
-        }
-      } else if (ch === "r") {
-        const end = rustRawStringEnd(lineText, i);
-        if (end !== -1) {
-          i = end - 1;
-          continue;
-        }
-      }
+    const tokenStep = advanceLineDocToken(lineText, i, ch, quote, quoteChars, opts);
+    if (tokenStep.kind === "state") {
+      return tokenStep.state;
     }
-    if (
-      opts.pyTripleQuote &&
-      !quote.quote &&
-      (ch === '"' || ch === "'") &&
-      lineText[i + 1] === ch &&
-      lineText[i + 2] === ch
-    ) {
-      const close = scanClosingTripleQuote(lineText, i + 3, ch);
-      if (close === -1) {
-        return ch === '"' ? "pyTripleDouble" : "pyTripleSingle";
-      }
-      i = close;
-      continue;
-    }
-    if (advanceQuoteState(quote, ch, quoteChars)) {
-      continue;
-    }
-    if (opts.template && ch === "`") {
-      const close = scanClosingQuote(lineText, i + 1, "`");
-      if (close === -1) {
-        return "template";
-      }
-      i = close;
+    if (tokenStep.kind === "skip") {
+      i = tokenStep.nextIndex - 1;
       continue;
     }
     if (opts.cStyle) {

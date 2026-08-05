@@ -32,6 +32,7 @@ import {
 import { UrlShortenTarget } from "./urlShorten";
 import { TextRange, buildAlignedText } from "./copyAligned";
 import {
+  AlignmentPath,
   isLanguageDisabled,
   resolveAlignmentPath,
   resolveMaxPadding,
@@ -488,116 +489,141 @@ function applyUrlShortenDecorations(
   urlShortenAppliedEditors.add(editor);
 }
 
-/** Apply ghost-align decorations to a single editor. */
-export function decorateEditor(
+type ActiveAlignmentPath = Exclude<AlignmentPath, { kind: "none" }>;
+
+interface DecorationSlice {
+  start: number;
+  end: number;
+  useVisibleRange: boolean;
+  isGroupLine?: (line: number) => boolean;
+}
+
+interface EditorDecorationContext {
+  document: vscode.TextDocument;
+  languageId: string;
+  config: vscode.WorkspaceConfiguration;
+  path: ActiveAlignmentPath;
+  tabSize: number;
+  maxPadding: number;
+  shortenUrls: boolean;
+  slice: DecorationSlice;
+}
+
+interface PlacementResult {
+  placements: Placement[];
+  urlTargets?: UrlShortenTarget[];
+}
+
+function clearEditorAlignment(editor: vscode.TextEditor): void {
+  editor.setDecorations(alignDecorationType, []);
+  clearUrlShortenDecorationsIfNeeded(editor);
+}
+
+function createGroupLinePredicate(
+  document: vscode.TextDocument,
+  path: ActiveAlignmentPath,
+  languageId: string
+): (line: number) => boolean {
+  if (path.kind === "markdown") {
+    return (line) => findPipePositions(document.lineAt(line).text).length > 0;
+  }
+  if (path.kind === "csv") {
+    return () => false;
+  }
+  return (line) => {
+    const text = document.lineAt(line).text;
+    return (
+      findOperatorTargets(text, path.operators, languageId).length > 0 ||
+      (path.alignJsdoc && parseJsdocParamLine(text) !== null)
+    );
+  };
+}
+
+function resolveDecorationSlice(
   editor: vscode.TextEditor,
-  config: vscode.WorkspaceConfiguration,
-  ghostChar: string,
-  ghostColor: string
-) {
-  const document = editor.document;
-  const languageId = document.languageId;
-
-  if (isLanguageDisabled(config, languageId)) {
-    editor.setDecorations(alignDecorationType, []);
-    clearUrlShortenDecorationsIfNeeded(editor);
-    return;
-  }
-
-  const tabSize = resolveTabSize(editor);
-  const lineCount = document.lineCount;
-
-  const path = resolveAlignmentPath(languageId, config);
-  if (path.kind === "none") {
-    editor.setDecorations(alignDecorationType, []);
-    clearUrlShortenDecorationsIfNeeded(editor);
-    return;
-  }
-  const maxPadding = resolveMaxPadding(config);
-  // ghostAlign.shortenUrls (#418) only applies to the Markdown/CSV table
-  // paths — computed once here regardless of `path.kind` since it's cheap,
-  // and every branch below that can use it checks `path.kind` itself.
-  const shortenUrls = resolveShortenUrls(config);
-
-  // Large files are computed per visible range instead of whole-file, and
-  // re-decorated on scroll. The slice is expanded to group boundaries so a
-  // group straddling the visible edge still aligns against all its members.
-  // CSV/TSV has no group boundary (the whole file is one table); it instead
-  // aligns against per-column max widths cached over the whole document, so
-  // scrolling cannot change the alignment position. Markdown likewise never
-  // slices below: its large-file path goes through MarkdownTableWidthCache,
-  // which computes widths over the whole document up front.
-  let sliceStart = 0;
-  let sliceEnd = lineCount - 1;
-  // Hoisted so the operator path's over-long-group correction below (#434)
-  // can reuse the exact same boundary predicate that bounded this slice.
-  let isGroupLine: ((line: number) => boolean) | undefined;
+  path: ActiveAlignmentPath,
+  languageId: string
+): DecorationSlice {
+  const lineCount = editor.document.lineCount;
+  // 大きなファイルだけ可視範囲へ絞り、境界上のグループは全行を含むように広げる。
   const useVisibleRange =
     lineCount >= LARGE_FILE_LINE_THRESHOLD && editor.visibleRanges.length > 0;
-  if (useVisibleRange) {
-    const visibleStart = Math.min(
-      ...editor.visibleRanges.map((r) => r.start.line)
-    );
-    const visibleEnd = Math.max(...editor.visibleRanges.map((r) => r.end.line));
-    if (path.kind === "markdown") {
-      isGroupLine = (i) => findPipePositions(document.lineAt(i).text).length > 0;
-    } else if (path.kind === "csv") {
-      isGroupLine = () => false;
-    } else {
-      const { operators, alignJsdoc } = path;
-      isGroupLine = (i) => {
-        const text = document.lineAt(i).text;
-        return (
-          findOperatorTargets(text, operators, languageId).length > 0 ||
-          (alignJsdoc && parseJsdocParamLine(text) !== null)
-        );
-      };
-    }
-    [sliceStart, sliceEnd] = computeSliceBounds(
-      lineCount,
-      visibleStart,
-      visibleEnd,
-      isGroupLine
-    );
+  if (!useVisibleRange) {
+    return { start: 0, end: lineCount - 1, useVisibleRange };
   }
+  const visibleStart = Math.min(...editor.visibleRanges.map((range) => range.start.line));
+  const visibleEnd = Math.max(...editor.visibleRanges.map((range) => range.end.line));
+  const isGroupLine = createGroupLinePredicate(editor.document, path, languageId);
+  const [start, end] = computeSliceBounds(
+    lineCount,
+    visibleStart,
+    visibleEnd,
+    isGroupLine
+  );
+  return { start, end, useVisibleRange, isGroupLine };
+}
 
-  let placements: Placement[];
-  // Populated only for the CSV/Markdown paths when ghostAlign.shortenUrls is
-  // on; left undefined otherwise so the block after this if/else chain knows
-  // to clear rather than apply (see clearUrlShortenDecorationsIfNeeded).
-  let urlTargets: UrlShortenTarget[] | undefined;
-  if (path.kind === "markdown" && useVisibleRange) {
-    // Whole-document table widths come from the cache — rebuilt in full only
-    // on an edit (see notifyMarkdownDocumentChange) — so scrolling alone
-    // reads the cached widths and never shifts alignment.
-    let cache = markdownTableWidthCaches.get(document);
-    if (!cache) {
-      cache = new MarkdownTableWidthCache();
-      markdownTableWidthCaches.set(document, cache);
+function computeVisibleMarkdownPlacements(
+  context: EditorDecorationContext
+): PlacementResult {
+  const { document, tabSize, maxPadding, shortenUrls, slice } = context;
+  let cache = markdownTableWidthCaches.get(document);
+  if (!cache) {
+    cache = new MarkdownTableWidthCache();
+    markdownTableWidthCaches.set(document, cache);
+  }
+  // スクロールだけで列幅が揺れないよう、幅は文書全体のキャッシュから得る。
+  cache.sync(
+    document.lineCount,
+    (line) => document.lineAt(line).text,
+    tabSize,
+    maxPadding,
+    shortenUrls
+  );
+  return {
+    placements: cache.placementsForRange(slice.start, slice.end),
+    urlTargets: shortenUrls
+      ? cache.urlTargetsForRange(slice.start, slice.end)
+      : undefined,
+  };
+}
+
+function visibleCsvRows(
+  cache: CsvWidthCache,
+  start: number,
+  end: number
+): { lineIndex: number; metrics: CsvLineMetrics }[] {
+  const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
+  for (let line = start; line <= end; line++) {
+    const metrics = cache.metricsAt(line);
+    if (metrics) {
+      rows.push({ lineIndex: line, metrics });
     }
-    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, maxPadding, shortenUrls);
-    placements = cache.placementsForRange(sliceStart, sliceEnd);
-    if (shortenUrls) {
-      urlTargets = cache.urlTargetsForRange(sliceStart, sliceEnd);
-    }
-  } else if (path.kind === "csv" && useVisibleRange) {
-    // Whole-file column widths come from the cache — built once, then only
-    // the lines an edit touched are re-scanned (see notifyCsvDocumentChange)
-    // — so only the decoration generation is limited to the slice.
-    let cache = csvWidthCaches.get(document);
-    if (!cache || cache.delimiter !== path.delimiter) {
-      cache = new CsvWidthCache(path.delimiter);
-      csvWidthCaches.set(document, cache);
-    }
-    cache.sync(lineCount, (i) => document.lineAt(i).text, tabSize, shortenUrls);
-    const rows: { lineIndex: number; metrics: CsvLineMetrics }[] = [];
-    for (let i = sliceStart; i <= sliceEnd; i++) {
-      const metrics = cache.metricsAt(i);
-      if (metrics) {
-        rows.push({ lineIndex: i, metrics });
-      }
-    }
-    placements = computeCsvPaddingsFromMax(
+  }
+  return rows;
+}
+
+function computeVisibleCsvPlacements(
+  context: EditorDecorationContext & {
+    path: Extract<ActiveAlignmentPath, { kind: "csv" }>;
+  }
+): PlacementResult {
+  const { document, path, tabSize, maxPadding, shortenUrls, slice } = context;
+  let cache = csvWidthCaches.get(document);
+  if (!cache || cache.delimiter !== path.delimiter) {
+    cache = new CsvWidthCache(path.delimiter);
+    csvWidthCaches.set(document, cache);
+  }
+  // 幅は全文で同期し、装飾生成だけを可視範囲の行へ限定する。
+  cache.sync(
+    document.lineCount,
+    (line) => document.lineAt(line).text,
+    tabSize,
+    shortenUrls
+  );
+  const rows = visibleCsvRows(cache, slice.start, slice.end);
+  return {
+    placements: computeCsvPaddingsFromMax(
       rows,
       cache.columnPlan(maxPadding),
       path.delimiter,
@@ -605,172 +631,244 @@ export function decorateEditor(
       path.alignNumbersRight ? cache.numericColumns() : [],
       path.alignNumbersRight ? cache.maxIntWidths() : [],
       path.alignNumbersRight ? cache.minTotalWidths() : []
-    );
-    if (shortenUrls) {
-      urlTargets = rows.flatMap((row) =>
-        urlTargetsForCsvLine(row.lineIndex, document.lineAt(row.lineIndex).text, row.metrics)
-      );
-    }
-  } else {
-    const sliceLines = (): string[] => {
-      const lines: string[] = [];
-      for (let i = sliceStart; i <= sliceEnd; i++) {
-        lines.push(document.lineAt(i).text);
-      }
-      return lines;
-    };
+    ),
+    urlTargets: shortenUrls
+      ? rows.flatMap((row) =>
+          urlTargetsForCsvLine(
+            row.lineIndex,
+            document.lineAt(row.lineIndex).text,
+            row.metrics
+          )
+        )
+      : undefined,
+  };
+}
 
-    // Large files: an operator group longer than computeSliceBounds' normal
-    // expansion limit would otherwise align only against its in-slice rows
-    // (#434) — wrong, and dependent on scroll position, since the group's
-    // true rightmost member can sit outside the slice entirely. Resolve the
-    // group's real extent with an *unbounded* computeSliceBounds walk (cheap
-    // unless the group truly is that long — an ordinary group fails its
-    // first extra isGroupLine check and stops immediately) and cache the
-    // corrected whole-group placements, so a scroll that stays inside the
-    // same over-long group reuses them instead of re-walking it.
-    let longGroupPlacements: Placement[] | undefined;
-    if (useVisibleRange && path.kind === "operators" && isGroupLine) {
-      const cache = getLongOperatorGroupCache(document);
-      cache.sync(
-        `${languageId}|${tabSize}|${maxPadding}|${path.alignJsdoc}|${path.operators.join(",")}`
-      );
-      longGroupPlacements = cache.findFor(sliceStart, sliceEnd);
-      if (!longGroupPlacements) {
-        const [trueStart, trueEnd] = computeSliceBounds(
-          lineCount,
-          sliceStart,
-          sliceEnd,
-          isGroupLine,
-          0,
-          lineCount
-        );
-        if (trueStart < sliceStart || trueEnd > sliceEnd) {
-          const extInitialState: LineScanState | undefined =
-            trueStart > 0
-              ? getLineScanCheckpointCache(document).stateBefore(
-                  trueStart,
-                  (i) => document.lineAt(i).text,
-                  languageId
-                )
-              : undefined;
-          const extSource: LineSource = {
-            lineCount: trueEnd - trueStart + 1,
-            lineAt: (i: number) => document.lineAt(trueStart + i),
-          };
-          const extGroups = findAlignmentGroups(
-            extSource,
-            path.operators,
-            languageId,
-            tabSize,
-            extInitialState
-          );
-          longGroupPlacements = computePaddings(extGroups, maxPadding).map((p) => ({
-            ...p,
-            lineIndex: p.lineIndex + trueStart,
-          }));
-          cache.set(trueStart, trueEnd, longGroupPlacements);
-        }
-      }
-    }
-
-    if (longGroupPlacements) {
-      // JSDoc @param blocks are bounded by a comment block's own size, never
-      // by GROUP_EXPANSION_LIMIT, so they're recomputed from the ordinary
-      // slice like the non-corrected path below rather than folded into the
-      // extended operator-group scan above.
-      const jsdocPlacements =
-        path.kind === "operators" && path.alignJsdoc
-          ? computeJsdocParamPaddings(sliceLines(), tabSize, maxPadding).map((p) => ({
-              ...p,
-              lineIndex: p.lineIndex + sliceStart,
-            }))
-          : [];
-      placements = longGroupPlacements
-        .filter((p) => p.lineIndex >= sliceStart && p.lineIndex <= sliceEnd)
-        .concat(jsdocPlacements);
-    } else {
-      // A block comment/template literal, CSS rule block, or YAML block scalar
-      // opened above sliceStart would otherwise look unopened at the top of the
-      // slice; seed the scan with whatever state it left behind.
-      const initialState: LineScanState | undefined =
-        path.kind === "operators" && sliceStart > 0
-          ? getLineScanCheckpointCache(document).stateBefore(
-              sliceStart,
-              (i) => document.lineAt(i).text,
-              languageId
-            )
-          : undefined;
-      const source: LineSource =
-        sliceStart === 0 && sliceEnd === lineCount - 1
-          ? document
-          : {
-              lineCount: sliceEnd - sliceStart + 1,
-              lineAt: (i: number) => document.lineAt(sliceStart + i),
-            };
-      const lines = sliceLines();
-      placements = computeDocumentPlacements(
-        lines,
-        source,
-        languageId,
-        config,
-        tabSize,
-        // Markdown never reaches this branch with sliceStart > 0 (the
-        // path.kind === "markdown" && useVisibleRange case is handled above
-        // via MarkdownTableWidthCache instead), so there's no fence state to
-        // seed here.
-        undefined,
-        initialState,
-        shortenUrls
-      );
-      if (shortenUrls && path.kind === "csv") {
-        urlTargets = computeCsvUrlTargets(lines, path.delimiter, tabSize);
-      } else if (shortenUrls && path.kind === "markdown") {
-        // Markdown never reaches this branch with sliceStart > 0 — see comment above.
-        urlTargets = computeMarkdownTableUrlTargets(lines, tabSize);
-      }
-      if (sliceStart > 0) {
-        placements = placements.map((p) => ({
-          ...p,
-          lineIndex: p.lineIndex + sliceStart,
-        }));
-        urlTargets = urlTargets?.map((t) => ({ ...t, lineIndex: t.lineIndex + sliceStart }));
-      }
-    }
+function documentSliceLines(
+  document: vscode.TextDocument,
+  start: number,
+  end: number
+): string[] {
+  const lines: string[] = [];
+  for (let line = start; line <= end; line++) {
+    lines.push(document.lineAt(line).text);
   }
+  return lines;
+}
 
+function computeLongOperatorGroupPlacements(
+  context: EditorDecorationContext
+): Placement[] | undefined {
+  const { document, languageId, path, tabSize, maxPadding, slice } = context;
+  if (!slice.useVisibleRange || path.kind !== "operators" || !slice.isGroupLine) {
+    return undefined;
+  }
+  // 通常の境界拡張上限を超えるグループは、スクロール位置に依存しない全体配置を再利用する。
+  const cache = getLongOperatorGroupCache(document);
+  cache.sync(
+    `${languageId}|${tabSize}|${maxPadding}|${path.alignJsdoc}|${path.operators.join(",")}`
+  );
+  const cached = cache.findFor(slice.start, slice.end);
+  if (cached) {
+    return cached;
+  }
+  const [trueStart, trueEnd] = computeSliceBounds(
+    document.lineCount,
+    slice.start,
+    slice.end,
+    slice.isGroupLine,
+    0,
+    document.lineCount
+  );
+  if (trueStart >= slice.start && trueEnd <= slice.end) {
+    return undefined;
+  }
+  const initialState =
+    trueStart > 0
+      ? getLineScanCheckpointCache(document).stateBefore(
+          trueStart,
+          (line) => document.lineAt(line).text,
+          languageId
+        )
+      : undefined;
+  const source: LineSource = {
+    lineCount: trueEnd - trueStart + 1,
+    lineAt: (line) => document.lineAt(trueStart + line),
+  };
+  const groups = findAlignmentGroups(
+    source,
+    path.operators,
+    languageId,
+    tabSize,
+    initialState
+  );
+  const placements = computePaddings(groups, maxPadding).map((placement) => ({
+    ...placement,
+    lineIndex: placement.lineIndex + trueStart,
+  }));
+  cache.set(trueStart, trueEnd, placements);
+  return placements;
+}
+
+function computeLongGroupSlice(
+  context: EditorDecorationContext,
+  longGroupPlacements: Placement[]
+): PlacementResult {
+  const { document, path, tabSize, maxPadding, slice } = context;
+  const jsdocPlacements =
+    path.kind === "operators" && path.alignJsdoc
+      ? computeJsdocParamPaddings(
+          documentSliceLines(document, slice.start, slice.end),
+          tabSize,
+          maxPadding
+        ).map((placement) => ({
+          ...placement,
+          lineIndex: placement.lineIndex + slice.start,
+        }))
+      : [];
+  return {
+    placements: longGroupPlacements
+      .filter(
+        (placement) =>
+          placement.lineIndex >= slice.start && placement.lineIndex <= slice.end
+      )
+      .concat(jsdocPlacements),
+  };
+}
+
+function computeStandardSlice(
+  context: EditorDecorationContext,
+  lines: string[]
+): PlacementResult {
+  const { document, languageId, config, path, tabSize, shortenUrls, slice } = context;
+  // slice より前で開いたコメントや文字列の状態を引き継ぎ、途中開始による誤検出を防ぐ。
+  const initialState: LineScanState | undefined =
+    path.kind === "operators" && slice.start > 0
+      ? getLineScanCheckpointCache(document).stateBefore(
+          slice.start,
+          (line) => document.lineAt(line).text,
+          languageId
+        )
+      : undefined;
+  const source: LineSource =
+    slice.start === 0 && slice.end === document.lineCount - 1
+      ? document
+      : {
+          lineCount: slice.end - slice.start + 1,
+          lineAt: (line) => document.lineAt(slice.start + line),
+        };
+  let placements = computeDocumentPlacements(
+    lines,
+    source,
+    languageId,
+    config,
+    tabSize,
+    undefined,
+    initialState,
+    shortenUrls
+  );
+  let urlTargets =
+    shortenUrls && path.kind === "csv"
+      ? computeCsvUrlTargets(lines, path.delimiter, tabSize)
+      : shortenUrls && path.kind === "markdown"
+        ? computeMarkdownTableUrlTargets(lines, tabSize)
+        : undefined;
+  if (slice.start > 0) {
+    placements = placements.map((placement) => ({
+      ...placement,
+      lineIndex: placement.lineIndex + slice.start,
+    }));
+    urlTargets = urlTargets?.map((target) => ({
+      ...target,
+      lineIndex: target.lineIndex + slice.start,
+    }));
+  }
+  return { placements, urlTargets };
+}
+
+function computeEditorPlacements(context: EditorDecorationContext): PlacementResult {
+  if (context.path.kind === "markdown" && context.slice.useVisibleRange) {
+    return computeVisibleMarkdownPlacements(context);
+  }
+  if (context.path.kind === "csv" && context.slice.useVisibleRange) {
+    return computeVisibleCsvPlacements({ ...context, path: context.path });
+  }
+  const longGroupPlacements = computeLongOperatorGroupPlacements(context);
+  if (longGroupPlacements) {
+    return computeLongGroupSlice(context, longGroupPlacements);
+  }
+  return computeStandardSlice(
+    context,
+    documentSliceLines(context.document, context.slice.start, context.slice.end)
+  );
+}
+
+function createAlignmentDecorations(
+  placements: readonly Placement[],
+  ghostChar: string,
+  ghostColor: string
+): vscode.DecorationOptions[] {
+  return placements.map((placement) => {
+    const position = new vscode.Position(
+      placement.lineIndex,
+      placement.character
+    );
+    // Markdown の区切り線は文字を見せ、通常の ghost padding は背景色へ溶け込ませる。
+    const before = placement.padChar
+      ? {
+          contentText: placement.padChar.repeat(placement.padding),
+          backgroundColor: ghostColor,
+        }
+      : {
+          contentText: ghostChar.repeat(placement.padding),
+          color: ghostColor,
+          backgroundColor: ghostColor,
+        };
+    return {
+      range: new vscode.Range(position, position),
+      renderOptions: { before },
+    };
+  });
+}
+
+/** Apply ghost-align decorations to a single editor. */
+export function decorateEditor(
+  editor: vscode.TextEditor,
+  config: vscode.WorkspaceConfiguration,
+  ghostChar: string,
+  ghostColor: string
+) {
+  const { document } = editor;
+  const languageId = document.languageId;
+  if (isLanguageDisabled(config, languageId)) {
+    clearEditorAlignment(editor);
+    return;
+  }
+  const path = resolveAlignmentPath(languageId, config);
+  if (path.kind === "none") {
+    clearEditorAlignment(editor);
+    return;
+  }
+  const context: EditorDecorationContext = {
+    document,
+    languageId,
+    config,
+    path,
+    tabSize: resolveTabSize(editor),
+    maxPadding: resolveMaxPadding(config),
+    shortenUrls: resolveShortenUrls(config),
+    slice: resolveDecorationSlice(editor, path, languageId),
+  };
+  const { placements, urlTargets } = computeEditorPlacements(context);
   if (urlTargets) {
     applyUrlShortenDecorations(editor, urlTargets);
   } else {
     clearUrlShortenDecorationsIfNeeded(editor);
   }
-
-  const decorations: vscode.DecorationOptions[] = placements.map(
-    (p) => {
-      const pos = new vscode.Position(p.lineIndex, p.character);
-      return {
-        range: new vscode.Range(pos, pos),
-        renderOptions: {
-          // padChar padding (e.g. `-` on a Markdown delimiter row) must be
-          // legible, so it keeps the theme's text color and only carries the
-          // ghost background; default padding hides its glyphs by drawing
-          // them in the background color.
-          before: p.padChar
-            ? {
-                contentText: p.padChar.repeat(p.padding),
-                backgroundColor: ghostColor,
-              }
-            : {
-                contentText: ghostChar.repeat(p.padding),
-                color: ghostColor,
-                backgroundColor: ghostColor,
-              },
-        },
-      };
-    }
+  editor.setDecorations(
+    alignDecorationType,
+    createAlignmentDecorations(placements, ghostChar, ghostColor)
   );
-
-  editor.setDecorations(alignDecorationType, decorations);
 }
 
 /**

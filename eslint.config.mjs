@@ -36,6 +36,18 @@ export default tseslint.config(
     },
   },
   {
+    // Production code only: tests have a separate, higher function-length
+    // limit tracked in a follow-up issue.
+    files: ["src/**/*.ts"],
+    ignores: ["src/test/**/*.ts"],
+    rules: {
+      "max-lines-per-function": [
+        "error",
+        { max: 60, skipBlankLines: true, skipComments: true },
+      ],
+    },
+  },
+  {
     // src/test/**: test mocks intentionally model only the subset of a
     // vscode.* interface each test needs and hand it to code typed against
     // the full interface, so `any` and the unsafe-* family fire on nearly
