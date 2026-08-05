@@ -43,7 +43,7 @@ jobs:
           platform=$([ "${{ runner.os }}" = "Windows" ] && echo win32-x64-archive || echo linux-x64)
           version=$(curl -fsSL "https://update.code.visualstudio.com/api/update/$platform/stable/latest" | jq -r .productVersion)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .vscode-test
           key: vscode-test-${{ runner.os }}-${{ steps.vscode-version.outputs.version }}
