@@ -419,53 +419,93 @@ function isSwitchKeywordBeforeParen(lineText: string, parenIndex: number): boole
  * multiple lines is not recognized this way — see {@link findTsColon}'s own
  * doc comment for that tradeoff.
  */
+interface TsSwitchScanState {
+  parenDepth: number;
+  awaitingBrace: boolean;
+}
+
+function advanceTsBraceLexical(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState
+): CodeScanStep {
+  if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+    return { kind: "skip", nextIndex: index + 1 };
+  }
+  const comment = advanceCommentState(lineText, index, ch, { cStyle: true });
+  if (comment === "break") {
+    return { kind: "stop" };
+  }
+  return comment === false
+    ? { kind: "code" }
+    : { kind: "skip", nextIndex: comment + 1 };
+}
+
+function advanceTsSwitchParen(
+  lineText: string,
+  index: number,
+  ch: string,
+  state: TsSwitchScanState
+): boolean {
+  if (ch === "(") {
+    if (state.parenDepth > 0) {
+      state.parenDepth++;
+    } else if (isSwitchKeywordBeforeParen(lineText, index)) {
+      state.parenDepth = 1;
+    }
+    return true;
+  }
+  if (ch !== ")") {
+    return false;
+  }
+  if (state.parenDepth > 0) {
+    state.parenDepth--;
+    if (state.parenDepth === 0) {
+      state.awaitingBrace = true;
+    }
+  }
+  return true;
+}
+
+function advanceTsBraceStack(
+  ch: string,
+  stack: TsBraceState,
+  switchState: TsSwitchScanState
+): boolean {
+  if (ch === "{") {
+    stack.push(switchState.awaitingBrace ? "switch" : "other");
+  } else if (ch === "}") {
+    stack.pop();
+  } else {
+    return false;
+  }
+  switchState.awaitingBrace = false;
+  return true;
+}
+
 export function nextTsBraceState(lineText: string, state: TsBraceState): TsBraceState {
   const stack = state.slice();
   const quoteState = initialQuoteState();
-  let switchParenDepth = 0;
-  let awaitingSwitchBrace = false;
+  const switchState: TsSwitchScanState = { parenDepth: 0, awaitingBrace: false };
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
-    if (comment === "break") {
+    const step = advanceTsBraceLexical(lineText, i, ch, quoteState);
+    if (step.kind === "stop") {
       break; // comment to the end of the line
     }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1;
       continue;
     }
-    if (ch === "(") {
-      if (switchParenDepth > 0) {
-        switchParenDepth++;
-      } else if (isSwitchKeywordBeforeParen(lineText, i)) {
-        switchParenDepth = 1;
-      }
+    if (advanceTsSwitchParen(lineText, i, ch, switchState)) {
       continue;
     }
-    if (ch === ")") {
-      if (switchParenDepth > 0) {
-        switchParenDepth--;
-        if (switchParenDepth === 0) {
-          awaitingSwitchBrace = true;
-        }
-      }
-      continue;
-    }
-    if (ch === "{") {
-      stack.push(awaitingSwitchBrace ? "switch" : "other");
-      awaitingSwitchBrace = false;
-      continue;
-    }
-    if (ch === "}") {
-      stack.pop();
-      awaitingSwitchBrace = false;
+    if (advanceTsBraceStack(ch, stack, switchState)) {
       continue;
     }
     if (ch !== " " && ch !== "\t") {
-      awaitingSwitchBrace = false; // any other code character breaks a pending switch-brace pattern
+      switchState.awaitingBrace = false; // any other code character breaks a pending switch-brace pattern
     }
   }
   return stack;
@@ -1088,6 +1128,67 @@ interface CodeScanOptions {
   jsRegex?: boolean;
 }
 
+function advanceRustLanguageLiteral(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState,
+  enabled: boolean
+): CodeScanStep | null {
+  if (!enabled || quoteState.quote !== false) {
+    return null;
+  }
+  if (ch === "'") {
+    const end = rustCharLiteralEnd(lineText, index);
+    return end === -1 ? null : { kind: "skip", nextIndex: end };
+  }
+  if (ch === "r") {
+    const end = rustRawStringEnd(lineText, index);
+    return end === -1 ? null : { kind: "skip", nextIndex: end };
+  }
+  return null;
+}
+
+function advanceDigitSeparator(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState,
+  enabled: boolean
+): CodeScanStep | null {
+  if (!enabled || quoteState.quote !== false || ch !== "'") {
+    return null;
+  }
+  if (!isDigitSeparatorNeighbor(lineText[index - 1])) {
+    return null;
+  }
+  return isDigitSeparatorNeighbor(lineText[index + 1])
+    ? { kind: "skip", nextIndex: index + 1 }
+    : null;
+}
+
+function advancePythonTripleQuote(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState,
+  enabled: boolean
+): CodeScanStep | null {
+  if (!enabled || quoteState.quote !== false) {
+    return null;
+  }
+  if (ch !== '"' && ch !== "'") {
+    return null;
+  }
+  if (lineText[index + 1] !== ch || lineText[index + 2] !== ch) {
+    return null;
+  }
+  const close = scanClosingTripleQuote(lineText, index + 3, ch);
+  return close === -1
+    ? { kind: "stop" }
+    : { kind: "skip", nextIndex: close + 1 };
+}
+
 function advanceLanguageLiteral(
   lineText: string,
   i: number,
@@ -1095,40 +1196,30 @@ function advanceLanguageLiteral(
   quoteState: QuoteState,
   opts: CodeScanOptions
 ): CodeScanStep | null {
-  if (opts.lifetimeLang && quoteState.quote === false && ch === "'") {
-    const end = rustCharLiteralEnd(lineText, i);
-    if (end !== -1) {
-      return { kind: "skip", nextIndex: end };
-    }
+  const rustStep = advanceRustLanguageLiteral(
+    lineText,
+    i,
+    ch,
+    quoteState,
+    opts.lifetimeLang === true
+  );
+  if (rustStep !== null) {
+    return rustStep;
   }
-  if (opts.lifetimeLang && quoteState.quote === false && ch === "r") {
-    const end = rustRawStringEnd(lineText, i);
-    if (end !== -1) {
-      return { kind: "skip", nextIndex: end };
-    }
-  }
-  if (
-    ch === "'" &&
-    !quoteState.quote &&
-    opts.digitSeparators &&
-    isDigitSeparatorNeighbor(lineText[i - 1]) &&
-    isDigitSeparatorNeighbor(lineText[i + 1])
-  ) {
-    return { kind: "skip", nextIndex: i + 1 };
-  }
-  if (
-    opts.pyTripleQuote &&
-    !quoteState.quote &&
-    (ch === '"' || ch === "'") &&
-    lineText[i + 1] === ch &&
-    lineText[i + 2] === ch
-  ) {
-    const close = scanClosingTripleQuote(lineText, i + 3, ch);
-    return close === -1
-      ? { kind: "stop" }
-      : { kind: "skip", nextIndex: close + 1 };
-  }
-  return null;
+  const digitStep = advanceDigitSeparator(
+    lineText,
+    i,
+    ch,
+    quoteState,
+    opts.digitSeparators === true
+  );
+  return digitStep ?? advancePythonTripleQuote(
+    lineText,
+    i,
+    ch,
+    quoteState,
+    opts.pyTripleQuote === true
+  );
 }
 
 /**
@@ -1177,6 +1268,35 @@ function advanceCodeScan(
   return { kind: "code" };
 }
 
+const ALL_BRACKET_OPENERS = new Set(["{", "(", "["]);
+const ALL_BRACKET_CLOSERS = new Set(["}", ")", "]"]);
+const PAREN_BRACKET_OPENERS = new Set(["(", "["]);
+const PAREN_BRACKET_CLOSERS = new Set([")", "]"]);
+
+function nextDelimiterDepth(
+  ch: string,
+  depth: number,
+  openers: ReadonlySet<string>,
+  closers: ReadonlySet<string>
+): number | null {
+  if (openers.has(ch)) {
+    return depth + 1;
+  }
+  if (closers.has(ch)) {
+    return depth - 1;
+  }
+  return null;
+}
+
+function isRealAssignmentAt(lineText: string, index: number): boolean {
+  const next = lineText[index + 1];
+  if (next === "=" || next === ">") {
+    return false;
+  }
+  const prev = lineText[index - 1];
+  return prev !== "=" && prev !== "!" && prev !== "<" && prev !== ">";
+}
+
 /**
  * Whether a real assignment `=` (or a compound assignment like `+=`, but not
  * `==`/`!=`/`<=`/`>=`/`=>`) is reached while scanning forward from
@@ -1207,12 +1327,14 @@ function isFollowedByRealAssignment(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch === "{" || ch === "(" || ch === "[") {
-      depth++;
-      continue;
-    }
-    if (ch === "}" || ch === ")" || ch === "]") {
-      depth--;
+    const nextDepth = nextDelimiterDepth(
+      ch,
+      depth,
+      ALL_BRACKET_OPENERS,
+      ALL_BRACKET_CLOSERS
+    );
+    if (nextDepth !== null) {
+      depth = nextDepth;
       if (depth < targetDepth) {
         return false; // exited the enclosing scope without finding a real `=`
       }
@@ -1224,15 +1346,7 @@ function isFollowedByRealAssignment(
     if (ch === ";") {
       return false; // statement ended before a `=` was found
     }
-    if (ch === "=") {
-      const prev = lineText[i - 1];
-      const next = lineText[i + 1];
-      if (next === "=" || next === ">") {
-        continue; // ==, =>
-      }
-      if (prev === "=" || prev === "!" || prev === "<" || prev === ">") {
-        continue; // ==, !=, <=, >=
-      }
+    if (ch === "=" && isRealAssignmentAt(lineText, i)) {
       return true;
     }
   }
@@ -1340,6 +1454,56 @@ function isGenericExpressionBoundary(lineText: string, index: number): boolean {
   );
 }
 
+type GenericBracketStep =
+  | { kind: "code" }
+  | { kind: "depth"; depth: number }
+  | { kind: "reject" };
+
+type GenericAngleStep =
+  | { kind: "code" }
+  | { kind: "depth"; depth: number }
+  | { kind: "close" }
+  | { kind: "reject" };
+
+function advanceGenericBracket(ch: string, depth: number): GenericBracketStep {
+  const nextDepth = nextDelimiterDepth(
+    ch,
+    depth,
+    ALL_BRACKET_OPENERS,
+    ALL_BRACKET_CLOSERS
+  );
+  if (nextDepth === null) {
+    return { kind: "code" };
+  }
+  return nextDepth < 0
+    ? { kind: "reject" }
+    : { kind: "depth", depth: nextDepth };
+}
+
+function isGenericArrowAt(lineText: string, index: number, ch: string): boolean {
+  return (ch === "=" || ch === "-") && lineText[index + 1] === ">";
+}
+
+function advanceGenericAngle(
+  lineText: string,
+  index: number,
+  ch: string,
+  depth: number
+): GenericAngleStep {
+  if (ch === "<") {
+    const next = lineText[index + 1];
+    return next === "<" || next === "="
+      ? { kind: "reject" }
+      : { kind: "depth", depth: depth + 1 };
+  }
+  if (ch === ">") {
+    return depth === 1 ? { kind: "close" } : { kind: "depth", depth: depth - 1 };
+  }
+  return isGenericExpressionBoundary(lineText, index)
+    ? { kind: "reject" }
+    : { kind: "code" };
+}
+
 /**
  * Index of the `>` closing a generic/template type-argument list whose `<`
  * sits just before `from`, or -1 when the span until the end of the line
@@ -1381,40 +1545,30 @@ function scanGenericTypeArgListEnd(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch === "(" || ch === "[" || ch === "{") {
-      bracketDepth++;
+    const bracketStep = advanceGenericBracket(ch, bracketDepth);
+    if (bracketStep.kind === "reject") {
+      return -1; // closes a bracket opened before the `<`: expression context
+    }
+    if (bracketStep.kind === "depth") {
+      bracketDepth = bracketStep.depth;
       continue;
     }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      if (bracketDepth === 0) {
-        return -1; // closes a bracket opened before the `<`: expression context
-      }
-      bracketDepth--;
-      continue;
-    }
-    if ((ch === "=" || ch === "-") && lineText[i + 1] === ">") {
+    if (isGenericArrowAt(lineText, i, ch)) {
       i++; // `=>` / `->` arrow: its `>` doesn't close the list
       continue;
     }
     if (bracketDepth > 0) {
       continue; // nested (...)/[...]/{...} content is opaque
     }
-    if (ch === "<") {
-      if (lineText[i + 1] === "<" || lineText[i + 1] === "=") {
-        return -1; // `<<` shift / `<=` comparison: expression context
-      }
-      angleDepth++;
-      continue;
-    }
-    if (ch === ">") {
-      angleDepth--;
-      if (angleDepth === 0) {
-        return i;
-      }
-      continue;
-    }
-    if (isGenericExpressionBoundary(lineText, i)) {
+    const angleStep = advanceGenericAngle(lineText, i, ch, angleDepth);
+    if (angleStep.kind === "reject") {
       return -1;
+    }
+    if (angleStep.kind === "close") {
+      return i;
+    }
+    if (angleStep.kind === "depth") {
+      angleDepth = angleStep.depth;
     }
   }
   return -1; // reached end of line with the list still open
@@ -1496,33 +1650,94 @@ function assignmentScanOptions(languageId: string | undefined): CodeScanOptions 
   };
 }
 
-function assignmentTargetAt(lineText: string, index: number): OperatorTarget | null {
-  const prev = lineText[index - 1];
-  const next = lineText[index + 1];
-  if (next === "=" || next === ">" || next === "~") {
-    return null;
-  }
-  if (prev === "=" || prev === "!" || prev === "~") {
-    return null;
-  }
+const INVALID_ASSIGNMENT_PREV_CHARS = new Set(["=", "!", "~"]);
+const INVALID_ASSIGNMENT_NEXT_CHARS = new Set(["=", ">", "~"]);
+
+function hasInvalidAssignmentNeighbor(
+  prev: string | undefined,
+  next: string | undefined
+): boolean {
+  return (
+    (prev !== undefined && INVALID_ASSIGNMENT_PREV_CHARS.has(prev)) ||
+    (next !== undefined && INVALID_ASSIGNMENT_NEXT_CHARS.has(next))
+  );
+}
+
+function compoundAssignmentInsert(
+  lineText: string,
+  index: number,
+  prev: string | undefined
+): number | null {
   if (prev === "<" || prev === ">") {
     if (lineText[index - 2] !== prev) {
       return null;
     }
-    const insert = prev === ">" && lineText[index - 3] === ">" ? index - 3 : index - 2;
-    return { insert, align: index };
+    return prev === ">" && lineText[index - 3] === ">" ? index - 3 : index - 2;
   }
   if (prev === ".") {
-    return lineText[index - 2] === "." ? null : { insert: index - 1, align: index };
+    return lineText[index - 2] === "." ? null : index - 1;
   }
-  if (prev !== undefined && COMPOUND_PREFIX_CHARS.has(prev)) {
-    const insert =
-      DOUBLED_PREFIX_CHARS.has(prev) && lineText[index - 2] === prev
-        ? index - 2
-        : index - 1;
-    return { insert, align: index };
+  if (prev === undefined || !COMPOUND_PREFIX_CHARS.has(prev)) {
+    return index;
   }
-  return { insert: index, align: index };
+  return DOUBLED_PREFIX_CHARS.has(prev) && lineText[index - 2] === prev
+    ? index - 2
+    : index - 1;
+}
+
+function assignmentTargetAt(lineText: string, index: number): OperatorTarget | null {
+  const prev = lineText[index - 1];
+  const next = lineText[index + 1];
+  if (hasInvalidAssignmentNeighbor(prev, next)) {
+    return null;
+  }
+  const insert = compoundAssignmentInsert(lineText, index, prev);
+  return insert === null ? null : { insert, align: index };
+}
+
+interface AssignmentExclusionRanges {
+  patterns: Array<[number, number]>;
+  genericTypeArgs: Array<[number, number]>;
+}
+
+function findAssignmentExclusionRanges(
+  lineText: string,
+  opts: CodeScanOptions,
+  languageId: string | undefined
+): AssignmentExclusionRanges {
+  return {
+    patterns:
+      languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
+        ? findDestructuringPatternRanges(lineText, opts)
+        : [],
+    genericTypeArgs:
+      languageId !== undefined && GENERIC_TYPE_ARG_LANGUAGES.has(languageId)
+        ? findGenericTypeArgListRanges(lineText, opts, languageId)
+        : [],
+  };
+}
+
+function advanceAssignmentDepth(ch: string, depth: number): number | null {
+  const nextDepth = nextDelimiterDepth(
+    ch,
+    depth,
+    PAREN_BRACKET_OPENERS,
+    PAREN_BRACKET_CLOSERS
+  );
+  return nextDepth === null ? null : Math.max(0, nextDepth);
+}
+
+function assignmentCandidateAt(
+  lineText: string,
+  index: number,
+  exclusions: AssignmentExclusionRanges
+): OperatorTarget | null {
+  if (isWithinRanges(index, exclusions.patterns)) {
+    return null;
+  }
+  return isWithinRanges(index, exclusions.genericTypeArgs)
+    ? null
+    : assignmentTargetAt(lineText, index);
 }
 
 /**
@@ -1564,14 +1779,7 @@ export function findAssignmentEquals(
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
   const opts = assignmentScanOptions(languageId);
-  const patternRanges =
-    languageId !== undefined && TS_JS_LANGUAGES.has(languageId)
-      ? findDestructuringPatternRanges(lineText, opts)
-      : [];
-  const genericTypeArgRanges =
-    languageId !== undefined && GENERIC_TYPE_ARG_LANGUAGES.has(languageId)
-      ? findGenericTypeArgListRanges(lineText, opts, languageId)
-      : [];
+  const exclusions = findAssignmentExclusionRanges(lineText, opts, languageId);
   const quoteState = initialQuoteState();
   let depth = 0;
   for (let i = 0; i < lineText.length; i++) {
@@ -1584,28 +1792,17 @@ export function findAssignmentEquals(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch === "(" || ch === "[") {
-      depth++;
+    const nextDepth = advanceAssignmentDepth(ch, depth);
+    if (nextDepth !== null) {
+      depth = nextDepth;
       continue;
     }
-    if (ch === ")" || ch === "]") {
-      if (depth > 0) {
-        depth--;
-      }
+    if (depth !== 0 || ch !== "=") {
       continue;
     }
-    if (depth !== 0) {
-      continue;
-    }
-    if (
-      ch === "=" &&
-      !isWithinRanges(i, patternRanges) &&
-      !isWithinRanges(i, genericTypeArgRanges)
-    ) {
-      const target = assignmentTargetAt(lineText, i);
-      if (target !== null) {
-        results.push(target);
-      }
+    const target = assignmentCandidateAt(lineText, i, exclusions);
+    if (target !== null) {
+      results.push(target);
     }
   }
   return results;
@@ -1832,6 +2029,66 @@ function isBlankOrCommentTail(lineText: string, fromIndex: number): boolean {
   return true;
 }
 
+interface PythonColonScanState {
+  results: number[];
+  brackets: string[];
+  lambdaPendingByDepth: Map<number, number>;
+}
+
+type PythonColonStep =
+  | { kind: "target" }
+  | { kind: "ignore" }
+  | { kind: "walrus" };
+
+function advancePythonBracketOrLambda(
+  lineText: string,
+  index: number,
+  ch: string,
+  state: PythonColonScanState
+): boolean {
+  if (ALL_BRACKET_OPENERS.has(ch)) {
+    state.brackets.push(ch);
+    return true;
+  }
+  if (ALL_BRACKET_CLOSERS.has(ch)) {
+    state.brackets.pop();
+    return true;
+  }
+  if (ch !== "l" || !isLambdaKeywordStart(lineText, index)) {
+    return false;
+  }
+  const depth = state.brackets.length;
+  const pending = state.lambdaPendingByDepth.get(depth) ?? 0;
+  state.lambdaPendingByDepth.set(depth, pending + 1);
+  return true;
+}
+
+function classifyPythonColon(
+  lineText: string,
+  index: number,
+  state: PythonColonScanState
+): PythonColonStep {
+  if (lineText[index + 1] === "=") {
+    return { kind: "walrus" };
+  }
+  const depth = state.brackets.length;
+  const pendingLambda = state.lambdaPendingByDepth.get(depth) ?? 0;
+  if (pendingLambda > 0) {
+    state.lambdaPendingByDepth.set(depth, pendingLambda - 1);
+    return { kind: "ignore" }; // lambda's own parameter/body separator
+  }
+  const top = state.brackets[state.brackets.length - 1];
+  if (top === "[") {
+    return { kind: "ignore" }; // slice colon
+  }
+  if (top === "{" || top === "(") {
+    return { kind: "target" };
+  }
+  return isBlankOrCommentTail(lineText, index + 1)
+    ? { kind: "ignore" }
+    : { kind: "target" }; // type annotation, not a block-start colon
+}
+
 /**
  * Indices of all `:` on a Python line that are dict-literal keys or
  * type/parameter annotations (#412), excluding every other Python use of `:`:
@@ -1885,10 +2142,12 @@ function isBlankOrCommentTail(lineText: string, fromIndex: number): boolean {
  * near-universally written on one line in practice).
  */
 function findPythonColon(lineText: string): number[] {
-  const results: number[] = [];
+  const state: PythonColonScanState = {
+    results: [],
+    brackets: [],
+    lambdaPendingByDepth: new Map<number, number>(),
+  };
   const quoteState = initialQuoteState();
-  const brackets: string[] = [];
-  const lambdaPendingByDepth = new Map<number, number>();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
     const step = advanceCodeScan(lineText, i, ch, quoteState, PYTHON_CODE_SCAN_OPTIONS);
@@ -1899,45 +2158,20 @@ function findPythonColon(lineText: string): number[] {
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch === "(" || ch === "[" || ch === "{") {
-      brackets.push(ch);
-      continue;
-    }
-    if (ch === ")" || ch === "]" || ch === "}") {
-      brackets.pop();
-      continue;
-    }
-    if (ch === "l" && isLambdaKeywordStart(lineText, i)) {
-      const depth = brackets.length;
-      lambdaPendingByDepth.set(depth, (lambdaPendingByDepth.get(depth) ?? 0) + 1);
+    if (advancePythonBracketOrLambda(lineText, i, ch, state)) {
       continue;
     }
     if (ch !== ":") {
       continue;
     }
-    if (lineText[i + 1] === "=") {
+    const colonStep = classifyPythonColon(lineText, i, state);
+    if (colonStep.kind === "walrus") {
       i++; // walrus `:=`, not a colon target
-      continue;
-    }
-    const depth = brackets.length;
-    const pendingLambda = lambdaPendingByDepth.get(depth) ?? 0;
-    if (pendingLambda > 0) {
-      lambdaPendingByDepth.set(depth, pendingLambda - 1);
-      continue; // lambda's own parameter/body separator
-    }
-    const top = brackets[brackets.length - 1];
-    if (top === "[") {
-      continue; // slice colon
-    }
-    if (top === "{" || top === "(") {
-      results.push(i);
-      continue;
-    }
-    if (!isBlankOrCommentTail(lineText, i + 1)) {
-      results.push(i); // type annotation, not a block-start colon
+    } else if (colonStep.kind === "target") {
+      state.results.push(i);
     }
   }
-  return results;
+  return state.results;
 }
 
 /** All occurrences of a single operator token on a line, in order. */
@@ -2092,6 +2326,53 @@ function precedesShiftOperand(ch: string | undefined): boolean {
 /** PHP heredoc (`<<<EOT`, `<<<"EOT"`) / nowdoc (`<<<'EOT'`) opener. Capture groups 1/2/3 are the identifier from whichever quoting form matched. */
 const PHP_HEREDOC_OPENER = /<<<\s*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_]\w*))/;
 
+type HeredocMatcher = (lineText: string, index: number) => string | null;
+
+function heredocTerminator(match: RegExpExecArray | null): string | null {
+  return match === null ? null : (match[1] ?? match[2] ?? match[3]);
+}
+
+function matchPhpHeredoc(lineText: string, index: number): string | null {
+  if (
+    lineText[index] !== "<" ||
+    lineText[index + 1] !== "<" ||
+    lineText[index + 2] !== "<"
+  ) {
+    return null;
+  }
+  return heredocTerminator(PHP_HEREDOC_OPENER.exec(lineText.slice(index)));
+}
+
+function matchRubyHeredoc(lineText: string, index: number): string | null {
+  if (lineText[index] !== "<" || lineText[index + 1] !== "<") {
+    return null;
+  }
+  if (precedesShiftOperand(lineText[index - 1])) {
+    return null;
+  }
+  return heredocTerminator(RUBY_HEREDOC_OPENER.exec(lineText.slice(index)));
+}
+
+function advanceHeredocLexical(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState,
+  markers: readonly string[] | undefined,
+  cStyle: boolean
+): CodeScanStep {
+  if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+    return { kind: "skip", nextIndex: index + 1 };
+  }
+  const comment = advanceCommentState(lineText, index, ch, { markers, cStyle });
+  if (comment === "break") {
+    return { kind: "stop" };
+  }
+  return comment === false
+    ? { kind: "code" }
+    : { kind: "skip", nextIndex: comment + 1 };
+}
+
 /**
  * If `lineText` opens a Ruby heredoc or PHP heredoc/nowdoc, the terminator
  * identifier that closes it; otherwise null. Skips string/comment content
@@ -2106,41 +2387,22 @@ function findHeredocOpener(
 ): string | null {
   const markers = lineCommentMarkers(languageId);
   const cStyle = C_STYLE_COMMENT_ALSO.has(languageId);
+  const matchHeredoc: HeredocMatcher =
+    languageId === "php" ? matchPhpHeredoc : matchRubyHeredoc;
   const quoteState = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { markers, cStyle });
-    if (comment === "break") {
+    const step = advanceHeredocLexical(lineText, i, ch, quoteState, markers, cStyle);
+    if (step.kind === "stop") {
       break;
     }
-    if (comment !== false) {
-      i = comment;
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1;
       continue;
     }
-    if (
-      languageId === "php" &&
-      ch === "<" &&
-      lineText[i + 1] === "<" &&
-      lineText[i + 2] === "<"
-    ) {
-      const m = PHP_HEREDOC_OPENER.exec(lineText.slice(i));
-      if (m) {
-        return m[1] ?? m[2] ?? m[3];
-      }
-    }
-    if (
-      languageId === "ruby" &&
-      ch === "<" &&
-      lineText[i + 1] === "<" &&
-      !precedesShiftOperand(lineText[i - 1])
-    ) {
-      const m = RUBY_HEREDOC_OPENER.exec(lineText.slice(i));
-      if (m) {
-        return m[1] ?? m[2] ?? m[3];
-      }
+    const terminator = matchHeredoc(lineText, i);
+    if (terminator !== null) {
+      return terminator;
     }
   }
   return null;
@@ -2222,6 +2484,58 @@ function resolveDocScanOptions(
   };
 }
 
+type WholeLineCommentResume =
+  | { kind: "notComment" }
+  | { kind: "comment" }
+  | { kind: "scan"; index: number; consumedComment: boolean };
+
+type WholeLineCommentStep =
+  | { kind: "code" }
+  | { kind: "lineComment" }
+  | { kind: "blockComment"; nextIndex: number };
+
+function resumeWholeLineComment(
+  lineText: string,
+  docState: DocScanState
+): WholeLineCommentResume {
+  if (
+    typeof docState === "object" ||
+    docState === "template" ||
+    docState === "pyTripleDouble" ||
+    docState === "pyTripleSingle"
+  ) {
+    return { kind: "notComment" };
+  }
+  if (docState !== "blockComment") {
+    return { kind: "scan", index: 0, consumedComment: false };
+  }
+  const close = lineText.indexOf("*/");
+  return close === -1
+    ? { kind: "comment" }
+    : { kind: "scan", index: close + 2, consumedComment: true };
+}
+
+function advanceWholeLineCommentToken(
+  lineText: string,
+  index: number,
+  markers: readonly string[] | undefined,
+  cStyle: boolean
+): WholeLineCommentStep {
+  if (markers && startsLineComment(lineText, index, markers)) {
+    return { kind: "lineComment" };
+  }
+  if (cStyle && lineText.startsWith("//", index)) {
+    return { kind: "lineComment" };
+  }
+  if (!cStyle || !lineText.startsWith("/*", index)) {
+    return { kind: "code" };
+  }
+  const close = lineText.indexOf("*/", index + 2);
+  return close === -1
+    ? { kind: "lineComment" }
+    : { kind: "blockComment", nextIndex: close + 2 };
+}
+
 /**
  * Whether `lineText` contributes no real code — only whitespace and comment
  * content — given the {@link DocScanState} it starts in. Used by
@@ -2246,52 +2560,37 @@ export function isWholeLineComment(
   languageId: string | undefined,
   docState: DocScanState
 ): boolean {
-  if (
-    typeof docState === "object" ||
-    docState === "template" ||
-    docState === "pyTripleDouble" ||
-    docState === "pyTripleSingle"
-  ) {
+  const resume = resumeWholeLineComment(lineText, docState);
+  if (resume.kind === "notComment") {
     return false;
+  }
+  if (resume.kind === "comment") {
+    return true; // whole line still inside the block comment
   }
   const markers = lineCommentMarkers(languageId);
   const cStyle =
     markers === undefined ||
     (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
-  let i = 0;
-  let inComment = false;
-  if (docState === "blockComment") {
-    const close = lineText.indexOf("*/");
-    if (close === -1) {
-      return true; // whole line still inside the block comment
-    }
-    i = close + 2;
-    inComment = true;
-  }
+  let i = resume.index;
+  let consumedComment = resume.consumedComment;
   while (i < lineText.length) {
     const ch = lineText[i];
     if (ch === " " || ch === "\t") {
       i++;
       continue;
     }
-    if (markers && startsLineComment(lineText, i, markers)) {
+    const step = advanceWholeLineCommentToken(lineText, i, markers, cStyle);
+    if (step.kind === "lineComment") {
       return true;
     }
-    if (cStyle && ch === "/" && lineText[i + 1] === "/") {
-      return true;
-    }
-    if (cStyle && ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        return true; // block comment runs to (or past) the end of the line
-      }
-      i = close + 2;
-      inComment = true;
+    if (step.kind === "blockComment") {
+      i = step.nextIndex;
+      consumedComment = true;
       continue;
     }
     return false; // a real code character
   }
-  return inComment; // blank/whitespace-only unless a comment was actually consumed
+  return consumedComment; // blank/whitespace-only unless a comment was actually consumed
 }
 
 /** Index of `quoteChar`'s matching close in `lineText` from `from` (respecting `\` escapes), or -1. */
@@ -2392,6 +2691,74 @@ type LineDocTokenStep =
   | { kind: "skip"; nextIndex: number }
   | { kind: "state"; state: DocScanState };
 
+function advanceRustDocToken(
+  lineText: string,
+  index: number,
+  ch: string,
+  quote: QuoteState,
+  enabled: boolean
+): LineDocTokenStep | null {
+  if (!enabled || quote.quote !== false) {
+    return null;
+  }
+  if (ch !== "'" && ch !== "r") {
+    return null;
+  }
+  const end =
+    ch === "'"
+      ? rustCharLiteralEnd(lineText, index)
+      : rustRawStringEnd(lineText, index);
+  return end === -1 ? null : { kind: "skip", nextIndex: end };
+}
+
+function advanceTripleQuoteDocToken(
+  lineText: string,
+  index: number,
+  ch: string,
+  quote: QuoteState,
+  enabled: boolean
+): LineDocTokenStep | null {
+  if (!enabled || quote.quote !== false) {
+    return null;
+  }
+  if (ch !== '"' && ch !== "'") {
+    return null;
+  }
+  if (lineText[index + 1] !== ch || lineText[index + 2] !== ch) {
+    return null;
+  }
+  const close = scanClosingTripleQuote(lineText, index + 3, ch);
+  return close === -1
+    ? { kind: "state", state: ch === '"' ? "pyTripleDouble" : "pyTripleSingle" }
+    : { kind: "skip", nextIndex: close + 1 };
+}
+
+function advanceOrdinaryDocQuote(
+  ch: string,
+  index: number,
+  quote: QuoteState,
+  quoteChars: ReadonlySet<string>
+): LineDocTokenStep | null {
+  return advanceQuoteState(quote, ch, quoteChars)
+    ? { kind: "skip", nextIndex: index + 1 }
+    : null;
+}
+
+function advanceTemplateDocToken(
+  lineText: string,
+  index: number,
+  ch: string,
+  enabled: boolean
+): LineDocTokenStep | null {
+  if (!enabled || ch !== "`") {
+    return null;
+  }
+  const close = scanClosingQuote(lineText, index + 1, "`");
+  return close === -1
+    ? { kind: "state", state: "template" }
+    : { kind: "skip", nextIndex: close + 1 };
+}
+
 function advanceLineDocToken(
   lineText: string,
   index: number,
@@ -2400,37 +2767,80 @@ function advanceLineDocToken(
   quoteChars: ReadonlySet<string>,
   opts: DocScanOptions
 ): LineDocTokenStep {
-  if (opts.lifetimeLang && !quote.quote && (ch === "'" || ch === "r")) {
-    const end =
-      ch === "'"
-        ? rustCharLiteralEnd(lineText, index)
-        : rustRawStringEnd(lineText, index);
-    if (end !== -1) {
-      return { kind: "skip", nextIndex: end };
-    }
+  const rustStep = advanceRustDocToken(
+    lineText,
+    index,
+    ch,
+    quote,
+    opts.lifetimeLang === true
+  );
+  if (rustStep !== null) {
+    return rustStep;
   }
-  if (
-    opts.pyTripleQuote &&
-    !quote.quote &&
-    (ch === '"' || ch === "'") &&
-    lineText[index + 1] === ch &&
-    lineText[index + 2] === ch
-  ) {
-    const close = scanClosingTripleQuote(lineText, index + 3, ch);
-    return close === -1
-      ? { kind: "state", state: ch === '"' ? "pyTripleDouble" : "pyTripleSingle" }
-      : { kind: "skip", nextIndex: close + 1 };
+  const tripleStep = advanceTripleQuoteDocToken(
+    lineText,
+    index,
+    ch,
+    quote,
+    opts.pyTripleQuote
+  );
+  if (tripleStep !== null) {
+    return tripleStep;
   }
-  if (advanceQuoteState(quote, ch, quoteChars)) {
-    return { kind: "skip", nextIndex: index + 1 };
+  const quoteStep = advanceOrdinaryDocQuote(ch, index, quote, quoteChars);
+  if (quoteStep !== null) {
+    return quoteStep;
   }
-  if (opts.template && ch === "`") {
-    const close = scanClosingQuote(lineText, index + 1, "`");
-    return close === -1
-      ? { kind: "state", state: "template" }
-      : { kind: "skip", nextIndex: close + 1 };
+  return advanceTemplateDocToken(lineText, index, ch, opts.template) ?? {
+    kind: "code",
+  };
+}
+
+type CStyleDocTokenStep =
+  | { kind: "code" }
+  | { kind: "lineComment" }
+  | { kind: "skip"; nextIndex: number }
+  | { kind: "state"; state: "blockComment" };
+
+function lineDocQuoteChars(opts: DocScanOptions): ReadonlySet<string> {
+  if (opts.template) {
+    return new Set<string>(['"', "'"]);
   }
-  return { kind: "code" };
+  return opts.lifetimeLang ? NON_LIFETIME_QUOTE_CHARS : TEMPLATE_QUOTE_CHARS;
+}
+
+function startsConfiguredLineComment(
+  lineText: string,
+  index: number,
+  quote: QuoteState,
+  markers: readonly string[] | undefined
+): boolean {
+  return (
+    markers !== undefined &&
+    quote.quote === false &&
+    startsLineComment(lineText, index, markers)
+  );
+}
+
+function advanceCStyleDocToken(
+  lineText: string,
+  index: number,
+  ch: string,
+  enabled: boolean
+): CStyleDocTokenStep {
+  if (!enabled || ch !== "/") {
+    return { kind: "code" };
+  }
+  if (lineText[index + 1] === "/") {
+    return { kind: "lineComment" };
+  }
+  if (lineText[index + 1] !== "*") {
+    return { kind: "code" };
+  }
+  const close = lineText.indexOf("*/", index + 2);
+  return close === -1
+    ? { kind: "state", state: "blockComment" }
+    : { kind: "skip", nextIndex: close + 2 };
 }
 
 /**
@@ -2456,18 +2866,10 @@ function advanceLineDocState(
   }
   let i = resume.index;
   const quote = initialQuoteState();
-  const quoteChars = opts.template
-    ? new Set<string>(['"', "'"])
-    : opts.lifetimeLang
-      ? NON_LIFETIME_QUOTE_CHARS
-      : TEMPLATE_QUOTE_CHARS;
+  const quoteChars = lineDocQuoteChars(opts);
   for (; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (
-      opts.markers &&
-      !quote.quote &&
-      startsLineComment(lineText, i, opts.markers)
-    ) {
+    if (startsConfiguredLineComment(lineText, i, quote, opts.markers)) {
       return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
     }
     const tokenStep = advanceLineDocToken(lineText, i, ch, quote, quoteChars, opts);
@@ -2478,18 +2880,15 @@ function advanceLineDocState(
       i = tokenStep.nextIndex - 1;
       continue;
     }
-    if (opts.cStyle) {
-      if (ch === "/" && lineText[i + 1] === "/") {
-        return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
-      }
-      if (ch === "/" && lineText[i + 1] === "*") {
-        const close = lineText.indexOf("*/", i + 2);
-        if (close === -1) {
-          return "blockComment";
-        }
-        i = close + 1;
-        continue;
-      }
+    const cStyleStep = advanceCStyleDocToken(lineText, i, ch, opts.cStyle);
+    if (cStyleStep.kind === "lineComment") {
+      return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
+    }
+    if (cStyleStep.kind === "state") {
+      return cStyleStep.state;
+    }
+    if (cStyleStep.kind === "skip") {
+      i = cStyleStep.nextIndex - 1;
     }
   }
   return codeEndState(lineText, opts.heredocLanguage);

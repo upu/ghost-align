@@ -247,6 +247,39 @@ suite("computeLineStateBefore（Ruby/PHP ヒアドキュメント）", () => {
     );
   });
 
+  test("Ruby/PHP: 文字列・コメント内の開始記号はヒアドキュメント開始と誤認しない", () => {
+    const cases: Array<{ languageId: string; openerLine: string }> = [
+      { languageId: "ruby", openerLine: 'text = "<<~SQL"' },
+      { languageId: "ruby", openerLine: "# <<~SQL" },
+      { languageId: "php", openerLine: '$text = "<<<EOT";' },
+      { languageId: "php", openerLine: "// <<<EOT" },
+    ];
+    for (const { languageId, openerLine } of cases) {
+      const lines = [openerLine, "still open"];
+      assert.strictEqual(
+        computeLineStateBefore(lines.length, (i) => lines[i], languageId),
+        "code",
+        `${languageId}: ${openerLine}`
+      );
+    }
+  });
+
+  test("Ruby: 行末コメント付きの開始行もヒアドキュメント状態を返す", () => {
+    const lines = ["sql = <<~SQL # note", "  still open"];
+    assert.deepStrictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+      { kind: "heredoc", terminator: "SQL" }
+    );
+  });
+
+  test("Ruby: 終端子の前方一致だけではヒアドキュメントを閉じない", () => {
+    const lines = ["sql = <<~SQL", "  still open", "SQL_MORE"];
+    assert.deepStrictEqual(
+      computeLineStateBefore(lines.length, (i) => lines[i], "ruby"),
+      { kind: "heredoc", terminator: "SQL" }
+    );
+  });
+
   test("PHP: nowdoc（<<<'EOT'）が閉じていなければ heredoc 状態を返す", () => {
     const lines = ["$sql = <<<'EOT'", "  SET x = 1"];
     assert.deepStrictEqual(
@@ -405,6 +438,24 @@ suite("isWholeLineComment", () => {
 
   test("1行で閉じるブロックコメントだけの行は true", () => {
     assert.strictEqual(isWholeLineComment("/* note */", "typescript", "code"), true);
+  });
+
+  test("タブを挟んだ複数のブロックコメントだけの行は true", () => {
+    assert.strictEqual(
+      isWholeLineComment("/* first */\t/* second */", "typescript", "code"),
+      true
+    );
+  });
+
+  test("複数のブロックコメント後に実コードがあれば false", () => {
+    assert.strictEqual(
+      isWholeLineComment(
+        "/* first */\t/* second */\tconst x = 1;",
+        "typescript",
+        "code"
+      ),
+      false
+    );
   });
 
   test("1行で閉じないブロックコメント開始行は true", () => {
