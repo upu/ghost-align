@@ -278,7 +278,7 @@ suite("computeDocumentPlacements", () => {
   });
 });
 
-suite("buildCopyAlignedText", () => {
+suite("buildCopyAlignedText（基本・整列方式）", () => {
   test("選択がなければドキュメント全体を対象にする（演算子整列）", () => {
     const { editor } = mockEditor("typescript", ["a = 1", "bb = 2"]);
     const text = buildCopyAlignedText(
@@ -405,7 +405,9 @@ suite("buildCopyAlignedText", () => {
     );
     assert.strictEqual(text, expected);
   });
+});
 
+suite("buildCopyAlignedText（複数選択）", () => {
   test("複数選択（マルチカーソル）は各範囲を整列済みテキスト化しEOLで連結する", () => {
     const lines = ["a = 1", "bb = 2", "ccc = 3"];
     const config = mockConfig({

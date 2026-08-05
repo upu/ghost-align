@@ -448,7 +448,7 @@ suite("isWholeLineComment", () => {
   });
 });
 
-suite("findOperatorColumn", () => {
+suite("findOperatorColumn（代入・文字列・JSON / YAML）", () => {
   test("単純な代入の = を見つける", () => {
     assert.strictEqual(findOperatorColumn("const x = 1;", ["="]), 8);
   });
@@ -634,7 +634,9 @@ suite("findOperatorColumn", () => {
     // あっても本来の区切り `:` を正しく返す。
     assert.strictEqual(findOperatorColumn("`weird: 1", [":"]), 6);
   });
+});
 
+suite("findOperatorColumn（CSS / SCSS / LESS）", () => {
   test("CSS: 擬似クラスの `:` ではなく宣言の `:` を返す", () => {
     // `a:hover { color: red; }` の宣言 `:`（列15）を返す。`a:hover` の `:`（列1）は対象外。
     assert.strictEqual(
@@ -710,7 +712,9 @@ suite("findOperatorColumn", () => {
       16
     );
   });
+});
 
+suite("findOperatorColumn（TypeScript / JavaScript の型・オブジェクト）", () => {
   test("TS: 型注釈の `:` を検出する", () => {
     assert.strictEqual(
       findOperatorColumn("const x: number = 1;", [":"], "typescript"),
@@ -791,7 +795,9 @@ suite("findOperatorColumn", () => {
       21
     );
   });
+});
 
+suite("findOperatorColumn（TypeScript switch ラベル）", () => {
   test("TS: `case X:` のラベルコロンは対象外", () => {
     assert.strictEqual(
       findOperatorColumn("  case 1:", [":"], "typescript"),
@@ -914,7 +920,9 @@ suite("findOperatorColumn", () => {
       null
     );
   });
+});
 
+suite("findOperatorColumn（行末コメント・汎用演算子・アロー）", () => {
   test("行末コメント `//` の位置を返す", () => {
     assert.strictEqual(findOperatorColumn("const x = 1; // note", ["//"]), 13);
   });
@@ -1049,7 +1057,9 @@ suite("findOperatorColumn", () => {
   test("宇宙船演算子 `<=>` を含んでいてもハッシュロケット `=>` は検出する", () => {
     assert.strictEqual(findOperatorColumn("a <=> b, c => d", ["=>"]), 11);
   });
+});
 
+suite("findOperatorColumn（言語別コメント）", () => {
   test("複合代入 `+=` は = の位置（揃え列）を返す", () => {
     assert.strictEqual(findOperatorColumn("x += 1", ["="]), 3);
   });
@@ -1185,7 +1195,9 @@ suite("findOperatorColumn", () => {
       null
     );
   });
+});
 
+suite("findOperatorColumn（追加言語・JSON / YAML コメント）", () => {
   test("`--` コメント言語（SQL/Haskell）では丸ごとコメント行の `=` を検出しない", () => {
     for (const lang of ["sql", "haskell"]) {
       assert.strictEqual(findOperatorColumn("-- x = 1", ["="], lang), null, lang);
