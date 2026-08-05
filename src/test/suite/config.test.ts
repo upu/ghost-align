@@ -255,7 +255,7 @@ suite("resolveCsvDelimiter", () => {
   });
 });
 
-suite("resolveOperatorsForLanguage", () => {
+suite("resolveOperatorsForLanguage（既定マッピング）", () => {
   test("JSON は既定で `:` を揃える", () => {
     assert.deepStrictEqual(
       resolveOperatorsForLanguage(mockConfig({}), "json"),
@@ -346,7 +346,9 @@ suite("resolveOperatorsForLanguage", () => {
       assert.strictEqual(aligned[0], aligned[1], lang);
     }
   });
+});
 
+suite("resolveOperatorsForLanguage（フォールバックと TypeScript / Python）", () => {
   test("マップにない言語はグローバル `operators` にフォールバックする", () => {
     assert.deepStrictEqual(
       resolveOperatorsForLanguage(mockConfig({}), "plaintext"),
@@ -484,7 +486,9 @@ suite("resolveOperatorsForLanguage", () => {
     const groups = findAlignmentGroups(doc, operators, "python");
     assert.strictEqual(groups.length, 0);
   });
+});
 
+suite("resolveOperatorsForLanguage（言語別演算子と構文）", () => {
   test("ruby / php / rust は既定で `=` と `=>` を揃える", () => {
     for (const lang of ["ruby", "php", "rust"]) {
       assert.deepStrictEqual(
@@ -662,7 +666,9 @@ suite("resolveOperatorsForLanguage", () => {
       { lineIndex: 0, character: 4, padding: 3 },
     ]);
   });
+});
 
+suite("resolveOperatorsForLanguage（ユーザー設定）", () => {
   test("ユーザーが operatorsByLanguage を設定すれば反映される", () => {
     const ops = resolveOperatorsForLanguage(
       mockConfig({

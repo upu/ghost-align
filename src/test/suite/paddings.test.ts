@@ -10,7 +10,7 @@ import {
 import { findOperatorTargets, initialLineScanState } from "../../finders";
 import { mockDocument } from "./testHelpers";
 
-suite("findAlignmentGroups", () => {
+suite("findAlignmentGroups（基本・インデント・継続行）", () => {
   test("連続する代入行をグループ化する", () => {
     const doc = mockDocument([
       "const x = 1;",
@@ -188,7 +188,9 @@ suite("findAlignmentGroups", () => {
     // 既にどちらも列8で揃っている（コメント行の `=`(列17) には引きずられない）
     assert.deepStrictEqual(computePaddings(groups), []);
   });
+});
 
+suite("findAlignmentGroups（CSS・コメント・マルチカラム）", () => {
   test("CSS: セレクタ行はグループに含めず宣言行だけを揃える", () => {
     const doc = mockDocument([
       "a:hover {",          // セレクタ行 — 擬似クラスの `:` は対象外 → 演算子なし
@@ -363,7 +365,9 @@ suite("findAlignmentGroups", () => {
       { opIndex: 1, insert: 6, visualColumn: 6 },
     ]);
   });
+});
 
+suite("findAlignmentGroups（Unicode・YAML・コメント行）", () => {
   test("YAML: 全行コメント行はグループを分断せず前後が同一グループとして揃う", () => {
     const doc = mockDocument([
       "a: 1",
@@ -513,7 +517,9 @@ suite("findAlignmentGroups", () => {
     assert.strictEqual(groups.length, 1);
     assert.deepStrictEqual(groups[0].map((g) => g.lineIndex), [0, 4]);
   });
+});
 
+suite("findAlignmentGroups（TypeScript switch）", () => {
   test("連続する switch の case/default 行はコロン整列のグループにならない（#336）", () => {
     const doc = mockDocument([
       "case 1:       return a;",
