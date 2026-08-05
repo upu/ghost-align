@@ -6,6 +6,7 @@
 // alignment path, and the visible-range slicing used for large files.
 
 import {
+  ColumnTarget,
   findOperatorTargets,
   initialLineScanState,
   isWholeLineComment,
@@ -231,31 +232,21 @@ export function findAlignmentGroups(
   tabSize: number = DEFAULT_TAB_SIZE,
   initialState: LineScanState = initialLineScanState()
 ): AlignmentEntry[][] {
-  const groups: AlignmentEntry[][] = [];
-  let currentGroup: AlignmentEntry[] = [];
-  let currentIndent: number | null = null;
-  let currentGroupHasContinuation = false;
+  const accumulator: AlignmentGroupAccumulator = {
+    groups: [],
+    current: [],
+    indent: null,
+    hasContinuation: false,
+  };
   let state = initialState;
   const isYamlLang = languageId === "yaml";
-
-  const flush = () => {
-    if (currentGroup.length >= 2) {
-      groups.push(currentGroup);
-    }
-    currentGroup = [];
-    currentIndent = null;
-    currentGroupHasContinuation = false;
-  };
-
   for (let i = 0; i < document.lineCount; i++) {
     const lineText = document.lineAt(i).text;
-
     if (isYamlLang && isYamlBlockScalarContent(lineText, state.yamlBlockScalar)) {
       state = nextLineScanState(lineText, state, languageId);
-      flush();
+      flushAlignmentGroup(accumulator);
       continue;
     }
-
     const incomingDocState = state.doc;
     const targets = findOperatorTargets(
       lineText,
@@ -266,44 +257,65 @@ export function findAlignmentGroups(
       state.tsBraces[state.tsBraces.length - 1]
     );
     state = nextLineScanState(lineText, state, languageId);
-
     if (targets.length === 0) {
       if (isWholeLineComment(lineText, languageId, incomingDocState)) {
         continue; // whole-line comment: transparent to the surrounding group
       }
-      flush();
+      flushAlignmentGroup(accumulator);
       continue;
     }
-
-    const hasContinuation = targets.some(
-      (t) => operators[t.opIndex] === LINE_CONTINUATION_OPERATOR
-    );
-    const indent = visualColumn(lineText, leadingIndent(lineText), tabSize);
-    if (
-      currentIndent !== null &&
-      indent !== currentIndent &&
-      !hasContinuation &&
-      !currentGroupHasContinuation
-    ) {
-      flush();
-    }
-    const columns = targets.map((t) => ({
-      opIndex: t.opIndex,
-      insert: t.insert,
-      visualColumn: visualColumn(lineText, t.align, tabSize),
-    }));
-    currentGroup.push({
-      lineIndex: i,
-      columns,
-    });
-    currentIndent = indent;
-    if (hasContinuation) {
-      currentGroupHasContinuation = true;
-    }
+    appendAlignmentEntry(accumulator, i, lineText, targets, operators, tabSize);
   }
-  flush();
+  flushAlignmentGroup(accumulator);
+  return accumulator.groups;
+}
 
-  return groups;
+interface AlignmentGroupAccumulator {
+  groups: AlignmentEntry[][];
+  current: AlignmentEntry[];
+  indent: number | null;
+  hasContinuation: boolean;
+}
+
+function flushAlignmentGroup(accumulator: AlignmentGroupAccumulator): void {
+  if (accumulator.current.length >= 2) {
+    accumulator.groups.push(accumulator.current);
+  }
+  accumulator.current = [];
+  accumulator.indent = null;
+  accumulator.hasContinuation = false;
+}
+
+function appendAlignmentEntry(
+  accumulator: AlignmentGroupAccumulator,
+  lineIndex: number,
+  lineText: string,
+  targets: readonly ColumnTarget[],
+  operators: readonly string[],
+  tabSize: number
+): void {
+  const hasContinuation = targets.some(
+    (target) => operators[target.opIndex] === LINE_CONTINUATION_OPERATOR
+  );
+  const indent = visualColumn(lineText, leadingIndent(lineText), tabSize);
+  if (
+    accumulator.indent !== null &&
+    indent !== accumulator.indent &&
+    !hasContinuation &&
+    !accumulator.hasContinuation
+  ) {
+    flushAlignmentGroup(accumulator);
+  }
+  accumulator.current.push({
+    lineIndex,
+    columns: targets.map((target) => ({
+      opIndex: target.opIndex,
+      insert: target.insert,
+      visualColumn: visualColumn(lineText, target.align, tabSize),
+    })),
+  });
+  accumulator.indent = indent;
+  accumulator.hasContinuation ||= hasContinuation;
 }
 
 /**
