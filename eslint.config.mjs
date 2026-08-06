@@ -19,15 +19,15 @@ export default tseslint.config(
     },
   },
   {
-    // Production code: strict type-checked lint. Tests keep the less strict
-    // preset below because their partial vscode.* mocks intentionally use any.
+    // Production code: strict type-checked lint. Tests use the same preset
+    // below with focused overrides for their partial vscode.* mocks.
     files: ["src/**/*.ts"],
     ignores: ["src/test/**/*.ts"],
     extends: [...tseslint.configs.strictTypeChecked],
   },
   {
     files: ["src/test/**/*.ts"],
-    extends: [...tseslint.configs.recommendedTypeChecked],
+    extends: [...tseslint.configs.strictTypeChecked],
   },
   {
     // Project rules shared by production and test TypeScript. This block comes

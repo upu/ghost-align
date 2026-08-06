@@ -92,7 +92,7 @@ suite("findAlignmentGroups（基本・インデント・継続行）", () => {
     const groups = findAlignmentGroups(doc, ["="], "rust");
     const entry = groups.flat().find((g) => g.lineIndex === 1);
     assert.ok(entry, "続き行の実コード側 = はグループに入る");
-    assert.strictEqual(entry!.columns[0].insert, continuation.indexOf("= 10"));
+    assert.strictEqual(entry.columns[0].insert, continuation.indexOf("= 10"));
   });
 
   test("Rust: ライフタイム付きの通常コード（ブロックコメントなし）は引き続き整列される", () => {
@@ -876,7 +876,7 @@ suite("computePaddings", () => {
     const elapsed = Date.now() - start;
     assert.ok(
       elapsed < 500,
-      `computePaddings took ${elapsed}ms for a ${N}-row group; expected O(N) or O(N log N), not O(N^2)`
+      `computePaddings took ${String(elapsed)}ms for a ${String(N)}-row group; expected O(N) or O(N log N), not O(N^2)`
     );
     // 位置0からmaxPadding(50)以内の行だけが揃い、それ以外は外れ値として除外される。
     assert.ok(placements.length > 0 && placements.length < N);
