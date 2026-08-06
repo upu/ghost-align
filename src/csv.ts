@@ -220,9 +220,7 @@ export function computeCsvNumericColumns(
     for (const row of dataRows) {
       if (row.numeric.length > k) {
         sawData = true;
-        if (!row.numeric[k]) {
-          allNumeric = false;
-        }
+        allNumeric = allNumeric && row.numeric[k];
       }
     }
     numericColumns.push(sawData && allNumeric);

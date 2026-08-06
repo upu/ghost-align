@@ -20,6 +20,7 @@ export default tseslint.config(
     },
     rules: {
       "complexity": ["error", 15],
+      "max-depth": ["error", 3],
       // src/finders.ts intentionally embeds U+200B between `*` and `/` inside
       // JSDoc examples of `/* ... */` so the example text doesn't prematurely
       // close the enclosing doc comment (see the finders-edge-cases rule).

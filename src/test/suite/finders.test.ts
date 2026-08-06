@@ -994,6 +994,11 @@ suite("findOperatorColumn（行末コメント・汎用演算子・アロー）"
     assert.strictEqual(findOperatorColumn("const u = http://x", ["//"]), null);
   });
 
+  test("URL scheme の `//` を読み飛ばした後の実際の行末コメントを返す", () => {
+    const line = "const u = http://x; // note";
+    assert.strictEqual(findOperatorColumn(line, ["//"]), line.lastIndexOf("//"));
+  });
+
   test("ブロックコメント内の `//` は拾わない", () => {
     assert.strictEqual(findOperatorColumn("x = 1; /* a // b */", ["//"]), null);
   });

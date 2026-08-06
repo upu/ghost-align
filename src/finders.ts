@@ -612,6 +612,14 @@ function indexOfTopLevelBrace(lineText: string): number {
   return -1;
 }
 
+function isCssSelectorColon(
+  index: number,
+  braceIndex: number,
+  insideBlock: boolean
+): boolean {
+  return braceIndex !== -1 ? index < braceIndex : !insideBlock;
+}
+
 /**
  * Indices of all CSS declaration-separator `:` (the `:` in `color: red`),
  * excluding:
@@ -672,20 +680,17 @@ function findCssColon(
       i = comment; // loop's i++ advances past the closing `/`
       continue;
     }
-    if (ch === ":") {
-      if (lineText[i + 1] === ":") {
-        i++; // pseudo-element `::`
-        continue;
-      }
-      if (braceIndex !== -1) {
-        if (i < braceIndex) {
-          continue; // selector pseudo-class, before the rule block
-        }
-      } else if (!insideBlock) {
-        continue; // no `{` on this line and no block open yet: selector continuation
-      }
-      results.push(i);
+    if (ch !== ":") {
+      continue;
     }
+    if (lineText[i + 1] === ":") {
+      i++; // pseudo-element `::`
+      continue;
+    }
+    if (isCssSelectorColon(i, braceIndex, insideBlock)) {
+      continue;
+    }
+    results.push(i);
   }
   return results;
 }
@@ -1401,10 +1406,11 @@ function findDestructuringPatternRanges(
     }
     if (ch === "}" || ch === ")" || ch === "]") {
       const top = stack.pop();
-      if (top !== undefined && ch === "}" && top.ch === "{") {
-        if (isFollowedByRealAssignment(lineText, i + 1, stack.length, opts)) {
-          ranges.push([top.index, i]);
-        }
+      if (top === undefined || ch !== "}" || top.ch !== "{") {
+        continue;
+      }
+      if (isFollowedByRealAssignment(lineText, i + 1, stack.length, opts)) {
+        ranges.push([top.index, i]);
       }
       continue;
     }
@@ -1856,6 +1862,10 @@ function findArrow(lineText: string, languageId?: string): number[] {
  */
 const TRAILING_COMMENT_MARKERS = new Set(["//", "#", "--", ";"]);
 
+function isUrlSchemeMarker(lineText: string, index: number, marker: string): boolean {
+  return marker === "//" && lineText[index - 1] === ":";
+}
+
 /**
  * Index of a *trailing* line-comment marker — one of {@link
  * TRAILING_COMMENT_MARKERS} (`//`, `#`, `--`, `;`) — on a line, or -1.
@@ -1893,11 +1903,11 @@ function findTrailingComment(lineText: string, marker: string): number {
       if (!seenCode) {
         return -1; // whole-line comment, not a trailing one
       }
+      if (isUrlSchemeMarker(lineText, i, marker)) {
+        i += marker.length - 1; // URL scheme like http:// — skip both slashes and keep scanning
+        continue;
+      }
       if (marker === "//") {
-        if (lineText[i - 1] === ":") {
-          i += marker.length - 1; // URL scheme like http:// — skip both slashes and keep scanning
-          continue;
-        }
         return i;
       }
       const prev = lineText[i - 1];

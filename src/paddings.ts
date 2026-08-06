@@ -318,6 +318,38 @@ function appendAlignmentEntry(
   accumulator.hasContinuation ||= hasContinuation;
 }
 
+type PaddingRow = {
+  lineIndex: number;
+  columnsByOpIndex: Map<number, AlignmentColumn>;
+  shift: number;
+};
+
+type ActivePaddingColumn = {
+  row: PaddingRow;
+  column: AlignmentColumn;
+};
+
+function appendColumnPaddings(
+  placements: Placement[],
+  active: ActivePaddingColumn[]
+): void {
+  const maxCol = Math.max(
+    ...active.map(({ row, column }) => column.visualColumn + row.shift)
+  );
+  for (const { row, column } of active) {
+    const padding = maxCol - (column.visualColumn + row.shift);
+    if (padding <= 0) {
+      continue; // already at the max position
+    }
+    placements.push({
+      lineIndex: row.lineIndex,
+      character: column.insert,
+      padding,
+    });
+    row.shift += padding;
+  }
+}
+
 /**
  * Compute the ghost-padding placements for alignment groups. Pure: for each
  * line and column that is not already at the group's max visual column,
@@ -372,21 +404,7 @@ export function computePaddings(
           ({ row, column }) => column.visualColumn + row.shift - min <= maxPadding
         );
       }
-      const maxCol = Math.max(
-        ...active.map(({ row, column }) => column.visualColumn + row.shift)
-      );
-      for (const { row, column } of active) {
-        const padding = maxCol - (column.visualColumn + row.shift);
-        if (padding <= 0) {
-          continue; // already at the max position
-        }
-        placements.push({
-          lineIndex: row.lineIndex,
-          character: column.insert,
-          padding,
-        });
-        row.shift += padding;
-      }
+      appendColumnPaddings(placements, active);
     }
   }
   return placements;
