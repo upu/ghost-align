@@ -45,7 +45,10 @@ export function findUrlSpans(text: string): UrlSpan[] {
   URL_RE.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = URL_RE.exec(text))) {
-    const [whole, scheme, userinfo, host, port] = m;
+    const [whole, scheme, , host] = m;
+    const optionalCaptures: readonly (string | undefined)[] = m;
+    const userinfo = optionalCaptures[2];
+    const port = optionalCaptures[4];
     const start = m.index;
     const hostStart = start + scheme.length + (userinfo?.length ?? 0);
     const hostEnd = hostStart + host.length + (port?.length ?? 0);

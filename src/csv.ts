@@ -228,6 +228,12 @@ export function computeCsvNumericColumns(
   return numericColumns;
 }
 
+// These accumulator arrays can contain holes even though indexed access is typed as present.
+function sparseValue<T>(values: readonly T[], index: number): T | undefined {
+  const sparseValues: readonly (T | undefined)[] = values;
+  return sparseValues[index];
+}
+
 /**
  * Per-column decimal-point alignment widths for ghostAlign.csv.alignNumbersRight,
  * restricted to columns `numericColumns` marks numeric (see
@@ -262,7 +268,8 @@ export function computeCsvDecimalWidths(
       if (!numericColumns[k] || !row.numeric[k]) {
         continue;
       }
-      if (maxIntWidths[k] === undefined || row.intEndWidths[k] > maxIntWidths[k]) {
+      const currentMax = sparseValue(maxIntWidths, k);
+      if (currentMax === undefined || row.intEndWidths[k] > currentMax) {
         maxIntWidths[k] = row.intEndWidths[k];
       }
     }
@@ -277,7 +284,8 @@ export function computeCsvDecimalWidths(
         continue;
       }
       const total = maxIntWidths[k] + (row.widths[k] - row.intEndWidths[k]);
-      if (minTotalWidths[k] === undefined || total > minTotalWidths[k]) {
+      const currentMin = sparseValue(minTotalWidths, k);
+      if (currentMin === undefined || total > currentMin) {
         minTotalWidths[k] = total;
       }
     }
@@ -299,7 +307,8 @@ export function computeCsvMaxWidths(
       continue;
     }
     for (let k = 0; k < row.widths.length; k++) {
-      if (max[k] === undefined || row.widths[k] > max[k]) {
+      const currentMax = sparseValue(max, k);
+      if (currentMax === undefined || row.widths[k] > currentMax) {
         max[k] = row.widths[k];
       }
     }
@@ -384,7 +393,7 @@ export function computeCsvPaddingsFromMax(
       rows,
       pos,
       k,
-      plan[k],
+      sparseValue(plan, k),
       numericColumns,
       minTotalWidths
     );
@@ -411,17 +420,23 @@ function widenNumericTarget(
   rows: readonly { lineIndex: number; metrics: CsvLineMetrics }[],
   positions: readonly number[],
   column: number,
-  planTarget: number | null,
+  planTarget: number | null | undefined,
   numericColumns: readonly boolean[],
   minTotalWidths: readonly number[]
-): number | null {
-  if (planTarget === null || !numericColumns[column] || minTotalWidths[column] === undefined) {
+): number | null | undefined {
+  const minTotalWidth = sparseValue(minTotalWidths, column);
+  if (
+    planTarget === null ||
+    planTarget === undefined ||
+    !numericColumns[column] ||
+    minTotalWidth === undefined
+  ) {
     return planTarget;
   }
   let target = planTarget;
   rows.forEach((row, i) => {
     if (row.metrics.delims.length > column) {
-      target = Math.max(target, positions[i] + minTotalWidths[column]);
+      target = Math.max(target, positions[i] + minTotalWidth);
     }
   });
   return target;

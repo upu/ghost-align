@@ -8,16 +8,31 @@ export default tseslint.config(
     ignores: ["out/**", "out-tsc/**", "dist/**"],
   },
   {
-    // src/**: TypeScript, type-checked lint (catches floating promises etc.,
-    // which matter a lot for a VS Code extension's async APIs — see #370).
+    // src/**: TypeScript parser and common JavaScript rules.
     files: ["src/**/*.ts"],
-    extends: [js.configs.recommended, ...tseslint.configs.recommendedTypeChecked],
+    extends: [js.configs.recommended],
     languageOptions: {
       parserOptions: {
         project: "./tsconfig.json",
         tsconfigRootDir: import.meta.dirname,
       },
     },
+  },
+  {
+    // Production code: strict type-checked lint. Tests keep the less strict
+    // preset below because their partial vscode.* mocks intentionally use any.
+    files: ["src/**/*.ts"],
+    ignores: ["src/test/**/*.ts"],
+    extends: [...tseslint.configs.strictTypeChecked],
+  },
+  {
+    files: ["src/test/**/*.ts"],
+    extends: [...tseslint.configs.recommendedTypeChecked],
+  },
+  {
+    // Project rules shared by production and test TypeScript. This block comes
+    // after both presets so the intentional unused-argument convention wins.
+    files: ["src/**/*.ts"],
     rules: {
       "complexity": ["error", 15],
       "max-depth": ["error", 3],

@@ -106,18 +106,18 @@ function assignmentQuoteChars(languageId: string | undefined): ReadonlySet<strin
  */
 function rustCharLiteralEnd(lineText: string, i: number): number {
   let j = i + 1;
-  if (lineText[j] === undefined) {
+  if (lineText.charAt(j) === "") {
     return -1;
   }
-  if (lineText[j] === "\\") {
+  if (lineText.charAt(j) === "\\") {
     j++;
-    if (lineText[j] === "u" && lineText[j + 1] === "{") {
+    if (lineText.charAt(j) === "u" && lineText.charAt(j + 1) === "{") {
       const close = lineText.indexOf("}", j + 2);
       if (close === -1) {
         return -1;
       }
       j = close + 1;
-    } else if (lineText[j] !== undefined) {
+    } else if (lineText.charAt(j) !== "") {
       j++; // one char after the backslash: n, t, ', \, 0, or a hex digit
     } else {
       return -1;
@@ -125,7 +125,7 @@ function rustCharLiteralEnd(lineText: string, i: number): number {
   } else {
     j++;
   }
-  return lineText[j] === "'" ? j + 1 : -1;
+  return lineText.charAt(j) === "'" ? j + 1 : -1;
 }
 
 /**
@@ -144,8 +144,8 @@ function rustCharLiteralEnd(lineText: string, i: number): number {
  * the string early — mirroring Rust's own delimiter-matching grammar.
  */
 function rustRawStringEnd(lineText: string, i: number): number {
-  const prev = lineText[i - 1];
-  if (prev !== undefined && /[A-Za-z0-9_]/.test(prev)) {
+  const prev = lineText.charAt(i - 1);
+  if (prev !== "" && /[A-Za-z0-9_]/.test(prev)) {
     return -1; // `r` is the tail of a longer identifier, not a prefix
   }
   let j = i + 1;
@@ -948,8 +948,8 @@ function startsLineComment(
   index: number,
   markers: readonly string[]
 ): boolean {
-  const prev = lineText[index - 1];
-  if (prev !== undefined && prev !== " " && prev !== "\t") {
+  const prev = lineText.charAt(index - 1);
+  if (prev !== "" && prev !== " " && prev !== "\t") {
     return false;
   }
   return markers.some((m) => lineText.startsWith(m, index));
@@ -1622,8 +1622,8 @@ function findGenericTypeArgListRanges(
       i++; // `<<`/`<<=` shift or `<=` comparison, never a type-argument list
       continue;
     }
-    const prev = lineText[i - 1];
-    const afterIdentifier = prev !== undefined && /[A-Za-z0-9_$]/.test(prev);
+    const prev = lineText.charAt(i - 1);
+    const afterIdentifier = prev !== "" && /[A-Za-z0-9_$]/.test(prev);
     const afterTemplateKeyword =
       languageId === "cpp" &&
       TEMPLATE_KEYWORD_BEFORE_ANGLE_RE.test(lineText.slice(0, i));
@@ -1995,8 +1995,8 @@ function findLineContinuationMarker(
  */
 const LAMBDA_KEYWORD_TAIL_RE = /^lambda(?![A-Za-z0-9_])/;
 function isLambdaKeywordStart(lineText: string, i: number): boolean {
-  const prev = lineText[i - 1];
-  if (prev !== undefined && /[A-Za-z0-9_]/.test(prev)) {
+  const prev = lineText.charAt(i - 1);
+  if (prev !== "" && /[A-Za-z0-9_]/.test(prev)) {
     return false;
   }
   return LAMBDA_KEYWORD_TAIL_RE.test(lineText.slice(i));
@@ -2339,7 +2339,11 @@ const PHP_HEREDOC_OPENER = /<<<\s*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_
 type HeredocMatcher = (lineText: string, index: number) => string | null;
 
 function heredocTerminator(match: RegExpExecArray | null): string | null {
-  return match === null ? null : (match[1] ?? match[2] ?? match[3]);
+  if (match === null) {
+    return null;
+  }
+  const captures: readonly (string | undefined)[] = match;
+  return captures[1] ?? captures[2] ?? captures[3] ?? null;
 }
 
 function matchPhpHeredoc(lineText: string, index: number): string | null {
@@ -2434,8 +2438,8 @@ function isHeredocTerminatorLine(lineText: string, terminator: string): boolean 
   if (!trimmed.startsWith(terminator)) {
     return false;
   }
-  const after = trimmed[terminator.length];
-  return after === undefined || !/\w/.test(after);
+  const after = trimmed.charAt(terminator.length);
+  return after === "" || !/\w/.test(after);
 }
 
 /**

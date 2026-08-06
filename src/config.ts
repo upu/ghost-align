@@ -106,11 +106,18 @@ export function resolveOperatorsForLanguage(
   config: { get<T>(key: string, defaultValue: T): T },
   languageId: string
 ): string[] {
-  const byLang = config.get<Record<string, string[]>>(
+  const raw = config.get<unknown>(
     "operatorsByLanguage",
     DEFAULT_OPERATORS_BY_LANGUAGE
   );
-  if (byLang && Object.prototype.hasOwnProperty.call(byLang, languageId)) {
+  const byLang: Record<string, unknown> | undefined =
+    raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : undefined;
+  if (
+    byLang !== undefined &&
+    Object.prototype.hasOwnProperty.call(byLang, languageId)
+  ) {
     return sanitizeOperators(byLang[languageId]);
   }
   if (!config.get<boolean>("alignUnknownLanguages", true)) {
@@ -247,14 +254,14 @@ export type GhostAlignConfig = {
  * untouched. `get` can't tell "explicitly set to the default" from "unset",
  * which is exactly the distinction the migration fallback below needs.
  */
-function explicitSetting<T>(
+function explicitSetting(
   config: GhostAlignConfig,
   key: string
-): T | undefined {
+): unknown {
   if (!config.inspect) {
-    return config.get<T | undefined>(key, undefined);
+    return config.get<unknown>(key, undefined);
   }
-  const inspected = config.inspect<T>(key);
+  const inspected = config.inspect<unknown>(key);
   if (!inspected) {
     return undefined;
   }
@@ -278,12 +285,12 @@ export function resolveFeatureEnabled(
   key: string,
   legacyKey?: string
 ): boolean {
-  const explicit = explicitSetting<boolean>(config, key);
+  const explicit = explicitSetting(config, key);
   if (typeof explicit === "boolean") {
     return explicit;
   }
   if (legacyKey !== undefined) {
-    const legacy = explicitSetting<boolean>(config, legacyKey);
+    const legacy = explicitSetting(config, legacyKey);
     if (typeof legacy === "boolean") {
       return legacy;
     }
