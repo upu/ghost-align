@@ -666,7 +666,7 @@ function computeLongOperatorGroupPlacements(
   // 通常の境界拡張上限を超えるグループは、スクロール位置に依存しない全体配置を再利用する。
   const cache = getLongOperatorGroupCache(document);
   cache.sync(
-    `${languageId}|${tabSize}|${maxPadding}|${path.alignJsdoc}|${path.operators.join(",")}`
+    `${languageId}|${String(tabSize)}|${String(maxPadding)}|${String(path.alignJsdoc)}|${path.operators.join(",")}`
   );
   const cached = cache.findFor(slice.start, slice.end);
   if (cached) {

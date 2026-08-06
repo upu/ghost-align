@@ -509,7 +509,7 @@ function placementsForTableRows(
     let pos = 0;
     row.pipes.forEach((pipe, k) => {
       const raw = pos + row.segWidths[k];
-      const target = plan[k];
+      const target = k < plan.length ? plan[k] : undefined;
       if (target === null || target === undefined) {
         pos = raw + 1;
         return;

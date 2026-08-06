@@ -30,7 +30,7 @@ const ENABLED_STATE_KEY = "enabled";
 let enabled = true;
 
 // Status bar item reflecting the current ON/OFF state; clicking it toggles.
-let statusBarItem: vscode.StatusBarItem;
+let statusBarItem: vscode.StatusBarItem | undefined;
 
 /**
  * Resolve the toggle state from persisted storage. The workspace's own value
@@ -193,8 +193,12 @@ function registerEditorListeners(
       updateDecorations();
       updateStatusBar();
     }),
-    vscode.window.onDidChangeVisibleTextEditors(() => updateDecorations()),
-    vscode.window.onDidChangeTextEditorOptions(() => scheduleUpdate()),
+    vscode.window.onDidChangeVisibleTextEditors(() => {
+      updateDecorations();
+    }),
+    vscode.window.onDidChangeTextEditorOptions(() => {
+      scheduleUpdate();
+    }),
     vscode.window.onDidChangeTextEditorVisibleRanges((e) => {
       if (e.textEditor.document.lineCount >= LARGE_FILE_LINE_THRESHOLD) {
         scheduleUpdate([e.textEditor]);
