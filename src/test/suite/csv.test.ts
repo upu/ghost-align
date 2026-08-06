@@ -257,6 +257,11 @@ suite("computeCsvNumericColumns", () => {
     ];
     assert.deepStrictEqual(computeCsvNumericColumns(rows), [true, true]);
   });
+
+  test("列が短いデータ行では、セルが存在する行だけで数値列を判定する", () => {
+    const rows = metricsOf(["id,value,extra,note", "1,2", "3,4,5,x"]);
+    assert.deepStrictEqual(computeCsvNumericColumns(rows), [true, true, true]);
+  });
 });
 
 suite("computeCsvDecimalWidths", () => {
