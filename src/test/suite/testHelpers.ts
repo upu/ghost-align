@@ -40,8 +40,8 @@ export function mockDocument(lines: string[]) {
 }
 
 type MockConfigInspection = {
-  globalValue?: unknown;
-  workspaceValue?: unknown;
+  globalValue?: any;
+  workspaceValue?: any;
 };
 
 // vscode.WorkspaceConfiguration の最小限モック。values に入っているキーは
@@ -50,18 +50,18 @@ export function mockConfig(
   values: Record<string, unknown>,
   inspections: Record<string, MockConfigInspection> = {}
 ): GhostAlignConfig {
-  const config = {
+  const config: GhostAlignConfig = {
     get<T>(key: string, defaultValue: T): T {
       return (key in values ? values[key] : defaultValue) as T;
     },
-    inspect(key: string): MockConfigInspection {
+    inspect(key: string) {
       if (key in inspections) {
         return inspections[key];
       }
       return key in values ? { globalValue: values[key] } : {};
     },
   };
-  return config as GhostAlignConfig;
+  return config;
 }
 
 // vscode.Memento (globalState) の最小限モック
