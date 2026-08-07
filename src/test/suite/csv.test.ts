@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import {
+  CsvLineMetrics,
   CsvWidthCache,
   computeCsvColumnPlan,
   computeCsvDecimalWidths,
@@ -12,6 +13,16 @@ import {
   findCsvDelimiterPositions,
   urlTargetsForCsvLine,
 } from "../../csv";
+
+function csvMetrics(
+  lineText: string,
+  delimiter: string = ",",
+  tabSize: number = 4
+): CsvLineMetrics {
+  const metrics = computeCsvLineMetrics(lineText, delimiter, tabSize);
+  assert.ok(metrics, `CSV metrics expected for line: ${lineText}`);
+  return metrics;
+}
 
 suite("findCsvDelimiterPositions", () => {
   test("クォート内のカンマは区切りとして扱わない", () => {
@@ -230,8 +241,7 @@ suite("computeCsvPaddings: alignNumbersRight", () => {
 });
 
 suite("computeCsvNumericColumns", () => {
-  const metricsOf = (lines: string[]) =>
-    lines.map((l) => computeCsvLineMetrics(l, ",", 4));
+  const metricsOf = (lines: string[]) => lines.map((line) => csvMetrics(line));
 
   test("先頭行(ヘッダー)は判定から除外し、以降のデータ行が全て数値なら true", () => {
     const rows = metricsOf(["id,name,price", "1,apple,9", "222,banana,15"]);
@@ -265,8 +275,7 @@ suite("computeCsvNumericColumns", () => {
 });
 
 suite("computeCsvDecimalWidths", () => {
-  const metricsOf = (lines: string[]) =>
-    lines.map((l) => computeCsvLineMetrics(l, ",", 4));
+  const metricsOf = (lines: string[]) => lines.map((line) => csvMetrics(line));
 
   test("整数部の最大幅と、整数部+小数部の最大幅の組み合わせを列ごとに返す", () => {
     // 列0(price): "1.5"(整数部1,小数部".5"幅2) "23.45"(整数部2,小数部".45"幅3) "100"(整数部3,小数部なし)。
@@ -387,7 +396,7 @@ suite("computeCsvMaxWidths", () => {
 
 suite("computeCsvPaddingsFromMax", () => {
   test("行自身より広いグローバル最大幅を基準に揃える", () => {
-    const metrics = computeCsvLineMetrics("a,b", ",", 4)!;
+    const metrics = csvMetrics("a,b");
     assert.deepStrictEqual(
       computeCsvPaddingsFromMax([{ lineIndex: 42, metrics }], [10], ",", 4),
       [{ lineIndex: 42, character: 1, padding: 9 }]
@@ -398,7 +407,7 @@ suite("computeCsvPaddingsFromMax", () => {
     const lines = ["aaaaa\tb\tc", "a\tbbbbbbbbb\tc"];
     const rows = lines.map((text, lineIndex) => ({
       lineIndex,
-      metrics: computeCsvLineMetrics(text, "\t", 4)!,
+      metrics: csvMetrics(text, "\t"),
     }));
     assert.deepStrictEqual(
       computeCsvPaddingsFromMax(
@@ -414,10 +423,7 @@ suite("computeCsvPaddingsFromMax", () => {
 
 suite("computeCsvColumnPlan", () => {
   test("maxPadding 以内なら全列の最大幅に揃える計画を返す", () => {
-    const rows = [
-      computeCsvLineMetrics("a,bb,x", ",", 4)!,
-      computeCsvLineMetrics("xxx,y,z", ",", 4)!,
-    ];
+    const rows = [csvMetrics("a,bb,x"), csvMetrics("xxx,y,z")];
     assert.deepStrictEqual(
       computeCsvColumnPlan(rows.map((r) => r.widths), ",", 4, 10),
       [3, 6]
@@ -426,8 +432,8 @@ suite("computeCsvColumnPlan", () => {
 
   test("超過する列は null にし、以降の列は各行の実位置基準で計画する", () => {
     const rows = [
-      computeCsvLineMetrics("a,bbbbbbbbbbbbbbb,c", ",", 4)!,
-      computeCsvLineMetrics("aaaaaaaaaaaaaaaaaaaa,ddddd,c", ",", 4)!,
+      csvMetrics("a,bbbbbbbbbbbbbbb,c"),
+      csvMetrics("aaaaaaaaaaaaaaaaaaaa,ddddd,c"),
     ];
     assert.deepStrictEqual(
       computeCsvColumnPlan(rows.map((r) => r.widths), ",", 4, 10),
@@ -436,10 +442,7 @@ suite("computeCsvColumnPlan", () => {
   });
 
   test("maxPadding 0 は無制限（従来挙動）", () => {
-    const rows = [
-      computeCsvLineMetrics("a,b", ",", 4)!,
-      computeCsvLineMetrics("xxxxxxxxxx,y", ",", 4)!,
-    ];
+    const rows = [csvMetrics("a,b"), csvMetrics("xxxxxxxxxx,y")];
     assert.deepStrictEqual(
       computeCsvColumnPlan(rows.map((r) => r.widths), ",", 4, 0),
       [10]
@@ -453,7 +456,7 @@ suite("CsvWidthCache", () => {
     lines: string[],
     reads: number[],
     tabSize = 4
-  ) =>
+  ) => {
     cache.sync(
       lines.length,
       (i) => {
@@ -462,6 +465,7 @@ suite("CsvWidthCache", () => {
       },
       tabSize
     );
+  };
 
   test("初回同期は全行を走査して全行基準の最大幅を返す", () => {
     const lines = ["a,b,c", "ccc,d,e"];
@@ -691,7 +695,7 @@ suite("computeCsvUrlTargets / urlTargetsForCsvLine (#418)", () => {
 
   test("urlTargetsForCsvLine は1行分のメトリクスから computeCsvUrlTargets と同じ結果を返す", () => {
     const lineText = "id,https://github.com/foo,note";
-    const metrics = computeCsvLineMetrics(lineText, ",", 4)!;
+    const metrics = csvMetrics(lineText);
     const targets = urlTargetsForCsvLine(0, lineText, metrics);
     assert.strictEqual(targets.length, 1);
     assert.strictEqual(

@@ -679,9 +679,9 @@ suite("decorateEditor と Markdown 区切り行の `-` パディング", () => {
     assert.strictEqual(delimDecos.length, 1);
     assert.strictEqual(delimDecos[0].renderOptions?.before?.contentText, "---");
     // `-` を可視にするため文字色は指定しない（ゴースト印の背景色のみ）
-    assert.strictEqual(delimDecos[0].renderOptions?.before?.color, undefined);
+    assert.strictEqual(delimDecos[0].renderOptions.before.color, undefined);
     assert.strictEqual(
-      delimDecos[0].renderOptions?.before?.backgroundColor,
+      delimDecos[0].renderOptions.before.backgroundColor,
       "gray"
     );
     const dataDecos = calls[0].filter((d) => d.range.start.line !== 1);
@@ -882,12 +882,12 @@ suite("decorateEditor と可視範囲モード（長大な operator group, #434�
     const lineDecos = calls[0].filter((d) => d.range.start.line === 5000);
     const eqDeco = lineDecos.find((d) => d.range.start.character === eqColNormal);
     assert.ok(eqDeco);
-    assert.strictEqual(eqDeco?.renderOptions?.before?.contentText?.length, padding0);
+    assert.strictEqual(eqDeco.renderOptions?.before?.contentText?.length, padding0);
     // opIndex1 は前列(opIndex0)のシフトを反映した比較でなければ padding1 にならない。
     assert.ok(padding1 > 0);
     const colonDeco = lineDecos.find((d) => d.range.start.character === colonColNormal);
     assert.ok(colonDeco);
-    assert.strictEqual(colonDeco?.renderOptions?.before?.contentText?.length, padding1);
+    assert.strictEqual(colonDeco.renderOptions?.before?.contentText?.length, padding1);
   });
 
   test("同じグループの整列先はスクロール位置が変わっても一致する", () => {
@@ -911,8 +911,8 @@ suite("decorateEditor と可視範囲モード（長大な operator group, #434�
     assert.ok(first);
     assert.ok(second);
     assert.strictEqual(
-      second?.renderOptions?.before?.contentText?.length,
-      first?.renderOptions?.before?.contentText?.length
+      second.renderOptions?.before?.contentText?.length,
+      first.renderOptions?.before?.contentText?.length
     );
   });
 
@@ -947,7 +947,7 @@ suite("decorateEditor と可視範囲モード（長大な operator group, #434�
 
     // グループ全体(4000行)やファイル全体(10001行)を読み直していれば
     // この回数を大きく超える。通常のスライス読み込み分だけに収まることを確認する。
-    assert.ok(lineAtCalls < 3000, `lineAt calls: ${lineAtCalls}`);
+    assert.ok(lineAtCalls < 3000, `lineAt calls: ${String(lineAtCalls)}`);
   });
 
   test("グループ内の最長行を編集して外れ値を解消すると、再走査後は揃え直しが不要になる", () => {
@@ -960,7 +960,7 @@ suite("decorateEditor と可視範囲モード（長大な operator group, #434�
       (d) => d.range.start.line === 5000 && d.range.start.character === eqColNormal
     );
     assert.ok(before);
-    assert.ok((before?.renderOptions?.before?.contentText?.length ?? 0) > 0);
+    assert.ok((before.renderOptions?.before?.contentText?.length ?? 0) > 0);
 
     const oldLine = lines[groupStart];
     lines[groupStart] = normalLine; // 外れ値を解消し、グループ全体が同一内容になる
@@ -1015,7 +1015,7 @@ suite("decorateEditor と ghostAlign.shortenUrls (#418)", () => {
     assert.strictEqual(hideRanges.length, 2); // scheme 部分 + パス部分
     assert.strictEqual(hostDecos.length, 1);
     assert.strictEqual(hostDecos[0].renderOptions?.before?.contentText, "[");
-    assert.strictEqual(hostDecos[0].renderOptions?.after?.contentText, "]");
+    assert.strictEqual(hostDecos[0].renderOptions.after?.contentText, "]");
     assert.strictEqual(hostDecos[0].hoverMessage, "https://github.com/foo");
     assert.strictEqual(
       lines[1].slice(

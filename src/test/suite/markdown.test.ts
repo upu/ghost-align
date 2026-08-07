@@ -541,7 +541,7 @@ suite("MarkdownTableWidthCache", () => {
     reads: number[],
     tabSize = 4,
     maxPadding = 0
-  ) =>
+  ) => {
     cache.sync(
       lines.length,
       (i) => {
@@ -551,6 +551,7 @@ suite("MarkdownTableWidthCache", () => {
       tabSize,
       maxPadding
     );
+  };
 
   test("右寄せ宣言は placementsForRange 経由でもセル内容の先頭にパディングする", () => {
     const lines = ["| a | b |", "| ---: | --- |", "| cccccc | d |"];

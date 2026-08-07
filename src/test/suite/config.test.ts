@@ -21,6 +21,13 @@ import {
 } from "../../config";
 import { mockDocument, mockConfig, findOperatorTarget } from "./testHelpers";
 
+type ConfigProp = {
+  type?: string;
+  default?: unknown;
+  markdownDeprecationMessage?: string;
+};
+type ConfigProperties = Partial<Record<string, ConfigProp>>;
+
 suite("resolveGhostSettings", () => {
   test("設定が何もなければデフォルト値が使われる", () => {
     const s = resolveGhostSettings(mockConfig({}));
@@ -94,10 +101,7 @@ suite("resolveAlignmentPath", () => {
       mockConfig({ alignJsdocParams: false })
     );
     assert.strictEqual(path.kind, "operators");
-    assert.strictEqual(
-      path.kind === "operators" ? path.alignJsdoc : undefined,
-      false
-    );
+    assert.strictEqual(path.alignJsdoc, false);
   });
 
   test("TS/JS 以外の言語では alignJsdoc は常に false", () => {
@@ -476,7 +480,7 @@ suite("resolveOperatorsForLanguage（フォールバックと TypeScript / Pytho
     const groups = findAlignmentGroups(doc, operators, "python");
     assert.strictEqual(groups.length, 1);
     for (const g of groups[0]) {
-      assert.strictEqual(g.columns.length, 2, `line ${g.lineIndex}`);
+      assert.strictEqual(g.columns.length, 2, `line ${String(g.lineIndex)}`);
     }
   });
 
@@ -755,26 +759,18 @@ suite("toggleDisabledLanguage", () => {
 
 suite("resolveDisabledLanguagesTarget", () => {
   test("workspace 設定に disabledLanguages が明示されていれば workspace を返す", () => {
-    const config = {
-      get<T>(_key: string, defaultValue: T): T {
-        return defaultValue;
-      },
-      inspect<T>(_key: string) {
-        return { workspaceValue: [] as unknown as T };
-      },
-    };
+    const config = mockConfig(
+      {},
+      { disabledLanguages: { workspaceValue: [] } }
+    );
     assert.strictEqual(resolveDisabledLanguagesTarget(config), "workspace");
   });
 
   test("workspace 設定が無く global のみ明示されていれば global を返す", () => {
-    const config = {
-      get<T>(_key: string, defaultValue: T): T {
-        return defaultValue;
-      },
-      inspect<T>(_key: string) {
-        return { globalValue: ["yaml"] as unknown as T };
-      },
-    };
+    const config = mockConfig(
+      {},
+      { disabledLanguages: { globalValue: ["yaml"] } }
+    );
     assert.strictEqual(resolveDisabledLanguagesTarget(config), "global");
   });
 
@@ -796,17 +792,16 @@ suite("README 設定表との同期", () => {
   // 設定キーの過不足は機械的に照合できる（#280）。v1.0.0 の作業中に
   // disabledLanguages の行が 0.4.0 以来ずっと欠落していたのが見つかった。
   // 説明文の内容の鮮度（意味的なずれ）はここでは検証できない。
-  type ConfigProp = { markdownDeprecationMessage?: string };
-
-  function configProperties(): Record<string, ConfigProp> {
+  function configProperties(): ConfigProperties {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
-    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+    return ext.packageJSON?.contributes?.configuration?.properties ?? {};
   }
 
   function readmeContents(): { file: string; content: string }[] {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
-    const root = ext!.extensionPath;
+    assert.ok(ext, "拡張機能が読み込まれていること");
+    const root = ext.extensionPath;
     return ["README.md", "README.ja.md"].map((file) => ({
       file,
       content: fs.readFileSync(path.join(root, file), "utf8"),
@@ -823,6 +818,7 @@ suite("README 設定表との同期", () => {
     const props = configProperties();
     const readmes = readmeContents();
     for (const [key, prop] of Object.entries(props)) {
+      assert.ok(prop, `${key} の設定定義が存在すること`);
       if (prop.markdownDeprecationMessage) {
         continue;
       }
@@ -867,7 +863,7 @@ suite("README 言語一覧プロースとの同期", () => {
   function readmeContents(): { file: string; content: string }[] {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
-    const root = ext!.extensionPath;
+    const root = ext.extensionPath;
     return ["README.md", "README.ja.md"].map((file) => ({
       file,
       content: fs.readFileSync(path.join(root, file), "utf8"),
@@ -902,7 +898,7 @@ suite("README 言語一覧プロースとの同期", () => {
     for (const { file, content } of readmeContents()) {
       const line = languageListLine(content);
       assert.ok(line, `${file} に言語一覧プロースの行があること`);
-      const actual = [...new Set(languageIdsInLine(line!))].sort();
+      const actual = [...new Set(languageIdsInLine(line))].sort();
       assert.deepStrictEqual(
         actual,
         expected,
@@ -949,10 +945,10 @@ suite("package.json との既定値同期", () => {
   // extension.ts のコメント頼みの二重管理（DEFAULT_OPERATORS_BY_LANGUAGE /
   // DEFAULT_GHOST_CHAR / DEFAULT_GHOST_COLOR ⇔ package.json の default）が
   // 片方だけ更新されて食い違うと、設定 UI の表示と実効値が静かにずれる。
-  function configProperties(): Record<string, { type?: string; default?: unknown }> {
+  function configProperties(): ConfigProperties {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
-    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+    return ext.packageJSON?.contributes?.configuration?.properties ?? {};
   }
 
   test("operatorsByLanguage の既定値が DEFAULT_OPERATORS_BY_LANGUAGE と一致する", () => {
@@ -979,13 +975,13 @@ suite("package.json との既定値同期", () => {
   test("csv.alignNumbersRight が default false で boolean 型で登録されている", () => {
     const props = configProperties();
     assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.type, "boolean");
-    assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"]?.default, false);
+    assert.strictEqual(props["ghostAlign.csv.alignNumbersRight"].default, false);
   });
 
   test("shortenUrls が default true で boolean 型で登録されている", () => {
     const props = configProperties();
     assert.strictEqual(props["ghostAlign.shortenUrls"]?.type, "boolean");
-    assert.strictEqual(props["ghostAlign.shortenUrls"]?.default, true);
+    assert.strictEqual(props["ghostAlign.shortenUrls"].default, true);
   });
 
   test("廃止された ghostCharacter が contributes.configuration に存在しない", () => {
@@ -1025,10 +1021,7 @@ suite("package.json との既定値同期", () => {
   });
 
   test("旧 alignJsdocParams に新キーへ誘導する deprecation メッセージが付いている", () => {
-    const props = configProperties() as Record<
-      string,
-      { markdownDeprecationMessage?: string }
-    >;
+    const props = configProperties();
     const message =
       props["ghostAlign.alignJsdocParams"]?.markdownDeprecationMessage;
     assert.ok(message && message.includes("ghostAlign.jsdoc.enabled"));
@@ -1042,7 +1035,7 @@ suite("docs/features/reference.md との同期", () => {
   function featuresContent(): string {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
-    const root = ext!.extensionPath;
+    const root = ext.extensionPath;
     return fs.readFileSync(
       path.join(root, "docs", "features", "reference.md"),
       "utf8"
@@ -1052,14 +1045,14 @@ suite("docs/features/reference.md との同期", () => {
   function configProperties(): Record<string, unknown> {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
-    return ext!.packageJSON?.contributes?.configuration?.properties ?? {};
+    return ext.packageJSON?.contributes?.configuration?.properties ?? {};
   }
 
   function commandIds(): string[] {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
     const commands: { command: string }[] =
-      ext!.packageJSON?.contributes?.commands ?? [];
+      ext.packageJSON?.contributes?.commands ?? [];
     return commands.map((c) => c.command);
   }
 

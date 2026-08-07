@@ -2513,7 +2513,7 @@ suite("LineScanCheckpointCache", () => {
         (i) => commentSpanningLines[i],
         "typescript"
       );
-      assert.deepStrictEqual(actual, expected, `target=${target}`);
+      assert.deepStrictEqual(actual, expected, `target=${String(target)}`);
     }
   });
 

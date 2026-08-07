@@ -3,6 +3,44 @@ import * as vscode from "vscode";
 import { resolveInitialEnabled, statusBarText, debounce, activate } from "../../extension";
 import { wait, mockState, mockEditor } from "./testHelpers";
 
+type Restorer = () => void;
+
+function replacePropertyDescriptor<O extends object>(
+  restorers: Restorer[],
+  obj: O,
+  key: keyof O,
+  descriptor: PropertyDescriptor
+): void {
+  const original = Object.getOwnPropertyDescriptor(obj, key);
+  Object.defineProperty(obj, key, descriptor);
+  restorers.push(() => {
+    if (original !== undefined) {
+      Object.defineProperty(obj, key, original);
+    } else {
+      Reflect.deleteProperty(obj, key);
+    }
+  });
+}
+
+function createPropertyStub(restorers: Restorer[]) {
+  return function stub<O extends object, K extends keyof O>(
+    obj: O,
+    key: K,
+    value: O[K]
+  ): void {
+    replacePropertyDescriptor(restorers, obj, key, {
+      configurable: true,
+      value,
+    });
+  };
+}
+
+function restoreProperties(restorers: Restorer[]): void {
+  for (const restore of restorers.reverse()) {
+    restore();
+  }
+}
+
 suite("debounce", () => {
   test("短時間の連続呼び出しは1回にまとめられる", async () => {
     let calls = 0;
@@ -60,7 +98,7 @@ suite("ghostAlign.copyAligned コマンド", () => {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
     const commands: { command: string; title: string }[] =
-      ext!.packageJSON?.contributes?.commands ?? [];
+      ext.packageJSON?.contributes?.commands ?? [];
     assert.ok(
       commands.some((c) => c.command === "ghostAlign.copyAligned"),
       "ghostAlign.copyAligned コマンドが package.json に存在すること"
@@ -71,11 +109,11 @@ suite("ghostAlign.copyAligned コマンド", () => {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
     const editorContextMenus: { command: string; group?: string; when?: string }[] =
-      ext!.packageJSON?.contributes?.menus?.["editor/context"] ?? [];
+      ext.packageJSON?.contributes?.menus?.["editor/context"] ?? [];
     const entry = editorContextMenus.find((m) => m.command === "ghostAlign.copyAligned");
     assert.ok(entry, "ghostAlign.copyAligned が editor/context メニューに存在すること");
-    assert.strictEqual(entry!.group, "9_cutcopypaste");
-    assert.strictEqual(entry!.when, "editorTextFocus");
+    assert.strictEqual(entry.group, "9_cutcopypaste");
+    assert.strictEqual(entry.when, "editorTextFocus");
   });
 });
 
@@ -84,7 +122,7 @@ suite("ghostAlign.toggleLanguage コマンド", () => {
     const ext = vscode.extensions.getExtension("upu.ghost-align");
     assert.ok(ext, "拡張機能が読み込まれていること");
     const commands: { command: string; title: string }[] =
-      ext!.packageJSON?.contributes?.commands ?? [];
+      ext.packageJSON?.contributes?.commands ?? [];
     assert.ok(
       commands.some((c) => c.command === "ghostAlign.toggleLanguage"),
       "ghostAlign.toggleLanguage コマンドが package.json に存在すること"
@@ -179,20 +217,7 @@ suite("エディタの tabSize 変更時の再描画", () => {
     };
 
     const restorers: (() => void)[] = [];
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
 
     let optionsChangeCallback: (() => void) | undefined;
 
@@ -231,7 +256,7 @@ suite("エディタの tabSize 変更時の再描画", () => {
       );
       const callsBefore = calls.length;
 
-      optionsChangeCallback!();
+      optionsChangeCallback();
       await wait(200); // debounce (80ms) が発火するのを待つ
 
       assert.ok(
@@ -239,9 +264,7 @@ suite("エディタの tabSize 変更時の再描画", () => {
         "onDidChangeTextEditorOptions のコールバックで再デコレートが走ること"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 });
@@ -257,20 +280,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
       hide() {},
       dispose() {},
     };
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
     stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
     stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
     stub(vscode.window, "onDidChangeActiveTextEditor", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
@@ -295,20 +305,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
     (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
     (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
 
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
     stub(
       vscode.window,
       "onDidChangeTextEditorVisibleRanges",
@@ -333,7 +330,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
       const callsBeforeA = callsA.length;
       const callsBeforeB = callsB.length;
 
-      documentChangeCallback!({ document: editorA.document, contentChanges: [] });
+      documentChangeCallback({ document: editorA.document, contentChanges: [] });
       await wait(200); // debounce (80ms) が発火するのを待つ
 
       assert.ok(
@@ -346,9 +343,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
         "無関係なドキュメントを表示するエディタは再デコレートされないこと"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 
@@ -373,20 +368,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
     (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
     (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
 
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
     stub(vscode.window, "onDidChangeTextEditorVisibleRanges", ((cb: typeof visibleRangesCallback) => {
       visibleRangesCallback = cb;
       return { dispose() {} };
@@ -410,7 +392,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
       const callsBeforeA = callsA.length;
       const callsBeforeB = callsB.length;
 
-      visibleRangesCallback!({ textEditor: editorA });
+      visibleRangesCallback({ textEditor: editorA });
       await wait(200); // debounce (80ms) が発火するのを待つ
 
       assert.ok(
@@ -423,9 +405,7 @@ suite("再デコレート対象のスコープ限定 (#364)", () => {
         "スクロールしていない他の可視エディタは再デコレートされないこと"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 });
@@ -441,20 +421,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
       hide() {},
       dispose() {},
     };
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
     stub(vscode.window, "createStatusBarItem", (() => fakeStatusBarItem) as unknown as typeof vscode.window.createStatusBarItem);
     stub(vscode.commands, "registerCommand", (() => dummyDisposable) as unknown as typeof vscode.commands.registerCommand);
     stub(vscode.window, "onDidChangeActiveTextEditor", (() => dummyDisposable) as unknown as typeof vscode.window.onDidChangeActiveTextEditor);
@@ -481,20 +448,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
     (editorA.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
     (editorB.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
 
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
     stub(vscode.workspace, "onDidOpenTextDocument", ((cb: typeof openDocumentCallback) => {
       openDocumentCallback = cb;
       return { dispose() {} };
@@ -517,7 +471,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
       // 言語モード変更は同一ドキュメントに対して新しい languageId で
       // onDidOpenTextDocument が発火する形で観測される。
       (editorA.document as unknown as { languageId: string }).languageId = "python";
-      openDocumentCallback!(editorA.document);
+      openDocumentCallback(editorA.document);
       await wait(200); // debounce (80ms) が発火するのを待つ
 
       assert.ok(
@@ -530,9 +484,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
         "無関係なドキュメントを表示するエディタは再デコレートされないこと"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 
@@ -549,40 +501,11 @@ suite("言語モード変更時の再デコレートとステータスバー更�
     const { editor } = mockEditor("plaintext", ["a: 1"]);
     (editor.document as unknown as { uri: { scheme: string } }).uri = { scheme: "file" };
 
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
 
-    const originalActiveEditorDescriptor = Object.getOwnPropertyDescriptor(
-      vscode.window,
-      "activeTextEditor"
-    );
-    Object.defineProperty(vscode.window, "activeTextEditor", {
+    replacePropertyDescriptor(restorers, vscode.window, "activeTextEditor", {
       configurable: true,
       get: () => editor,
-    });
-    restorers.push(() => {
-      if (originalActiveEditorDescriptor) {
-        Object.defineProperty(
-          vscode.window,
-          "activeTextEditor",
-          originalActiveEditorDescriptor
-        );
-      } else {
-        delete (vscode.window as unknown as { activeTextEditor?: unknown })
-          .activeTextEditor;
-      }
     });
 
     const fakeGhostAlignConfig = {
@@ -626,7 +549,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
       );
 
       (editor.document as unknown as { languageId: string }).languageId = "yaml";
-      openDocumentCallback!(editor.document);
+      openDocumentCallback(editor.document);
 
       assert.strictEqual(
         fakeStatusBarItem.text,
@@ -634,9 +557,7 @@ suite("言語モード変更時の再デコレートとステータスバー更�
         "disabledLanguages に該当する言語へ切り替えると即座に反映されること"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 });
@@ -654,20 +575,7 @@ suite("アクティブエディタ切替時のステータスバー追従 (#363)
     };
 
     const restorers: (() => void)[] = [];
-    function stub<O extends object, K extends keyof O>(obj: O, key: K, value: O[K]) {
-      const original = Object.getOwnPropertyDescriptor(obj, key);
-      Object.defineProperty(obj, key, {
-        configurable: true,
-        value,
-      });
-      restorers.push(() => {
-        if (original) {
-          Object.defineProperty(obj, key, original);
-        } else {
-          delete obj[key];
-        }
-      });
-    }
+    const stub = createPropertyStub(restorers);
 
     let activeEditorChangeCallback: (() => void) | undefined;
     let currentActiveEditor: vscode.TextEditor | undefined;
@@ -675,25 +583,9 @@ suite("アクティブエディタ切替時のステータスバー追従 (#363)
     const { editor: cssEditor } = mockEditor("css", ["a { color: red; }"]);
     const { editor: tsEditor } = mockEditor("typescript", ["a = 1"]);
 
-    const originalActiveEditorDescriptor = Object.getOwnPropertyDescriptor(
-      vscode.window,
-      "activeTextEditor"
-    );
-    Object.defineProperty(vscode.window, "activeTextEditor", {
+    replacePropertyDescriptor(restorers, vscode.window, "activeTextEditor", {
       configurable: true,
       get: () => currentActiveEditor,
-    });
-    restorers.push(() => {
-      if (originalActiveEditorDescriptor) {
-        Object.defineProperty(
-          vscode.window,
-          "activeTextEditor",
-          originalActiveEditorDescriptor
-        );
-      } else {
-        delete (vscode.window as unknown as { activeTextEditor?: unknown })
-          .activeTextEditor;
-      }
     });
 
     const fakeGhostAlignConfig = {
@@ -743,7 +635,7 @@ suite("アクティブエディタ切替時のステータスバー追従 (#363)
       );
 
       currentActiveEditor = cssEditor;
-      activeEditorChangeCallback!();
+      activeEditorChangeCallback();
       assert.strictEqual(
         fakeStatusBarItem.text,
         "Ghost Align: ON (css off)",
@@ -751,16 +643,14 @@ suite("アクティブエディタ切替時のステータスバー追従 (#363)
       );
 
       currentActiveEditor = tsEditor;
-      activeEditorChangeCallback!();
+      activeEditorChangeCallback();
       assert.strictEqual(
         fakeStatusBarItem.text,
         "Ghost Align: ON",
         "通常言語に戻すと言語名なし表示になること"
       );
     } finally {
-      for (const restore of restorers.reverse()) {
-        restore();
-      }
+      restoreProperties(restorers);
     }
   });
 });

@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { findOperatorTargets, DocScanState } from "../../finders";
+import type { GhostAlignConfig } from "../../config";
 
 export const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -38,17 +39,29 @@ export function mockDocument(lines: string[]) {
   } as any;
 }
 
+type MockConfigInspection = {
+  globalValue?: any;
+  workspaceValue?: any;
+};
+
 // vscode.WorkspaceConfiguration の最小限モック。values に入っているキーは
 // 「ユーザーが明示設定した」扱いで、inspect からは globalValue として見える。
-export function mockConfig(values: Record<string, unknown>) {
-  return {
+export function mockConfig(
+  values: Record<string, unknown>,
+  inspections: Record<string, MockConfigInspection> = {}
+): GhostAlignConfig {
+  const config: GhostAlignConfig = {
     get<T>(key: string, defaultValue: T): T {
       return (key in values ? values[key] : defaultValue) as T;
     },
-    inspect<T>(key: string): { globalValue?: T } | undefined {
-      return key in values ? { globalValue: values[key] as T } : {};
+    inspect(key: string) {
+      if (key in inspections) {
+        return inspections[key];
+      }
+      return key in values ? { globalValue: values[key] } : {};
     },
   };
+  return config;
 }
 
 // vscode.Memento (globalState) の最小限モック
