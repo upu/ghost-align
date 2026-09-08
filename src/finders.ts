@@ -1452,6 +1452,46 @@ function isRealAssignmentAt(lineText: string, index: number): boolean {
 }
 
 /**
+ * One code character's effect on {@link isFollowedByRealAssignment}'s forward
+ * scan: either the scan continues at some bracket depth, or it is done — a
+ * real `=` was found, or the scan hit a `;`, or it left the scope it started
+ * in without seeing one.
+ */
+type AssignmentLookahead =
+  | { kind: "continue"; depth: number }
+  | { kind: "done"; found: boolean };
+
+function advanceAssignmentLookahead(
+  lineText: string,
+  index: number,
+  ch: string,
+  depth: number,
+  targetDepth: number
+): AssignmentLookahead {
+  const nextDepth = nextDelimiterDepth(
+    ch,
+    depth,
+    ALL_BRACKET_OPENERS,
+    ALL_BRACKET_CLOSERS
+  );
+  if (nextDepth !== null) {
+    // dropping below targetDepth exits the scope the scan started in
+    return nextDepth < targetDepth
+      ? { kind: "done", found: false }
+      : { kind: "continue", depth: nextDepth };
+  }
+  if (depth !== targetDepth) {
+    return { kind: "continue", depth };
+  }
+  if (ch === ";") {
+    return { kind: "done", found: false }; // statement ended before a `=`
+  }
+  return ch === "=" && isRealAssignmentAt(lineText, index)
+    ? { kind: "done", found: true }
+    : { kind: "continue", depth };
+}
+
+/**
  * Whether a real assignment `=` (or a compound assignment like `+=`, but not
  * `==`/`!=`/`<=`/`>=`/`=>`) is reached while scanning forward from
  * `fromIndex`, before either a `;` or the end of the line is hit at
@@ -1481,30 +1521,35 @@ function isFollowedByRealAssignment(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    const nextDepth = nextDelimiterDepth(
-      ch,
-      depth,
-      ALL_BRACKET_OPENERS,
-      ALL_BRACKET_CLOSERS
-    );
-    if (nextDepth !== null) {
-      depth = nextDepth;
-      if (depth < targetDepth) {
-        return false; // exited the enclosing scope without finding a real `=`
-      }
-      continue;
+    const verdict = advanceAssignmentLookahead(lineText, i, ch, depth, targetDepth);
+    if (verdict.kind === "done") {
+      return verdict.found;
     }
-    if (depth !== targetDepth) {
-      continue;
-    }
-    if (ch === ";") {
-      return false; // statement ended before a `=` was found
-    }
-    if (ch === "=" && isRealAssignmentAt(lineText, i)) {
-      return true;
-    }
+    depth = verdict.depth;
   }
   return false; // reached end of line without finding a `=`
+}
+
+/**
+ * Pops the bracket that `ch` closes and, when it closes a `{` whose `}` is
+ * followed by a real assignment, records that group's `[open, close]` range as
+ * a destructuring-default pattern.
+ */
+function recordPatternRange(
+  lineText: string,
+  index: number,
+  ch: string,
+  stack: Array<{ ch: string; index: number }>,
+  ranges: Array<[number, number]>,
+  opts: CodeScanOptions
+): void {
+  const top = stack.pop();
+  if (top === undefined || ch !== "}" || top.ch !== "{") {
+    return;
+  }
+  if (isFollowedByRealAssignment(lineText, index + 1, stack.length, opts)) {
+    ranges.push([top.index, index]);
+  }
 }
 
 /**
@@ -1549,19 +1594,10 @@ function findDestructuringPatternRanges(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch === "{" || ch === "(" || ch === "[") {
+    if (ALL_BRACKET_OPENERS.has(ch)) {
       stack.push({ ch, index: i });
-      continue;
-    }
-    if (ch === "}" || ch === ")" || ch === "]") {
-      const top = stack.pop();
-      if (top === undefined || ch !== "}" || top.ch !== "{") {
-        continue;
-      }
-      if (isFollowedByRealAssignment(lineText, i + 1, stack.length, opts)) {
-        ranges.push([top.index, i]);
-      }
-      continue;
+    } else if (ALL_BRACKET_CLOSERS.has(ch)) {
+      recordPatternRange(lineText, i, ch, stack, ranges, opts);
     }
   }
   return ranges;
@@ -1660,6 +1696,64 @@ function advanceGenericAngle(
 }
 
 /**
+ * One code character's effect on {@link scanGenericTypeArgListEnd}'s scan:
+ * `reject` when the character proves expression context, `close` when it is
+ * the `>` ending the list, otherwise the depths and resume index to continue
+ * with.
+ */
+type GenericScanStep =
+  | { kind: "reject" }
+  | { kind: "close" }
+  | {
+      kind: "continue";
+      angleDepth: number;
+      bracketDepth: number;
+      nextIndex: number;
+    };
+
+function advanceGenericScan(
+  lineText: string,
+  index: number,
+  ch: string,
+  angleDepth: number,
+  bracketDepth: number
+): GenericScanStep {
+  const bracketStep = advanceGenericBracket(ch, bracketDepth);
+  if (bracketStep.kind === "reject") {
+    return { kind: "reject" }; // closes a bracket opened before the `<`
+  }
+  if (bracketStep.kind === "depth") {
+    return {
+      kind: "continue",
+      angleDepth,
+      bracketDepth: bracketStep.depth,
+      nextIndex: index,
+    };
+  }
+  if (isGenericArrowAt(lineText, index, ch)) {
+    // `=>` / `->` arrow: its `>` doesn't close the list, so skip both chars
+    return { kind: "continue", angleDepth, bracketDepth, nextIndex: index + 1 };
+  }
+  if (bracketDepth > 0) {
+    // nested (...)/[...]/{...} content is opaque
+    return { kind: "continue", angleDepth, bracketDepth, nextIndex: index };
+  }
+  const angleStep = advanceGenericAngle(lineText, index, ch, angleDepth);
+  if (angleStep.kind === "reject") {
+    return { kind: "reject" };
+  }
+  if (angleStep.kind === "close") {
+    return { kind: "close" };
+  }
+  return {
+    kind: "continue",
+    angleDepth: angleStep.kind === "depth" ? angleStep.depth : angleDepth,
+    bracketDepth,
+    nextIndex: index,
+  };
+}
+
+/**
  * Index of the `>` closing a generic/template type-argument list whose `<`
  * sits just before `from`, or -1 when the span until the end of the line
  * doesn't look like a type-argument list after all. Tracks nested `<...>`
@@ -1700,33 +1794,65 @@ function scanGenericTypeArgListEnd(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    const bracketStep = advanceGenericBracket(ch, bracketDepth);
-    if (bracketStep.kind === "reject") {
-      return -1; // closes a bracket opened before the `<`: expression context
-    }
-    if (bracketStep.kind === "depth") {
-      bracketDepth = bracketStep.depth;
-      continue;
-    }
-    if (isGenericArrowAt(lineText, i, ch)) {
-      i++; // `=>` / `->` arrow: its `>` doesn't close the list
-      continue;
-    }
-    if (bracketDepth > 0) {
-      continue; // nested (...)/[...]/{...} content is opaque
-    }
-    const angleStep = advanceGenericAngle(lineText, i, ch, angleDepth);
-    if (angleStep.kind === "reject") {
+    const scan = advanceGenericScan(lineText, i, ch, angleDepth, bracketDepth);
+    if (scan.kind === "reject") {
       return -1;
     }
-    if (angleStep.kind === "close") {
+    if (scan.kind === "close") {
       return i;
     }
-    if (angleStep.kind === "depth") {
-      angleDepth = angleStep.depth;
-    }
+    angleDepth = scan.angleDepth;
+    bracketDepth = scan.bracketDepth;
+    i = scan.nextIndex;
   }
   return -1; // reached end of line with the list still open
+}
+
+/**
+ * Whether the `<` at `index` can open a type-argument list: it must directly
+ * follow an identifier character (`Result<`, `Map<`) or, in C++, the
+ * `template` keyword with optional whitespace.
+ */
+function opensGenericTypeArgList(
+  lineText: string,
+  index: number,
+  languageId: string
+): boolean {
+  const prev = lineText.charAt(index - 1);
+  if (prev !== "" && IDENT_CHAR.test(prev)) {
+    return true;
+  }
+  return (
+    languageId === "cpp" &&
+    TEMPLATE_KEYWORD_BEFORE_ANGLE_RE.test(lineText.slice(0, index))
+  );
+}
+
+/**
+ * Handles the `<` at `index`: records its `[open, close]` range when it opens
+ * a type-argument list that closes on this line, and returns the index to
+ * resume scanning from.
+ */
+function recordGenericTypeArgList(
+  lineText: string,
+  index: number,
+  opts: CodeScanOptions,
+  languageId: string,
+  ranges: Array<[number, number]>
+): number {
+  const next = lineText[index + 1];
+  if (next === "<" || next === "=") {
+    return index + 1; // `<<`/`<<=` shift or `<=` comparison, never a type list
+  }
+  if (!opensGenericTypeArgList(lineText, index, languageId)) {
+    return index;
+  }
+  const close = scanGenericTypeArgListEnd(lineText, index + 1, opts);
+  if (close === -1) {
+    return index;
+  }
+  ranges.push([index, close]);
+  return close; // resume after the validated list
 }
 
 /**
@@ -1764,25 +1890,8 @@ function findGenericTypeArgListRanges(
       i = step.nextIndex - 1; // loop's i++ advances to nextIndex
       continue;
     }
-    if (ch !== "<") {
-      continue;
-    }
-    if (lineText[i + 1] === "<" || lineText[i + 1] === "=") {
-      i++; // `<<`/`<<=` shift or `<=` comparison, never a type-argument list
-      continue;
-    }
-    const prev = lineText.charAt(i - 1);
-    const afterIdentifier = prev !== "" && /[A-Za-z0-9_$]/.test(prev);
-    const afterTemplateKeyword =
-      languageId === "cpp" &&
-      TEMPLATE_KEYWORD_BEFORE_ANGLE_RE.test(lineText.slice(0, i));
-    if (!afterIdentifier && !afterTemplateKeyword) {
-      continue;
-    }
-    const close = scanGenericTypeArgListEnd(lineText, i + 1, opts);
-    if (close !== -1) {
-      ranges.push([i, close]);
-      i = close; // resume after the validated list
+    if (ch === "<") {
+      i = recordGenericTypeArgList(lineText, i, opts, languageId, ranges);
     }
   }
   return ranges;
@@ -1818,16 +1927,29 @@ function hasInvalidAssignmentNeighbor(
   );
 }
 
+/**
+ * Insert position for a shift compound assignment (`<<=`, `>>=`, `>>>=`),
+ * whose ghost padding goes before the whole operator. `null` when the `<`/`>`
+ * before the `=` is not doubled — a `<=`/`>=` comparison, not an assignment.
+ */
+function shiftAssignmentInsert(
+  lineText: string,
+  index: number,
+  prev: string
+): number | null {
+  if (lineText[index - 2] !== prev) {
+    return null;
+  }
+  return prev === ">" && lineText[index - 3] === ">" ? index - 3 : index - 2;
+}
+
 function compoundAssignmentInsert(
   lineText: string,
   index: number,
   prev: string | undefined
 ): number | null {
   if (prev === "<" || prev === ">") {
-    if (lineText[index - 2] !== prev) {
-      return null;
-    }
-    return prev === ">" && lineText[index - 3] === ">" ? index - 3 : index - 2;
+    return shiftAssignmentInsert(lineText, index, prev);
   }
   if (prev === ".") {
     return lineText[index - 2] === "." ? null : index - 1;
@@ -1896,6 +2018,27 @@ function assignmentCandidateAt(
 }
 
 /**
+ * Records the `=` at `index` when it is a real, top-level assignment target:
+ * a `=` nested inside brackets, or any other character, is not one.
+ */
+function pushAssignmentCandidate(
+  lineText: string,
+  index: number,
+  ch: string,
+  depth: number,
+  exclusions: AssignmentExclusionRanges,
+  results: OperatorTarget[]
+): void {
+  if (depth !== 0 || ch !== "=") {
+    return;
+  }
+  const target = assignmentCandidateAt(lineText, index, exclusions);
+  if (target !== null) {
+    results.push(target);
+  }
+}
+
+/**
  * All assignment `=` targets on a line, in order. Excludes:
  *   - any `=` inside `(...)` or `[...]` (e.g. `for (let i = 0; ...)` or
  *     default arguments `function f(a = 1)`)
@@ -1952,13 +2095,7 @@ export function findAssignmentEquals(
       depth = nextDepth;
       continue;
     }
-    if (depth !== 0 || ch !== "=") {
-      continue;
-    }
-    const target = assignmentCandidateAt(lineText, i, exclusions);
-    if (target !== null) {
-      results.push(target);
-    }
+    pushAssignmentCandidate(lineText, i, ch, depth, exclusions, results);
   }
   return results;
 }
