@@ -1,6 +1,7 @@
 // @ts-check
 import js from "@eslint/js";
 import tseslint from "typescript-eslint";
+import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 
 export default tseslint.config(
@@ -33,8 +34,14 @@ export default tseslint.config(
     // Project rules shared by production and test TypeScript. This block comes
     // after both presets so the intentional unused-argument convention wins.
     files: ["src/**/*.ts"],
+    plugins: { sonarjs },
     rules: {
       "complexity": ["error", 15],
+      // `complexity` counts branches; cognitive complexity weighs how deeply
+      // they nest, so the two catch different kinds of hard-to-read code.
+      // Warn for now: the existing violations are being worked off file by
+      // file, and this becomes "error" once the count reaches zero (#468).
+      "sonarjs/cognitive-complexity": ["warn", 10],
       "max-depth": ["error", 3],
       // src/finders.ts intentionally embeds U+200B between `*` and `/` inside
       // JSDoc examples of `/* ... */` so the example text doesn't prematurely
