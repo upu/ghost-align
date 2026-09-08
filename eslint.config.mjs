@@ -39,9 +39,7 @@ export default tseslint.config(
       "complexity": ["error", 15],
       // `complexity` counts branches; cognitive complexity weighs how deeply
       // they nest, so the two catch different kinds of hard-to-read code.
-      // Warn for now: the existing violations are being worked off file by
-      // file, and this becomes "error" once the count reaches zero (#468).
-      "sonarjs/cognitive-complexity": ["warn", 10],
+      "sonarjs/cognitive-complexity": ["error", 10],
       "max-depth": ["error", 3],
       // src/finders.ts intentionally embeds U+200B between `*` and `/` inside
       // JSDoc examples of `/* ... */` so the example text doesn't prematurely
