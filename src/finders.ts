@@ -504,6 +504,29 @@ function advanceTsBraceStack(
   return true;
 }
 
+/**
+ * The code-character half of {@link nextTsBraceState}'s scan: the switch
+ * condition's parens, the brace stack, and the pending-switch-brace pattern
+ * that any other code character breaks.
+ */
+function advanceTsBraceCode(
+  lineText: string,
+  index: number,
+  ch: string,
+  stack: TsBraceState,
+  switchState: TsSwitchScanState
+): void {
+  if (advanceTsSwitchParen(lineText, index, ch, switchState)) {
+    return;
+  }
+  if (advanceTsBraceStack(ch, stack, switchState)) {
+    return;
+  }
+  if (ch !== " " && ch !== "\t") {
+    switchState.awaitingBrace = false;
+  }
+}
+
 export function nextTsBraceState(lineText: string, state: TsBraceState): TsBraceState {
   const stack = state.slice();
   const quoteState = initialQuoteState();
@@ -518,15 +541,7 @@ export function nextTsBraceState(lineText: string, state: TsBraceState): TsBrace
       i = step.nextIndex - 1;
       continue;
     }
-    if (advanceTsSwitchParen(lineText, i, ch, switchState)) {
-      continue;
-    }
-    if (advanceTsBraceStack(ch, stack, switchState)) {
-      continue;
-    }
-    if (ch !== " " && ch !== "\t") {
-      switchState.awaitingBrace = false; // any other code character breaks a pending switch-brace pattern
-    }
+    advanceTsBraceCode(lineText, i, ch, stack, switchState);
   }
   return stack;
 }
@@ -536,6 +551,44 @@ interface TsColonScanState {
   ternaryDepths: number[];
   depth: number;
   pendingLabelColon: boolean;
+}
+
+/**
+ * The `?` branch of {@link advanceTsColonCode}: an optional-property `?:`
+ * (whose `:` is a target), `?.` / `??` (neither is), or a ternary opening at
+ * the current depth. Returns the index to resume from.
+ */
+function advanceTsQuestionMark(
+  lineText: string,
+  index: number,
+  state: TsColonScanState
+): number {
+  const next = lineText[index + 1];
+  if (next === ":") {
+    state.results.push(index + 1);
+    return index + 1;
+  }
+  if (next === "." || next === "?") {
+    return index + 1;
+  }
+  state.ternaryDepths.push(state.depth);
+  return index;
+}
+
+/**
+ * The `:` branch of {@link advanceTsColonCode}: closes the innermost ternary
+ * opened at this depth, consumes a pending `case`/`default` label colon, or
+ * records a real target.
+ */
+function recordTsColon(state: TsColonScanState, index: number): void {
+  const ternaryDepth = state.ternaryDepths[state.ternaryDepths.length - 1];
+  if (ternaryDepth === state.depth) {
+    state.ternaryDepths.pop();
+  } else if (state.pendingLabelColon && state.depth === 0) {
+    state.pendingLabelColon = false;
+  } else {
+    state.results.push(index);
+  }
 }
 
 function advanceTsColonCode(
@@ -549,65 +602,67 @@ function advanceTsColonCode(
   } else if (ch === ")" || ch === "]" || ch === "}") {
     state.depth = Math.max(0, state.depth - 1);
   } else if (ch === "?") {
-    const next = lineText[index + 1];
-    if (next === ":") {
-      state.results.push(index + 1);
-      return index + 1;
-    }
-    if (next === "." || next === "?") {
-      return index + 1;
-    }
-    state.ternaryDepths.push(state.depth);
+    return advanceTsQuestionMark(lineText, index, state);
   } else if (ch === ":") {
-    const ternaryDepth = state.ternaryDepths[state.ternaryDepths.length - 1];
-    if (ternaryDepth === state.depth) {
-      state.ternaryDepths.pop();
-    } else if (state.pendingLabelColon && state.depth === 0) {
-      state.pendingLabelColon = false;
-    } else {
-      state.results.push(index);
-    }
+    recordTsColon(state, index);
   }
   return index;
 }
 
-function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
-  const quoteState = initialQuoteState();
+/**
+ * Whether `lineText` opens a `case ...:` / `default:` label, whose `:` is a
+ * statement separator rather than a target. `tsBraceTop === "other"` means the
+ * innermost open brace cannot be a switch body, which settles it outright
+ * (#345); otherwise the two label shapes are matched on the trimmed line.
+ */
+function startsSwitchLabel(lineText: string, tsBraceTop?: TsBraceKind): boolean {
+  if (tsBraceTop === "other") {
+    return false;
+  }
   const trimmed = lineText.trimStart();
-  const notInSwitchBody = tsBraceTop === "other";
   const looksLikeCaseLabel =
-    !notInSwitchBody &&
-    CASE_LABEL_RE.test(trimmed) &&
-    !CASE_PROPERTY_COLON_RE.test(trimmed);
+    CASE_LABEL_RE.test(trimmed) && !CASE_PROPERTY_COLON_RE.test(trimmed);
   const looksLikeDefaultLabel =
-    !notInSwitchBody &&
     DEFAULT_LABEL_RE.test(trimmed) &&
     !stripTrailingCommentForLabelCheck(trimmed).endsWith(",");
+  return looksLikeCaseLabel || looksLikeDefaultLabel;
+}
+
+/**
+ * {@link advanceTsBraceLexical} plus regex literals: a `/` that opens one must
+ * have its contents skipped rather than scanned for colons (#425).
+ */
+function advanceTsColonLexical(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState
+): CodeScanStep {
+  const step = advanceTsBraceLexical(lineText, index, ch, quoteState);
+  if (step.kind !== "code" || ch !== "/") {
+    return step;
+  }
+  const regexEnd = jsRegexLiteralEnd(lineText, index);
+  return regexEnd === -1 ? step : { kind: "skip", nextIndex: regexEnd };
+}
+
+function findTsColon(lineText: string, tsBraceTop?: TsBraceKind): number[] {
+  const quoteState = initialQuoteState();
   const state: TsColonScanState = {
     results: [],
     ternaryDepths: [],
     depth: 0,
-    pendingLabelColon: looksLikeCaseLabel || looksLikeDefaultLabel,
+    pendingLabelColon: startsSwitchLabel(lineText, tsBraceTop),
   };
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, { cStyle: true });
-    if (comment === "break") {
+    const step = advanceTsColonLexical(lineText, i, ch, quoteState);
+    if (step.kind === "stop") {
       break; // comment to the end of the line
     }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1;
       continue;
-    }
-    if (ch === "/") {
-      const regexEnd = jsRegexLiteralEnd(lineText, i);
-      if (regexEnd !== -1) {
-        i = regexEnd - 1; // loop's i++ advances past the literal (#425)
-        continue;
-      }
     }
     i = advanceTsColonCode(lineText, i, ch, state);
   }
@@ -662,6 +717,79 @@ function isCssSelectorColon(
  * multi-line selector continuation such as `.foo:hover,` is not (no block has
  * opened yet), so its `:` is excluded like any other selector pseudo-class.
  */
+/** Nesting depth of `(...)` during a CSS scan, e.g. to skip over `url(...)`. */
+interface CssParenState {
+  depth: number;
+}
+
+/**
+ * Tracks `(...)` nesting for {@link findCssColon}. Returns true when `ch` was
+ * consumed — either as a paren itself, or as any character inside one, whose
+ * colons never separate a declaration.
+ */
+function advanceCssParen(ch: string, state: CssParenState): boolean {
+  if (ch === "(") {
+    state.depth++;
+    return true;
+  }
+  if (ch === ")") {
+    state.depth = Math.max(0, state.depth - 1);
+    return true;
+  }
+  return state.depth !== 0;
+}
+
+/**
+ * Lexical step for {@link findCssColon}: strings, `(...)`, and comments —
+ * `//` only for {@link SCSS_LESS_LANGUAGES}, since plain CSS has no
+ * line-comment syntax and a `//` in a CSS value is not one.
+ */
+function advanceCssLexical(
+  lineText: string,
+  index: number,
+  ch: string,
+  quoteState: QuoteState,
+  parenState: CssParenState,
+  languageId: string
+): CodeScanStep {
+  if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+    return { kind: "skip", nextIndex: index + 1 };
+  }
+  if (advanceCssParen(ch, parenState)) {
+    return { kind: "skip", nextIndex: index + 1 };
+  }
+  const comment = advanceCommentState(lineText, index, ch, {
+    cStyle: true,
+    cStyleLineComment: SCSS_LESS_LANGUAGES.has(languageId),
+  });
+  if (comment === "break") {
+    return { kind: "stop" };
+  }
+  return comment === false
+    ? { kind: "code" }
+    : { kind: "skip", nextIndex: comment + 1 };
+}
+
+/**
+ * Records the `:` at `index` when it separates a declaration, and returns the
+ * index to resume from — one past a pseudo-element `::`, otherwise `index`.
+ */
+function recordCssColon(
+  lineText: string,
+  index: number,
+  braceIndex: number,
+  insideBlock: boolean,
+  results: number[]
+): number {
+  if (lineText[index + 1] === ":") {
+    return index + 1; // pseudo-element `::`
+  }
+  if (!isCssSelectorColon(index, braceIndex, insideBlock)) {
+    results.push(index);
+  }
+  return index;
+}
+
 function findCssColon(
   lineText: string,
   languageId: string,
@@ -669,48 +797,28 @@ function findCssColon(
 ): number[] {
   const results: number[] = [];
   const braceIndex = indexOfTopLevelBrace(lineText);
-  const state = initialQuoteState();
-  let parenDepth = 0;
+  const quoteState = initialQuoteState();
+  const parenState: CssParenState = { depth: 0 };
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
-    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
-      continue;
-    }
-    if (ch === "(") {
-      parenDepth++;
-      continue;
-    }
-    if (ch === ")") {
-      if (parenDepth > 0) {
-        parenDepth--;
-      }
-      continue;
-    }
-    if (parenDepth !== 0) {
-      continue;
-    }
-    const comment = advanceCommentState(lineText, i, ch, {
-      cStyle: true,
-      cStyleLineComment: SCSS_LESS_LANGUAGES.has(languageId),
-    });
-    if (comment === "break") {
+    const step = advanceCssLexical(
+      lineText,
+      i,
+      ch,
+      quoteState,
+      parenState,
+      languageId
+    );
+    if (step.kind === "stop") {
       break; // comment to the end of the line
     }
-    if (comment !== false) {
-      i = comment; // loop's i++ advances past the closing `/`
+    if (step.kind === "skip") {
+      i = step.nextIndex - 1;
       continue;
     }
-    if (ch !== ":") {
-      continue;
+    if (ch === ":") {
+      i = recordCssColon(lineText, i, braceIndex, insideBlock, results);
     }
-    if (lineText[i + 1] === ":") {
-      i++; // pseudo-element `::`
-      continue;
-    }
-    if (isCssSelectorColon(i, braceIndex, insideBlock)) {
-      continue;
-    }
-    results.push(i);
   }
   return results;
 }
@@ -2141,6 +2249,25 @@ function classifyPythonColon(
 }
 
 /**
+ * Applies {@link classifyPythonColon}'s verdict for the `:` at `index`, and
+ * returns the index to resume from — one past a walrus `:=`, else `index`.
+ */
+function recordPythonColon(
+  lineText: string,
+  index: number,
+  state: PythonColonScanState
+): number {
+  const step = classifyPythonColon(lineText, index, state);
+  if (step.kind === "walrus") {
+    return index + 1; // walrus `:=`, not a colon target
+  }
+  if (step.kind === "target") {
+    state.results.push(index);
+  }
+  return index;
+}
+
+/**
  * Indices of all `:` on a Python line that are dict-literal keys or
  * type/parameter annotations (#412), excluding every other Python use of `:`:
  *
@@ -2212,14 +2339,8 @@ function findPythonColon(lineText: string): number[] {
     if (advancePythonBracketOrLambda(lineText, i, ch, state)) {
       continue;
     }
-    if (ch !== ":") {
-      continue;
-    }
-    const colonStep = classifyPythonColon(lineText, i, state);
-    if (colonStep.kind === "walrus") {
-      i++; // walrus `:=`, not a colon target
-    } else if (colonStep.kind === "target") {
-      state.results.push(i);
+    if (ch === ":") {
+      i = recordPythonColon(lineText, i, state);
     }
   }
   return state.results;
