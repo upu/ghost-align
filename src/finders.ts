@@ -3075,25 +3075,11 @@ function codeEndState(
 type DocScanResume = { index: number } | { state: DocScanState };
 
 function resumeDocScan(lineText: string, state: DocScanState): DocScanResume {
-  if (typeof state === "object") {
-    return isHeredocTerminatorLine(lineText, state.terminator)
-      ? { index: 0 }
-      : { state };
-  }
-  if (state === "blockComment") {
-    const close = lineText.indexOf("*/");
-    return close === -1 ? { state } : { index: close + 2 };
-  }
-  if (state === "template") {
-    const close = scanClosingQuote(lineText, 0, "`");
-    return close === -1 ? { state } : { index: close + 1 };
-  }
-  if (state === "pyTripleDouble" || state === "pyTripleSingle") {
-    const quoteChar = state === "pyTripleDouble" ? '"' : "'";
-    const close = scanClosingTripleQuote(lineText, 0, quoteChar);
-    return close === -1 ? { state } : { index: close + 1 };
-  }
-  return { index: 0 };
+  // Same question {@link skipToCodeStart} answers, in the shape this scan
+  // wants: a resume index, or the unchanged state when the line never leaves
+  // the construct it started inside.
+  const index = skipToCodeStart(lineText, state);
+  return index === null ? { state } : { index };
 }
 
 type LineDocTokenStep =
@@ -3254,6 +3240,55 @@ function advanceCStyleDocToken(
 }
 
 /**
+ * One character's effect on {@link advanceLineDocState}'s scan: the line ends
+ * in a new carried-over `state`, the rest of the line is a line comment
+ * (`endOfLine`), or the scan continues from `nextIndex` (the value assigned to
+ * the loop variable before its own `i++`).
+ */
+type LineDocStep =
+  | { kind: "state"; state: DocScanState }
+  | { kind: "endOfLine" }
+  | { kind: "continue"; nextIndex: number };
+
+function advanceLineDocChar(
+  lineText: string,
+  index: number,
+  ch: string,
+  quote: QuoteState,
+  quoteChars: ReadonlySet<string>,
+  opts: DocScanOptions
+): LineDocStep {
+  if (startsConfiguredLineComment(lineText, index, quote, opts.markers)) {
+    return { kind: "endOfLine" };
+  }
+  const tokenStep = advanceLineDocToken(
+    lineText,
+    index,
+    ch,
+    quote,
+    quoteChars,
+    opts
+  );
+  if (tokenStep.kind === "state") {
+    return { kind: "state", state: tokenStep.state };
+  }
+  if (tokenStep.kind === "skip") {
+    return { kind: "continue", nextIndex: tokenStep.nextIndex - 1 };
+  }
+  const cStyleStep = advanceCStyleDocToken(lineText, index, ch, opts.cStyle);
+  if (cStyleStep.kind === "lineComment") {
+    return { kind: "endOfLine" };
+  }
+  if (cStyleStep.kind === "state") {
+    return { kind: "state", state: cStyleStep.state };
+  }
+  return {
+    kind: "continue",
+    nextIndex: cStyleStep.kind === "skip" ? cStyleStep.nextIndex - 1 : index,
+  };
+}
+
+/**
  * The {@link DocScanState} that follows `lineText`, given the state it
  * started in. Mirrors the comment/quote handling the finders already do per
  * line, but carries an unterminated block comment, template literal, Python
@@ -3274,32 +3309,25 @@ function advanceLineDocState(
   if ("state" in resume) {
     return resume.state;
   }
-  let i = resume.index;
   const quote = initialQuoteState();
   const quoteChars = lineDocQuoteChars(opts);
-  for (; i < lineText.length; i++) {
-    const ch = lineText[i];
-    if (startsConfiguredLineComment(lineText, i, quote, opts.markers)) {
-      return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
+  for (let i = resume.index; i < lineText.length; i++) {
+    const step = advanceLineDocChar(
+      lineText,
+      i,
+      lineText[i],
+      quote,
+      quoteChars,
+      opts
+    );
+    if (step.kind === "state") {
+      return step.state;
     }
-    const tokenStep = advanceLineDocToken(lineText, i, ch, quote, quoteChars, opts);
-    if (tokenStep.kind === "state") {
-      return tokenStep.state;
+    if (step.kind === "endOfLine") {
+      // rest of the line is a line comment; nothing carries over
+      return codeEndState(lineText, opts.heredocLanguage);
     }
-    if (tokenStep.kind === "skip") {
-      i = tokenStep.nextIndex - 1;
-      continue;
-    }
-    const cStyleStep = advanceCStyleDocToken(lineText, i, ch, opts.cStyle);
-    if (cStyleStep.kind === "lineComment") {
-      return codeEndState(lineText, opts.heredocLanguage); // rest of the line is a line comment; nothing carries over
-    }
-    if (cStyleStep.kind === "state") {
-      return cStyleStep.state;
-    }
-    if (cStyleStep.kind === "skip") {
-      i = cStyleStep.nextIndex - 1;
-    }
+    i = step.nextIndex;
   }
   return codeEndState(lineText, opts.heredocLanguage);
 }
@@ -3514,6 +3542,11 @@ export class LineScanCheckpointCache {
  * literal/Python triple-quoted string/Ruby-PHP heredoc that doesn't close
  * on it.
  */
+/** `close + width` when a closing delimiter was found at `close`, else `null`. */
+function endAfterClose(close: number, width: number): number | null {
+  return close === -1 ? null : close + width;
+}
+
 function skipToCodeStart(lineText: string, state: DocScanState): number | null {
   if (state === "code") {
     return 0;
@@ -3522,16 +3555,13 @@ function skipToCodeStart(lineText: string, state: DocScanState): number | null {
     return isHeredocTerminatorLine(lineText, state.terminator) ? 0 : null;
   }
   if (state === "blockComment") {
-    const close = lineText.indexOf("*/");
-    return close === -1 ? null : close + 2;
+    return endAfterClose(lineText.indexOf("*/"), 2);
   }
   if (state === "template") {
-    const close = scanClosingQuote(lineText, 0, "`");
-    return close === -1 ? null : close + 1;
+    return endAfterClose(scanClosingQuote(lineText, 0, "`"), 1);
   }
   const quoteChar = state === "pyTripleDouble" ? '"' : "'";
-  const close = scanClosingTripleQuote(lineText, 0, quoteChar);
-  return close === -1 ? null : close + 1;
+  return endAfterClose(scanClosingTripleQuote(lineText, 0, quoteChar), 1);
 }
 
 /**
