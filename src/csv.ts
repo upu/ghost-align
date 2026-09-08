@@ -184,6 +184,47 @@ export function computeCsvLineMetrics(
 }
 
 /**
+ * The data rows of `rows`: every non-null row after the first one, which is
+ * treated as the header and excluded from the numeric-column judgment.
+ */
+function csvDataRows(
+  rows: Iterable<CsvLineMetrics | null | undefined>
+): CsvLineMetrics[] {
+  const dataRows: CsvLineMetrics[] = [];
+  let sawHeader = false;
+  for (const row of rows) {
+    if (!row) {
+      continue;
+    }
+    if (sawHeader) {
+      dataRows.push(row);
+    }
+    sawHeader = true;
+  }
+  return dataRows;
+}
+
+/**
+ * Whether every data row with a k-th cell has a numeric one, and at least one
+ * row contributes a k-th cell at all (a column nothing reaches is not numeric,
+ * matching the default left-aligned behavior when there is nothing to judge).
+ */
+function isNumericColumn(
+  dataRows: readonly CsvLineMetrics[],
+  k: number
+): boolean {
+  let sawData = false;
+  let allNumeric = true;
+  for (const row of dataRows) {
+    if (row.numeric.length > k) {
+      sawData = true;
+      allNumeric = allNumeric && row.numeric[k];
+    }
+  }
+  return sawData && allNumeric;
+}
+
+/**
  * Per-column "every data cell is numeric" flags for
  * ghostAlign.csv.alignNumbersRight: `numericColumns[k]` is true only when
  * every row that has a k-th cell (after the first participating row, treated
@@ -200,30 +241,11 @@ export function computeCsvLineMetrics(
 export function computeCsvNumericColumns(
   rows: Iterable<CsvLineMetrics | null | undefined>
 ): boolean[] {
-  const dataRows: CsvLineMetrics[] = [];
-  let sawHeader = false;
-  for (const row of rows) {
-    if (!row) {
-      continue;
-    }
-    if (!sawHeader) {
-      sawHeader = true;
-      continue;
-    }
-    dataRows.push(row);
-  }
+  const dataRows = csvDataRows(rows);
   const columnCount = dataRows.reduce((max, r) => Math.max(max, r.widths.length), 0);
   const numericColumns: boolean[] = [];
   for (let k = 0; k < columnCount; k++) {
-    let sawData = false;
-    let allNumeric = true;
-    for (const row of dataRows) {
-      if (row.numeric.length > k) {
-        sawData = true;
-        allNumeric = allNumeric && row.numeric[k];
-      }
-    }
-    numericColumns.push(sawData && allNumeric);
+    numericColumns.push(isNumericColumn(dataRows, k));
   }
   return numericColumns;
 }
@@ -232,6 +254,36 @@ export function computeCsvNumericColumns(
 function sparseValue<T>(values: readonly T[], index: number): T | undefined {
   const sparseValues: readonly (T | undefined)[] = values;
   return sparseValues[index];
+}
+
+/**
+ * Calls `visit` for every cell taking part in decimal alignment: one in a
+ * column {@link computeCsvNumericColumns} marked numeric, whose own row also
+ * parsed it as a number.
+ */
+function forEachDecimalCell(
+  rows: Iterable<CsvLineMetrics | null | undefined>,
+  numericColumns: readonly boolean[],
+  visit: (row: CsvLineMetrics, k: number) => void
+): void {
+  for (const row of rows) {
+    if (!row) {
+      continue;
+    }
+    for (let k = 0; k < row.numeric.length; k++) {
+      if (numericColumns[k] && row.numeric[k]) {
+        visit(row, k);
+      }
+    }
+  }
+}
+
+/** Raises `values[k]` to `candidate` when it is wider than what is there. */
+function raiseMax(values: number[], k: number, candidate: number): void {
+  const current = sparseValue(values, k);
+  if (current === undefined || candidate > current) {
+    values[k] = candidate;
+  }
 }
 
 /**
@@ -260,36 +312,16 @@ export function computeCsvDecimalWidths(
   numericColumns: readonly boolean[]
 ): { maxIntWidths: number[]; minTotalWidths: number[] } {
   const maxIntWidths: number[] = [];
-  for (const row of rows) {
-    if (!row) {
-      continue;
-    }
-    for (let k = 0; k < row.numeric.length; k++) {
-      if (!numericColumns[k] || !row.numeric[k]) {
-        continue;
-      }
-      const currentMax = sparseValue(maxIntWidths, k);
-      if (currentMax === undefined || row.intEndWidths[k] > currentMax) {
-        maxIntWidths[k] = row.intEndWidths[k];
-      }
-    }
-  }
+  forEachDecimalCell(rows, numericColumns, (row, k) => {
+    raiseMax(maxIntWidths, k, row.intEndWidths[k]);
+  });
+  // Second pass: the widest total needs the final maxIntWidths, so it cannot
+  // be folded into the first.
   const minTotalWidths: number[] = [];
-  for (const row of rows) {
-    if (!row) {
-      continue;
-    }
-    for (let k = 0; k < row.numeric.length; k++) {
-      if (!numericColumns[k] || !row.numeric[k]) {
-        continue;
-      }
-      const total = maxIntWidths[k] + (row.widths[k] - row.intEndWidths[k]);
-      const currentMin = sparseValue(minTotalWidths, k);
-      if (currentMin === undefined || total > currentMin) {
-        minTotalWidths[k] = total;
-      }
-    }
-  }
+  forEachDecimalCell(rows, numericColumns, (row, k) => {
+    const total = maxIntWidths[k] + (row.widths[k] - row.intEndWidths[k]);
+    raiseMax(minTotalWidths, k, total);
+  });
   return { maxIntWidths, minTotalWidths };
 }
 
@@ -307,10 +339,7 @@ export function computeCsvMaxWidths(
       continue;
     }
     for (let k = 0; k < row.widths.length; k++) {
-      const currentMax = sparseValue(max, k);
-      if (currentMax === undefined || row.widths[k] > currentMax) {
-        max[k] = row.widths[k];
-      }
+      raiseMax(max, k, row.widths[k]);
     }
   }
   return max;
