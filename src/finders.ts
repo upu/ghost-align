@@ -99,6 +99,20 @@ function assignmentQuoteChars(languageId: string | undefined): ReadonlySet<strin
 }
 
 /**
+ * Index just past the escape sequence whose backslash precedes `lineText[j]`
+ * — `\u{7FFF}` as well as the one-character forms — or -1 when the line ends
+ * mid-escape or a `\u{` is never closed.
+ */
+function rustEscapeEnd(lineText: string, j: number): number {
+  if (lineText.charAt(j) === "u" && lineText.charAt(j + 1) === "{") {
+    const close = lineText.indexOf("}", j + 2);
+    return close === -1 ? -1 : close + 1;
+  }
+  // one char after the backslash: n, t, ', \, 0, or a hex digit
+  return lineText.charAt(j) === "" ? -1 : j + 1;
+}
+
+/**
  * If `lineText[i]` (a `'`) opens a Rust char literal — `'x'`, `'\n'`, `'\''`,
  * `'\u{7FFF}'` — returns the index just past its closing `'`. Otherwise (a
  * lifetime like `'a` or `'static`) returns -1 so the caller leaves the `'`
@@ -110,16 +124,8 @@ function rustCharLiteralEnd(lineText: string, i: number): number {
     return -1;
   }
   if (lineText.charAt(j) === "\\") {
-    j++;
-    if (lineText.charAt(j) === "u" && lineText.charAt(j + 1) === "{") {
-      const close = lineText.indexOf("}", j + 2);
-      if (close === -1) {
-        return -1;
-      }
-      j = close + 1;
-    } else if (lineText.charAt(j) !== "") {
-      j++; // one char after the backslash: n, t, ', \, 0, or a hex digit
-    } else {
+    j = rustEscapeEnd(lineText, j + 1);
+    if (j === -1) {
       return -1;
     }
   } else {
@@ -174,6 +180,30 @@ function rustRawStringEnd(lineText: string, i: number): number {
 export type CommentAdvance = false | "break" | number;
 
 /**
+ * The C-style half of {@link advanceCommentState}: `//` to the end of the line
+ * when `lineComment` is set, and `/* ... *​/` closed on the same line or else
+ * running to the end of it. Returns `false` when `ch` opens neither.
+ */
+function advanceCStyleComment(
+  lineText: string,
+  i: number,
+  ch: string,
+  lineComment: boolean
+): CommentAdvance {
+  if (ch !== "/") {
+    return false;
+  }
+  if (lineComment && lineText[i + 1] === "/") {
+    return "break";
+  }
+  if (lineText[i + 1] !== "*") {
+    return false;
+  }
+  const close = lineText.indexOf("*/", i + 2);
+  return close === -1 ? "break" : close + 1;
+}
+
+/**
  * Shared comment-skipping step used by findColonOutsideString / findTsColon /
  * findCssColon / findAssignmentEquals / findArrow. Recognizes, in order:
  *   - a marker-based line comment (`opts.markers`, e.g. YAML's `#`), via
@@ -200,20 +230,10 @@ export function advanceCommentState(
   if (opts.markers && startsLineComment(lineText, i, opts.markers)) {
     return "break";
   }
-  if (opts.cStyle) {
-    if (
-      (opts.cStyleLineComment ?? true) &&
-      ch === "/" &&
-      lineText[i + 1] === "/"
-    ) {
-      return "break";
-    }
-    if (ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      return close === -1 ? "break" : close + 1;
-    }
+  if (!opts.cStyle) {
+    return false;
   }
-  return false;
+  return advanceCStyleComment(lineText, i, ch, opts.cStyleLineComment ?? true);
 }
 
 /** Language IDs whose `:` finder must skip C-style `//` / `/* ... *​/` comments. */
@@ -1002,11 +1022,36 @@ const REGEX_PRECEDING_KEYWORDS = new Set([
   "case", "do", "else", "yield", "await", "throw",
 ]);
 
-function regexMayStartAt(lineText: string, i: number): boolean {
-  let p = i - 1;
-  while (p >= 0 && (lineText[p] === " " || lineText[p] === "\t")) {
-    p--;
+/** Identifier characters, for the keyword scan in {@link regexMayStartAt}. */
+const IDENT_CHAR = /[A-Za-z0-9_$]/;
+
+/** Index of the last character at or before `p` that is not a space or tab, or -1. */
+function lastNonBlankIndex(lineText: string, p: number): number {
+  let j = p;
+  while (j >= 0 && (lineText[j] === " " || lineText[j] === "\t")) {
+    j--;
   }
+  return j;
+}
+
+/**
+ * True when the identifier ending at `p` is one of
+ * {@link REGEX_PRECEDING_KEYWORDS} as a whole word, not a property access
+ * (`obj.return` is a value, so a `/` after it is division).
+ */
+function endsWithRegexKeyword(lineText: string, p: number): boolean {
+  let start = p;
+  while (start > 0 && IDENT_CHAR.test(lineText[start - 1])) {
+    start--;
+  }
+  return (
+    REGEX_PRECEDING_KEYWORDS.has(lineText.slice(start, p + 1)) &&
+    lineText[start - 1] !== "."
+  );
+}
+
+function regexMayStartAt(lineText: string, i: number): boolean {
+  const p = lastNonBlankIndex(lineText, i - 1);
   if (p < 0) {
     return true;
   }
@@ -1020,17 +1065,41 @@ function regexMayStartAt(lineText: string, i: number): boolean {
   if (REGEX_PRECEDING_CHARS.has(prev)) {
     return true;
   }
-  if (!/[A-Za-z0-9_$]/.test(prev)) {
-    return false;
+  return IDENT_CHAR.test(prev) && endsWithRegexKeyword(lineText, p);
+}
+
+/**
+ * Index of the `/` closing the regex literal opened at `i`, or -1 when the
+ * line ends first. Tracks `\` escapes and `[...]` character classes, inside
+ * which an unescaped `/` does not close the literal.
+ */
+function jsRegexBodyEnd(lineText: string, i: number): number {
+  let inClass = false;
+  let escaped = false;
+  for (let j = i + 1; j < lineText.length; j++) {
+    const c = lineText[j];
+    if (escaped) {
+      escaped = false;
+    } else if (c === "\\") {
+      escaped = true;
+    } else if (inClass) {
+      inClass = c !== "]";
+    } else if (c === "[") {
+      inClass = true;
+    } else if (c === "/") {
+      return j;
+    }
   }
-  let start = p;
-  while (start > 0 && /[A-Za-z0-9_$]/.test(lineText[start - 1])) {
-    start--;
+  return -1;
+}
+
+/** Index just past the trailing flags (g, i, m, s, u, v, y, d) after `/` at `j`. */
+function jsRegexFlagsEnd(lineText: string, j: number): number {
+  let end = j + 1;
+  while (end < lineText.length && /[a-zA-Z]/.test(lineText[end])) {
+    end++;
   }
-  return (
-    REGEX_PRECEDING_KEYWORDS.has(lineText.slice(start, p + 1)) &&
-    lineText[start - 1] !== "."
-  );
+  return end;
 }
 
 /**
@@ -1063,37 +1132,9 @@ function jsRegexLiteralEnd(lineText: string, i: number): number {
   if (!regexMayStartAt(lineText, i)) {
     return -1;
   }
-  let inClass = false;
-  let escaped = false;
-  for (let j = i + 1; j < lineText.length; j++) {
-    const c = lineText[j];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (c === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (inClass) {
-      if (c === "]") {
-        inClass = false;
-      }
-      continue;
-    }
-    if (c === "[") {
-      inClass = true;
-      continue;
-    }
-    if (c === "/") {
-      let end = j + 1;
-      while (end < lineText.length && /[a-zA-Z]/.test(lineText[end])) {
-        end++; // trailing flags (g, i, m, s, u, v, y, d)
-      }
-      return end;
-    }
-  }
-  return -1; // no closing `/` on this line: regex literals cannot span lines
+  const close = jsRegexBodyEnd(lineText, i);
+  // no closing `/` on this line: regex literals cannot span lines
+  return close === -1 ? -1 : jsRegexFlagsEnd(lineText, close);
 }
 
 /**
