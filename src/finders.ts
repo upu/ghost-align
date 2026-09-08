@@ -1897,14 +1897,27 @@ function findGenericTypeArgListRanges(
   return ranges;
 }
 
+/**
+ * Whether a scan of `languageId` should also recognize C-style `//` and
+ * `/* ... *​/` comments: either the language has no line-comment markers of
+ * its own, or it is one that has both.
+ */
+function usesCStyleComments(
+  languageId: string | undefined,
+  markers: readonly string[] | undefined
+): boolean {
+  return (
+    markers === undefined ||
+    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId))
+  );
+}
+
 function assignmentScanOptions(languageId: string | undefined): CodeScanOptions {
   const markers = lineCommentMarkers(languageId);
   return {
     quoteChars: assignmentQuoteChars(languageId),
     markers,
-    cStyle:
-      markers === undefined ||
-      (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId)),
+    cStyle: usesCStyleComments(languageId, markers),
     lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
     digitSeparators:
       languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
@@ -2167,45 +2180,94 @@ function isUrlSchemeMarker(lineText: string, index: number, marker: string): boo
  *     or `;` actually mean in whatever language they're configured for
  *   - `//` inside a single-line `/* ... *​/` block (only for the `//` marker)
  */
+/**
+ * One character's effect on {@link findTrailingComment}'s scan: the trailing
+ * comment was `found` here, there is definitively `none` on this line, or the
+ * scan continues from `nextIndex` (the value assigned to the loop variable
+ * before its own `i++`) with `seenCode` carried forward.
+ */
+type TrailingCommentScan =
+  | { kind: "found"; index: number }
+  | { kind: "none" }
+  | { kind: "continue"; nextIndex: number; seenCode: boolean };
+
+/**
+ * Classifies a marker match at `index`. A marker with no code before it is a
+ * whole-line comment; a URL scheme (`http://`) and — for every marker but
+ * `//` — one not preceded by whitespace are not comments at all, so the scan
+ * resumes past them.
+ */
+function classifyTrailingCommentMarker(
+  lineText: string,
+  index: number,
+  marker: string,
+  seenCode: boolean
+): TrailingCommentScan {
+  if (!seenCode) {
+    return { kind: "none" }; // whole-line comment, not a trailing one
+  }
+  if (isUrlSchemeMarker(lineText, index, marker)) {
+    // URL scheme like http:// — skip both slashes and keep scanning
+    return { kind: "continue", nextIndex: index + marker.length - 1, seenCode };
+  }
+  if (marker === "//") {
+    return { kind: "found", index };
+  }
+  const prev = lineText[index - 1];
+  return prev === " " || prev === "\t"
+    ? { kind: "found", index }
+    // not preceded by whitespace: not a comment here
+    : { kind: "continue", nextIndex: index + marker.length - 1, seenCode };
+}
+
+function advanceTrailingCommentScan(
+  lineText: string,
+  index: number,
+  ch: string,
+  marker: string,
+  seenCode: boolean,
+  quoteState: QuoteState
+): TrailingCommentScan {
+  if (advanceQuoteState(quoteState, ch, TEMPLATE_QUOTE_CHARS)) {
+    return { kind: "continue", nextIndex: index, seenCode: true };
+  }
+  if (marker === "//" && ch === "/" && lineText[index + 1] === "*") {
+    const close = lineText.indexOf("*/", index + 2);
+    // an unclosed block comment swallows the rest of the line
+    return close === -1
+      ? { kind: "none" }
+      : { kind: "continue", nextIndex: close + 1, seenCode: true };
+  }
+  if (lineText.startsWith(marker, index)) {
+    return classifyTrailingCommentMarker(lineText, index, marker, seenCode);
+  }
+  return {
+    kind: "continue",
+    nextIndex: index,
+    seenCode: seenCode || (ch !== " " && ch !== "\t"),
+  };
+}
+
 function findTrailingComment(lineText: string, marker: string): number {
-  const state = initialQuoteState();
+  const quoteState = initialQuoteState();
   let seenCode = false;
   for (let i = 0; i < lineText.length; i++) {
-    const ch = lineText[i];
-    if (advanceQuoteState(state, ch, TEMPLATE_QUOTE_CHARS)) {
-      seenCode = true;
-      continue;
+    const step = advanceTrailingCommentScan(
+      lineText,
+      i,
+      lineText[i],
+      marker,
+      seenCode,
+      quoteState
+    );
+    if (step.kind === "found") {
+      return step.index;
     }
-    if (marker === "//" && ch === "/" && lineText[i + 1] === "*") {
-      const close = lineText.indexOf("*/", i + 2);
-      if (close === -1) {
-        return -1;
-      }
-      i = close + 1;
-      seenCode = true;
-      continue;
+    if (step.kind === "none") {
+      return -1;
     }
-    if (lineText.startsWith(marker, i)) {
-      if (!seenCode) {
-        return -1; // whole-line comment, not a trailing one
-      }
-      if (isUrlSchemeMarker(lineText, i, marker)) {
-        i += marker.length - 1; // URL scheme like http:// — skip both slashes and keep scanning
-        continue;
-      }
-      if (marker === "//") {
-        return i;
-      }
-      const prev = lineText[i - 1];
-      if (prev === " " || prev === "\t") {
-        return i;
-      }
-      i += marker.length - 1; // not preceded by whitespace: not a comment here
-      continue;
-    }
-    if (ch !== " " && ch !== "\t") {
-      seenCode = true;
-    }
+    seenCode = step.seenCode;
+    i = step.nextIndex;
   }
   return -1;
 }
@@ -2218,6 +2280,19 @@ function findTrailingComment(lineText: string, marker: string): number {
  * string literal.
  */
 export const LINE_CONTINUATION_OPERATOR = "\\";
+
+/**
+ * Index of the line's trailing `\` — its last non-whitespace character — or
+ * -1 when the line does not end in one. A `\` anywhere else is never a
+ * continuation marker, so it is excluded before any scanning happens.
+ */
+function trailingBackslashIndex(lineText: string): number {
+  let end = lineText.length;
+  while (end > 0 && (lineText[end - 1] === " " || lineText[end - 1] === "\t")) {
+    end--;
+  }
+  return end > 0 && lineText[end - 1] === "\\" ? end - 1 : -1;
+}
 
 /**
  * Index of a trailing line-continuation marker `\` — the last non-whitespace
@@ -2240,22 +2315,15 @@ function findLineContinuationMarker(
   lineText: string,
   languageId?: string
 ): number {
-  let end = lineText.length;
-  while (end > 0 && (lineText[end - 1] === " " || lineText[end - 1] === "\t")) {
-    end--;
-  }
-  if (end === 0 || lineText[end - 1] !== "\\") {
+  const idx = trailingBackslashIndex(lineText);
+  if (idx === -1) {
     return -1;
   }
-  const idx = end - 1;
   const markers = lineCommentMarkers(languageId);
-  const cStyle =
-    markers === undefined ||
-    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
   const opts: CodeScanOptions = {
     quoteChars: assignmentQuoteChars(languageId),
     markers,
-    cStyle,
+    cStyle: usesCStyleComments(languageId, markers),
     digitSeparators:
       languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
   };
@@ -2483,6 +2551,39 @@ function findPythonColon(lineText: string): number[] {
   return state.results;
 }
 
+/** Targets that insert and align at the same position, from bare indices. */
+function indicesToTargets(indices: number[]): OperatorTarget[] {
+  return indices.map((i) => ({ insert: i, align: i }));
+}
+
+/** A one-target result list, or `[]` when the finder returned -1 (no match). */
+function singleTargetAt(index: number): OperatorTarget[] {
+  return index === -1 ? [] : [{ insert: index, align: index }];
+}
+
+/**
+ * Indices of the alignable `:` on a line, dispatched to the finder for the
+ * language's own colon semantics: CSS declarations, TS/JS type annotations
+ * and object literals, Python annotations, or the plain JSON/YAML scan.
+ */
+function findColonIndices(
+  lineText: string,
+  languageId: string | undefined,
+  cssInsideBlock: boolean,
+  tsBraceTop: TsBraceKind | undefined
+): number[] {
+  if (languageId && CSS_LANGUAGES.has(languageId)) {
+    return findCssColon(lineText, languageId, cssInsideBlock);
+  }
+  if (languageId && TS_JS_LANGUAGES.has(languageId)) {
+    return findTsColon(lineText, tsBraceTop);
+  }
+  if (languageId === "python") {
+    return findPythonColon(lineText);
+  }
+  return findColonOutsideString(lineText, languageId);
+}
+
 /** All occurrences of a single operator token on a line, in order. */
 function findOccurrences(
   lineText: string,
@@ -2495,30 +2596,39 @@ function findOccurrences(
     return findAssignmentEquals(lineText, languageId);
   }
   if (op === ":") {
-    let indices: number[];
-    if (languageId && CSS_LANGUAGES.has(languageId)) {
-      indices = findCssColon(lineText, languageId, cssInsideBlock);
-    } else if (languageId && TS_JS_LANGUAGES.has(languageId)) {
-      indices = findTsColon(lineText, tsBraceTop);
-    } else if (languageId === "python") {
-      indices = findPythonColon(lineText);
-    } else {
-      indices = findColonOutsideString(lineText, languageId);
-    }
-    return indices.map((i) => ({ insert: i, align: i }));
+    return indicesToTargets(
+      findColonIndices(lineText, languageId, cssInsideBlock, tsBraceTop)
+    );
   }
   if (TRAILING_COMMENT_MARKERS.has(op)) {
-    const idx = findTrailingComment(lineText, op);
-    return idx === -1 ? [] : [{ insert: idx, align: idx }];
+    return singleTargetAt(findTrailingComment(lineText, op));
   }
   if (op === "=>") {
-    return findArrow(lineText, languageId).map((i) => ({ insert: i, align: i }));
+    return indicesToTargets(findArrow(lineText, languageId));
   }
   if (op === LINE_CONTINUATION_OPERATOR) {
-    const idx = findLineContinuationMarker(lineText, languageId);
-    return idx === -1 ? [] : [{ insert: idx, align: idx }];
+    return singleTargetAt(findLineContinuationMarker(lineText, languageId));
   }
   return findLiteralOccurrences(lineText, op, languageId);
+}
+
+/**
+ * {@link CodeScanOptions} for {@link findLiteralOccurrences}: the same
+ * string/comment/literal skipping {@link assignmentScanOptions} sets up,
+ * minus the JS regex handling that a literal token never needs.
+ */
+function literalScanOptions(languageId: string | undefined): CodeScanOptions {
+  const markers = lineCommentMarkers(languageId);
+  return {
+    quoteChars: assignmentQuoteChars(languageId),
+    markers,
+    cStyle: usesCStyleComments(languageId, markers),
+    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
+    digitSeparators:
+      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
+    pyTripleQuote:
+      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
+  };
 }
 
 /**
@@ -2544,20 +2654,7 @@ function findLiteralOccurrences(
   languageId?: string
 ): OperatorTarget[] {
   const results: OperatorTarget[] = [];
-  const markers = lineCommentMarkers(languageId);
-  const cStyle =
-    markers === undefined ||
-    (languageId !== undefined && C_STYLE_COMMENT_ALSO.has(languageId));
-  const opts: CodeScanOptions = {
-    quoteChars: assignmentQuoteChars(languageId),
-    markers,
-    cStyle,
-    lifetimeLang: languageId !== undefined && LIFETIME_LANGUAGES.has(languageId),
-    digitSeparators:
-      languageId !== undefined && DIGIT_SEPARATOR_LANGUAGES.has(languageId),
-    pyTripleQuote:
-      languageId !== undefined && TRIPLE_QUOTE_LANGUAGES.has(languageId),
-  };
+  const opts = literalScanOptions(languageId);
   const quoteState = initialQuoteState();
   for (let i = 0; i < lineText.length; i++) {
     const ch = lineText[i];
