@@ -13,6 +13,40 @@ import {
  * Spans don't cross lines, so an unmatched opening run is literal text, not
  * a span.
  */
+/** Index just past the run of backticks starting at `index`. */
+function backtickRunEnd(lineText: string, index: number): number {
+  let end = index;
+  while (lineText[end] === "`") {
+    end++;
+  }
+  return end;
+}
+
+/**
+ * Index of the run of exactly `runLength` backticks that closes a code span,
+ * searching from `from`, or -1 when the line has no such run. A longer or
+ * shorter run is content, so the search continues past it.
+ */
+function findClosingBacktickRun(
+  lineText: string,
+  from: number,
+  runLength: number
+): number {
+  let searchPos = from;
+  while (searchPos < lineText.length) {
+    if (lineText[searchPos] !== "`") {
+      searchPos++;
+      continue;
+    }
+    const closeEnd = backtickRunEnd(lineText, searchPos);
+    if (closeEnd - searchPos === runLength) {
+      return searchPos;
+    }
+    searchPos = closeEnd;
+  }
+  return -1;
+}
+
 function findCodeSpanRanges(lineText: string): [number, number][] {
   const ranges: [number, number][] = [];
   let i = 0;
@@ -21,30 +55,11 @@ function findCodeSpanRanges(lineText: string): [number, number][] {
       i++;
       continue;
     }
-    let runEnd = i;
-    while (lineText[runEnd] === "`") {
-      runEnd++;
-    }
+    const runEnd = backtickRunEnd(lineText, i);
     const runLength = runEnd - i;
-    let searchPos = runEnd;
-    let closeStart = -1;
-    while (searchPos < lineText.length) {
-      if (lineText[searchPos] !== "`") {
-        searchPos++;
-        continue;
-      }
-      let closeEnd = searchPos;
-      while (lineText[closeEnd] === "`") {
-        closeEnd++;
-      }
-      if (closeEnd - searchPos === runLength) {
-        closeStart = searchPos;
-        break;
-      }
-      searchPos = closeEnd;
-    }
+    const closeStart = findClosingBacktickRun(lineText, runEnd, runLength);
     if (closeStart === -1) {
-      i = runEnd;
+      i = runEnd; // unmatched opening run: literal text, not a span
       continue;
     }
     ranges.push([runEnd, closeStart]);
@@ -278,6 +293,48 @@ export function computeFenceStateBefore(
 }
 
 /**
+ * Whether a table starts at line `i`: a pipe-bearing header line, followed by
+ * a non-skipped delimiter row with the same cell count.
+ */
+function startsTable(
+  lines: string[],
+  i: number,
+  isSkipped: (index: number) => boolean
+): boolean {
+  if (findPipePositions(lines[i]).length === 0) {
+    return false;
+  }
+  if (i + 1 >= lines.length || isSkipped(i + 1)) {
+    return false;
+  }
+  return (
+    isDelimiterRow(lines[i + 1]) &&
+    splitTableCells(lines[i]).length === splitTableCells(lines[i + 1]).length
+  );
+}
+
+/**
+ * Index just past the last body row of the table whose header/delimiter pair
+ * starts at `i`. Body rows run until a skipped, blank, or pipe-less line.
+ */
+function tableBodyEnd(
+  lines: string[],
+  i: number,
+  isSkipped: (index: number) => boolean
+): number {
+  let j = i + 2;
+  while (
+    j < lines.length &&
+    !isSkipped(j) &&
+    lines[j].trim().length > 0 &&
+    findPipePositions(lines[j]).length > 0
+  ) {
+    j++;
+  }
+  return j;
+}
+
+/**
  * Detect GFM table blocks: a header row (containing `|`), a delimiter row with
  * the same cell count as the header (GFM rejects the pair otherwise; data rows
  * may differ), then data rows (non-blank, containing `|`). Returns each block
@@ -306,34 +363,13 @@ export function findMarkdownTables(
   const isSkipped = (index: number) => fenced[index] || indented[index];
   let i = 0;
   while (i < lines.length) {
-    if (isSkipped(i)) {
+    if (isSkipped(i) || !startsTable(lines, i, isSkipped)) {
       i++;
       continue;
     }
-    const isHeader = findPipePositions(lines[i]).length > 0;
-    if (
-      isHeader &&
-      i + 1 < lines.length &&
-      !isSkipped(i + 1) &&
-      isDelimiterRow(lines[i + 1]) &&
-      splitTableCells(lines[i]).length === splitTableCells(lines[i + 1]).length
-    ) {
-      const block = [i, i + 1];
-      let j = i + 2;
-      while (
-        j < lines.length &&
-        !isSkipped(j) &&
-        lines[j].trim().length > 0 &&
-        findPipePositions(lines[j]).length > 0
-      ) {
-        block.push(j);
-        j++;
-      }
-      tables.push(block);
-      i = j;
-    } else {
-      i++;
-    }
+    const end = tableBodyEnd(lines, i, isSkipped);
+    tables.push(Array.from({ length: end - i }, (_, k) => i + k));
+    i = end;
   }
   return tables;
 }
@@ -497,62 +533,112 @@ function computeTableColumnPlan(
  * build a full `lines` array indexed by absolute line number just to satisfy
  * this function.
  */
+/**
+ * Center alignment for one cell: floor of the padding goes before the cell's
+ * content and ceil before the `|`, so an odd remainder leans the content left
+ * of exact center (mirrors Python's `str.center`).
+ */
+function centeredCellPlacements(
+  row: TableRowMetrics,
+  segStart: number,
+  pipe: number,
+  padding: number
+): Placement[] {
+  const leftPad = Math.floor(padding / 2);
+  const rightPad = padding - leftPad;
+  const placements: Placement[] = [];
+  if (leftPad > 0) {
+    placements.push({
+      lineIndex: row.lineIndex,
+      character: cellContentStart(row.text, segStart, pipe),
+      padding: leftPad,
+    });
+  }
+  if (rightPad > 0) {
+    placements.push({
+      lineIndex: row.lineIndex,
+      character: pipe,
+      padding: rightPad,
+    });
+  }
+  return placements;
+}
+
+/**
+ * Where column `k`'s `padding` lands for one row: before the `|` (left, the
+ * default), at the cell's content start (right), or split across both
+ * (center). The delimiter row ignores `alignments` entirely — its `-` padding
+ * position is chosen by {@link delimiterCellInsertPos} so the ruled line keeps
+ * looking continuous.
+ */
+function cellPlacements(
+  row: TableRowMetrics,
+  k: number,
+  pipe: number,
+  padding: number,
+  isDelimiter: boolean,
+  alignments: readonly ColumnAlign[]
+): Placement[] {
+  const segStart = k === 0 ? 0 : row.pipes[k - 1] + 1;
+  if (isDelimiter && k > 0) {
+    return [
+      {
+        lineIndex: row.lineIndex,
+        character: delimiterCellInsertPos(row.text, segStart, pipe),
+        padding,
+        padChar: "-",
+      },
+    ];
+  }
+  if (!isDelimiter && alignments[k] === "right") {
+    return [
+      {
+        lineIndex: row.lineIndex,
+        character: cellContentStart(row.text, segStart, pipe),
+        padding,
+      },
+    ];
+  }
+  if (!isDelimiter && alignments[k] === "center") {
+    return centeredCellPlacements(row, segStart, pipe, padding);
+  }
+  return [{ lineIndex: row.lineIndex, character: pipe, padding }];
+}
+
+/** Placements aligning one row's cells to `plan`. */
+function placementsForRow(
+  row: TableRowMetrics,
+  plan: readonly (number | null)[],
+  alignments: readonly ColumnAlign[]
+): Placement[] {
+  const placements: Placement[] = [];
+  const isDelimiter = isDelimiterRow(row.text);
+  let pos = 0;
+  for (let k = 0; k < row.pipes.length; k++) {
+    const pipe = row.pipes[k];
+    const raw = pos + row.segWidths[k];
+    const target = k < plan.length ? plan[k] : undefined;
+    if (target === null || target === undefined) {
+      pos = raw + 1; // column skipped: continue from this row's real position
+      continue;
+    }
+    const padding = target - raw;
+    if (padding > 0) {
+      placements.push(
+        ...cellPlacements(row, k, pipe, padding, isDelimiter, alignments)
+      );
+    }
+    pos = target + 1;
+  }
+  return placements;
+}
+
 function placementsForTableRows(
   rows: readonly TableRowMetrics[],
   plan: readonly (number | null)[],
   alignments: readonly ColumnAlign[] = []
 ): Placement[] {
-  const placements: Placement[] = [];
-  for (const row of rows) {
-    const text = row.text;
-    const isDelimiter = isDelimiterRow(text);
-    let pos = 0;
-    row.pipes.forEach((pipe, k) => {
-      const raw = pos + row.segWidths[k];
-      const target = k < plan.length ? plan[k] : undefined;
-      if (target === null || target === undefined) {
-        pos = raw + 1;
-        return;
-      }
-      const padding = target - raw;
-      if (padding > 0) {
-        if (isDelimiter && k > 0) {
-          const segStart = row.pipes[k - 1] + 1;
-          placements.push({
-            lineIndex: row.lineIndex,
-            character: delimiterCellInsertPos(text, segStart, pipe),
-            padding,
-            padChar: "-",
-          });
-        } else if (!isDelimiter && alignments[k] === "right") {
-          const segStart = k === 0 ? 0 : row.pipes[k - 1] + 1;
-          placements.push({
-            lineIndex: row.lineIndex,
-            character: cellContentStart(text, segStart, pipe),
-            padding,
-          });
-        } else if (!isDelimiter && alignments[k] === "center") {
-          const segStart = k === 0 ? 0 : row.pipes[k - 1] + 1;
-          const leftPad = Math.floor(padding / 2);
-          const rightPad = padding - leftPad;
-          if (leftPad > 0) {
-            placements.push({
-              lineIndex: row.lineIndex,
-              character: cellContentStart(text, segStart, pipe),
-              padding: leftPad,
-            });
-          }
-          if (rightPad > 0) {
-            placements.push({ lineIndex: row.lineIndex, character: pipe, padding: rightPad });
-          }
-        } else {
-          placements.push({ lineIndex: row.lineIndex, character: pipe, padding });
-        }
-      }
-      pos = target + 1;
-    });
-  }
-  return placements;
+  return rows.flatMap((row) => placementsForRow(row, plan, alignments));
 }
 
 /**
