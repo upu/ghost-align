@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Raised the minimum supported VS Code version to 1.136.0 (from 1.125.0), to match the `@types/vscode` version this extension is now built against.
+
 ## [1.7.0] - 2026-07-22
 
 ### Added
